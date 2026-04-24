@@ -1,0 +1,199 @@
+<!-- login.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="./images/logo.png" type="image/png" />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <title>Login / Register - Rental Tracker</title>
+    <link rel="stylesheet" href="mainpage.css" />
+    <style>
+      /* Additional auth-specific styles */
+      .auth-container {
+        max-width: 400px;
+        margin: 100px auto;
+        background: var(--bg-secondary);
+        padding: 30px;
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-md);
+      }
+      .auth-container h2 {
+        margin-bottom: 20px;
+        color: var(--text-primary);
+      }
+      .auth-container input {
+        width: 100%;
+        margin-bottom: 15px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+      }
+      .auth-container button {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: none;
+        background: var(--gradient-primary);
+        color: white;
+        font-weight: bold;
+        cursor: pointer;
+        transition: 0.15s;
+      }
+      .auth-container button:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-glow);
+      }
+      .toggle-link {
+        text-align: center;
+        margin-top: 20px;
+        color: var(--accent-cyan);
+        cursor: pointer;
+      }
+      .toggle-link:hover {
+        text-decoration: underline;
+      }
+      .error-message {
+        color: var(--danger);
+        font-size: 0.8rem;
+        margin-top: -10px;
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="auth-container">
+      <!-- Login Form -->
+      <div id="login-form">
+        <h2>Login</h2>
+        <input type="email" id="login-email" placeholder="Email" />
+        <input type="password" id="login-password" placeholder="Password" />
+        <div id="login-error" class="error-message"></div>
+        <button id="login-btn">Login</button>
+        <div class="toggle-link" id="show-register">
+          Don't have an account? Register
+        </div>
+      </div>
+
+      <!-- Register Form (hidden initially) -->
+      <div id="register-form" style="display: none">
+        <h2>Register</h2>
+        <input type="text" id="reg-name" placeholder="Name" />
+        <input type="email" id="reg-email" placeholder="Email" />
+        <input type="password" id="reg-password" placeholder="Password" />
+        <div id="register-error" class="error-message"></div>
+        <button id="register-btn">Register</button>
+        <div class="toggle-link" id="show-login">
+          Already have an account? Login
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Toggle between forms
+      document.getElementById("show-register").addEventListener("click", () => {
+        document.getElementById("login-form").style.display = "none";
+        document.getElementById("register-form").style.display = "block";
+      });
+      document.getElementById("show-login").addEventListener("click", () => {
+        document.getElementById("register-form").style.display = "none";
+        document.getElementById("login-form").style.display = "block";
+      });
+
+      // Register
+      document
+        .getElementById("register-btn")
+        .addEventListener("click", async () => {
+          const name = document.getElementById("reg-name").value;
+          const email = document.getElementById("reg-email").value;
+          const password = document.getElementById("reg-password").value;
+          const errorDiv = document.getElementById("register-error");
+
+          if (!name.trim()) {
+            errorDiv.textContent = "Name is required.";
+            return;
+          }
+
+          if (!email || !password) {
+            errorDiv.textContent = "Email and password are required";
+            return;
+          }
+
+          try {
+            const res = await fetch("http://localhost:5000/auth/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name, email, password }),
+            });
+            if (res.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Account Created",
+                text: "Please login to continue.",
+                timer: 2000,
+                showConfirmButton: false,
+                background: "#1e293b",
+                color: "#f1f5f9",
+                iconColor: "#10b981",
+              });
+              // Switch to login form
+              document.getElementById("register-form").style.display = "none";
+              document.getElementById("login-form").style.display = "block";
+              errorDiv.textContent = "";
+            } else {
+              const data = await res.json();
+              errorDiv.textContent = data.message || "Registration failed";
+            }
+          } catch (err) {
+            errorDiv.textContent = "Network error";
+          }
+        });
+
+      // Login
+      document
+        .getElementById("login-btn")
+        .addEventListener("click", async () => {
+          const email = document.getElementById("login-email").value;
+          const password = document.getElementById("login-password").value;
+          const errorDiv = document.getElementById("login-error");
+
+          if (!email || !password) {
+            errorDiv.textContent = "Email and password are required";
+            return;
+          }
+
+          try {
+            const res = await fetch("http://localhost:5000/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              localStorage.setItem("token", data.token);
+              Swal.fire({
+                icon: "success",
+                title: "Welcome back!",
+                text: "Loading your dashboard...",
+                timer: 1500,
+                showConfirmButton: false,
+                background: "#1e293b",
+                color: "#f1f5f9",
+                iconColor: "#10b981",
+              }).then(() => {
+                window.location.href = "mainPage.html";
+              });
+            } else {
+              const data = await res.json();
+              errorDiv.textContent = data.message || "Login failed";
+            }
+          } catch (err) {
+            errorDiv.textContent = "Network error";
+          }
+        });
+    </script>
+  </body>
+</html>

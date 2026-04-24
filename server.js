@@ -15,6 +15,11 @@ app.use(cors());
 const path = require("path");
 // Serve static files from the current directory (where mainPage.html, login.html, etc. live)
 app.use(express.static(path.join(__dirname)));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "login.html"));
+});
+
 app.use("/tenants", tenantRoutes);
 app.use("/auth", authRoutes);
 

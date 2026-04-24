@@ -3657,25 +3657,6 @@ body.bulk-mode-active .due-date-cell {
     width: 10% !important;
   } /* Actions */
 }
-/* Hide Rent Amount column on mobile – using class for data and nth-child for header */
-@media (max-width: 768px) {
-  /* Hide the rent data cells */
-  .tenant-info .rent-cell {
-    display: none !important;
-  }
-  /* Hide the rent header (second h2 in the first row) */
-  .tenant-info:first-child h2:nth-of-type(2) {
-    display: none !important;
-  }
-}
-
-/* Hide Rent column on all mobile devices (≤768px) */
-@media (max-width: 768px) {
-  .tenant-info .rent-cell,
-  .tenant-info:first-child h2:nth-of-type(2) {
-    display: none !important;
-  }
-}
 
 /* ========================
    MOBILE LAYOUT FOR ≤480px (Rent column hidden, larger font)

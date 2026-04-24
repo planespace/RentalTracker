@@ -186,7 +186,7 @@
                 color: "#f1f5f9",
                 iconColor: "#10b981",
               }).then(() => {
-                window.location.href = "mainPage.html";
+                window.location.replace("mainPage.html");
               });
             } else {
               const data = await res.json();
@@ -196,6 +196,14 @@
             errorDiv.textContent = "Network error";
           }
         });
+    </script>
+    <script>
+      (function () {
+        const token = localStorage.getItem("token");
+        if (token) {
+          window.location.replace("mainPage.html");
+        }
+      })();
     </script>
   </body>
 </html>

@@ -6,7 +6,7 @@
 // ----- AUTH CHECK -----
 const loginToken = localStorage.getItem("token");
 if (!loginToken) {
-  window.location.href = "login.html";
+  window.location.replace("login.html");
 }
 
 // ----- GLOBAL VARIABLES -----
@@ -213,9 +213,9 @@ async function updateUserProfile(updates) {
 // ----- DARK TOAST MIXIN (with progress bar) -----
 const Toast = Swal.mixin({
   toast: true,
-  position: "top-end",
+  position: "bottom-end",
   showConfirmButton: false,
-  timer: 3000,
+  timer: 2000,
   timerProgressBar: true,
   background: "#1e293b",
   color: "#f1f5f9",
@@ -372,7 +372,7 @@ async function fetchGlobalSettings() {
   );
   if (response.status === 401) {
     localStorage.removeItem("token");
-    window.location.href = "login.html";
+    window.location.replace("login.html");
   }
   globalSettings = await response.json();
   return globalSettings;
@@ -416,7 +416,6 @@ async function fetchCurrentDate() {
 let showArchived = false;
 
 async function loadTenants() {
-  showGlobalLoader();
   const url = showArchived
     ? window.location.origin + "/tenants?archived=true"
     : window.location.origin + "/tenants";
@@ -443,9 +442,7 @@ async function loadTenants() {
     updateAllTimeStats(tenantArray);
     updateArchivedBadge();
     updateStatusBar();
-    hideGlobalLoader();
   } catch (err) {
-    hideGlobalLoader();
     showNetworkErrorModal(err.message);
   }
 }
@@ -663,7 +660,7 @@ function formatDate(isoString) {
   return isoString.split("T")[0];
 }
 function formatCurrency(amount) {
-  return `KSH ${amount.toLocaleString()}`;
+  return amount.toLocaleString();
 }
 
 function getCurrentMonth() {
@@ -2413,7 +2410,6 @@ function importTenantsFromCSV() {
           color: "#f1f5f9",
         });
         if (result.isConfirmed) {
-          showGlobalLoader();
           try {
             const response = await fetchWithTimeout(
               window.location.origin + "/tenants/import",
@@ -2427,7 +2423,7 @@ function importTenantsFromCSV() {
               }
             );
             const data = await response.json();
-            hideGlobalLoader();
+
             if (response.ok) {
               let msg = `Imported ${data.created} tenants.`;
               if (data.errors) msg += ` ${data.errors.length} skipped.`;
@@ -2440,7 +2436,6 @@ function importTenantsFromCSV() {
               });
             }
           } catch (err) {
-            hideGlobalLoader();
             Toast.fire({ icon: "error", title: err.message });
           }
         }

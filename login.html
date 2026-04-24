@@ -166,7 +166,7 @@
           }
 
           try {
-            const res = await fetch(window.location.origin + "/auth/login", {
+            const res = await fetch(window.location.origin + "/auth/register", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email, password }),

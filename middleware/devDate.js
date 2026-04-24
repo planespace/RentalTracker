@@ -1,9 +1,11 @@
 // middleware/devDate.js
-const mockdate = require("mockdate");
 
 function devDateMiddleware(req, res, next) {
-  // Only allow in non‑production environments
+  // In production, do nothing – not even require mockdate.
   if (process.env.NODE_ENV === "production") return next();
+
+  // Non‑production: load mockdate dynamically
+  const mockdate = require("mockdate");
 
   const devDateHeader = req.headers["x-dev-date"];
   if (devDateHeader) {
@@ -13,7 +15,6 @@ function devDateMiddleware(req, res, next) {
     }
   }
 
-  // Reset after the response finishes
   res.on("finish", () => {
     mockdate.reset();
   });

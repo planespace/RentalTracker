@@ -3628,14 +3628,6 @@ body.bulk-mode-active .due-date-cell {
   }
 }
 
-/* Hide Rent Amount column on mobile */
-@media (max-width: 768px) {
-  .tenant-info > :nth-child(2),
-  .tenant-info:first-child > :nth-child(2) {
-    display: none !important;
-  }
-}
-
 @media (max-width: 768px) {
   .tenant-info {
     grid-template-columns: 1.5fr 1fr 1fr 1fr 0.8fr !important;

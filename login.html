@@ -112,6 +112,8 @@
           const password = document.getElementById("reg-password").value;
           const errorDiv = document.getElementById("register-error");
 
+          errorDiv.textContent = "";
+
           if (!name.trim()) {
             errorDiv.textContent = "Name is required.";
             return;
@@ -123,7 +125,7 @@
           }
 
           try {
-            const res = await fetch(window.location.origin + "/auth/login", {
+            const res = await fetch(window.location.origin + "/auth/register", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name, email, password }),
@@ -166,7 +168,7 @@
           }
 
           try {
-            const res = await fetch(window.location.origin + "/auth/register", {
+            const res = await fetch(window.location.origin + "/auth/login", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email, password }),

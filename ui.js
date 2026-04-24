@@ -221,7 +221,7 @@ document
 
       let month = event.target.value;
       let response = await fetch(
-        `window.location.origin/tenants/payment-status/${month}`,
+        window.location.origin + `/tenants/payment-status/${month}`,
         {
           headers: {
             "Content-Type": "application/json",
@@ -433,7 +433,7 @@ document
           parseInt(document.getElementById("edit-due-day").value) ||
           tenant.dueDay;
         let response = await fetch(
-          `window.location.origin/tenants/${tenantId}`,
+          window.location.origin + `/tenants/${tenantId}`,
           {
             method: "PUT",
             headers: {

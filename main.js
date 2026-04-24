@@ -122,7 +122,7 @@ if (devModeActive) {
 
           // Trigger the backend sync to create the new month's payment record
           try {
-            await fetchWithTimeout("window.location.origin/tenants/sync", {
+            await fetchWithTimeout(window.location.origin + "/tenants/sync", {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -176,7 +176,7 @@ function showNetworkErrorModal(message) {
 async function fetchUserProfile() {
   try {
     const response = await fetchWithTimeout(
-      "window.location.origin/auth/profile",
+      window.location.origin + "/auth/profile",
       {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       }
@@ -191,7 +191,7 @@ async function fetchUserProfile() {
 
 async function updateUserProfile(updates) {
   const response = await fetchWithTimeout(
-    "window.location.origin/auth/profile",
+    window.location.origin + "/auth/profile",
     {
       method: "PATCH",
       headers: {
@@ -362,7 +362,7 @@ function setButtonLoading(button, isLoading) {
 // ----- GLOBAL SETTINGS HELPERS -----
 async function fetchGlobalSettings() {
   const response = await fetchWithTimeout(
-    "window.location.origin/tenants/settings",
+    window.location.origin + "/tenants/settings",
     {
       headers: {
         "Content-Type": "application/json",
@@ -384,7 +384,7 @@ async function updateGlobalSettingsOnServer(
   defaultDueDay
 ) {
   const response = await fetchWithTimeout(
-    "window.location.origin/tenants/settings",
+    window.location.origin + "/tenants/settings",
     {
       method: "PATCH",
       headers: {
@@ -404,7 +404,7 @@ async function updateGlobalSettingsOnServer(
 // ----- INITIAL LOAD -----
 async function fetchCurrentDate() {
   const response = await fetchWithTimeout(
-    "window.location.origin/tenants/current-date",
+    window.location.origin + "/tenants/current-date",
     {
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
     }
@@ -418,8 +418,8 @@ let showArchived = false;
 async function loadTenants() {
   showGlobalLoader();
   const url = showArchived
-    ? "window.location.origin/tenants?archived=true"
-    : "window.location.origin/tenants";
+    ? window.location.origin + "/tenants?archived=true"
+    : window.location.origin + "/tenants";
   try {
     let response = await fetchWithTimeout(url, {
       headers: {
@@ -1281,7 +1281,8 @@ async function showUtilitiesModal(tenantId) {
           setButtonLoading(btn, true);
           try {
             const response = await fetchWithTimeout(
-              `window.location.origin/tenants/${tenantId}/meter-reading/${id}`,
+              window.location.origin +
+                `/tenants/${tenantId}/meter-reading/${id}`,
               {
                 method: "PATCH",
                 headers: {
@@ -1320,7 +1321,8 @@ async function showUtilitiesModal(tenantId) {
           setButtonLoading(btn, true);
           try {
             const response = await fetchWithTimeout(
-              `window.location.origin/tenants/${tenantId}/meter-reading/${id}`,
+              window.location.origin +
+                `/tenants/${tenantId}/meter-reading/${id}`,
               {
                 method: "DELETE",
                 headers: {
@@ -1426,7 +1428,7 @@ function showGlobalSettingsModal() {
         setButtonLoading(e.target, true);
         try {
           const res = await fetchWithTimeout(
-            "window.location.origin/tenants/bulk-change-due-day",
+            window.location.origin + "/tenants/bulk-change-due-day",
             {
               method: "PATCH",
               headers: {
@@ -1573,7 +1575,7 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(e.target, true);
     try {
       await fetchWithTimeout(
-        `window.location.origin/tenants/${tenantId}/meter-reading`,
+        window.location.origin + `/tenants/${tenantId}/meter-reading`,
         {
           method: "PATCH",
           headers: {
@@ -1602,9 +1604,11 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.id === "modal-statement") {
     const token = localStorage.getItem("token");
-    const url = `window.location.origin/tenants/${
-      window.currentActionsTenantId
-    }/statement?token=${encodeURIComponent(token)}`;
+    const url =
+      window.location.origin +
+      `/tenants/${
+        window.currentActionsTenantId
+      }/statement?token=${encodeURIComponent(token)}`;
     window.open(url, "_blank");
   }
   if (e.target.id === "modal-payment-management") {
@@ -1629,7 +1633,7 @@ document.addEventListener("click", async (e) => {
       setButtonLoading(e.target, true);
       try {
         let response = await fetchWithTimeout(
-          `window.location.origin/tenants/${id}/archive`,
+          window.location.origin + `/tenants/${id}/archive`,
           {
             method: "PATCH",
             headers: {
@@ -1691,7 +1695,7 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(btn, true);
     try {
       let response = await fetchWithTimeout(
-        `window.location.origin/tenants/${tenantId}/payment-history`,
+        window.location.origin + `/tenants/${tenantId}/payment-history`,
         {
           method: "PATCH",
           headers: {
@@ -1831,7 +1835,8 @@ document.addEventListener("click", async (e) => {
         setButtonLoading(btn, true);
         try {
           let response = await fetchWithTimeout(
-            `window.location.origin/tenants/${tenantId}/payment-history/${entryId}`,
+            window.location.origin +
+              `/tenants/${tenantId}/payment-history/${entryId}`,
             {
               method: "PATCH",
               headers: {
@@ -1872,7 +1877,8 @@ document.addEventListener("click", async (e) => {
         setButtonLoading(btn, true);
         try {
           let response = await fetchWithTimeout(
-            `window.location.origin/tenants/${tenantId}/payment-history/${entryId}`,
+            window.location.origin +
+              `/tenants/${tenantId}/payment-history/${entryId}`,
             {
               method: "DELETE",
               headers: {
@@ -1940,7 +1946,7 @@ markSelectedBtn.addEventListener("click", async (event) => {
     });
     if (!result.isConfirmed) return;
     const response = await fetchWithTimeout(
-      "window.location.origin/tenants/bulk-mark-paid",
+      window.location.origin + "/tenants/bulk-mark-paid",
       {
         method: "PATCH",
         headers: {
@@ -2133,26 +2139,30 @@ tenantsInputs.addEventListener("click", async (event) => {
       const includeDeposit =
         document.getElementById("include-deposit-checkbox")?.checked || false;
       const rent = Number(rentAmount.value);
-      let response = await fetchWithTimeout("window.location.origin/tenants", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({
-          name: tenantName.value,
-          rent: rent,
-          entryDate: entryDateValue,
-          houseNumber: houseNumber.value,
-          phoneNumber: phoneNumber.value,
-          notes: tenantNotes.value,
-          dueDay: finalDueDay,
-          depositPeriod: includeDeposit
-            ? parseInt(document.getElementById("deposit-period-input").value) ||
-              1
-            : 1,
-        }),
-      });
+      let response = await fetchWithTimeout(
+        window.location.origin + "/tenants",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            name: tenantName.value,
+            rent: rent,
+            entryDate: entryDateValue,
+            houseNumber: houseNumber.value,
+            phoneNumber: phoneNumber.value,
+            notes: tenantNotes.value,
+            dueDay: finalDueDay,
+            depositPeriod: includeDeposit
+              ? parseInt(
+                  document.getElementById("deposit-period-input").value
+                ) || 1
+              : 1,
+          }),
+        }
+      );
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message);
@@ -2323,7 +2333,7 @@ document
           parseInt(document.getElementById("edit-due-day").value) ||
           tenant.dueDay;
         let response = await fetchWithTimeout(
-          `window.location.origin/tenants/${tenantId}`,
+          window.location.origin + `/tenants/${tenantId}`,
           {
             method: "PUT",
             headers: {
@@ -2406,7 +2416,7 @@ function importTenantsFromCSV() {
           showGlobalLoader();
           try {
             const response = await fetchWithTimeout(
-              "window.location.origin/tenants/import",
+              window.location.origin + "/tenants/import",
               {
                 method: "POST",
                 headers: {
@@ -2445,7 +2455,7 @@ function importTenantsFromCSV() {
 async function updateArchivedBadge() {
   try {
     const response = await fetchWithTimeout(
-      "window.location.origin/tenants/archived/count",
+      window.location.origin + "/tenants/archived/count",
       {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       }
@@ -2569,7 +2579,7 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
-        `window.location.origin/tenants/${tenantId}/restore`,
+        window.location.origin + `/tenants/${tenantId}/restore`,
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -2602,7 +2612,7 @@ document.addEventListener("click", async (e) => {
       setButtonLoading(btn, true);
       try {
         const response = await fetchWithTimeout(
-          `window.location.origin/tenants/${tenantId}/permanent`,
+          window.location.origin + `/tenants/${tenantId}/permanent`,
           {
             method: "DELETE",
             headers: {
@@ -2668,9 +2678,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (exportAllBtn) {
     exportAllBtn.addEventListener("click", () => {
       const token = localStorage.getItem("token");
-      const url = `window.location.origin/tenants/export/statement?type=all&token=${encodeURIComponent(
-        token
-      )}`;
+      const url =
+        window.location.origin +
+        `/tenants/export/statement?type=all&token=${encodeURIComponent(token)}`;
       window.open(url, "_blank");
       closeModal();
     });
@@ -2681,9 +2691,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (exportLateBtn) {
     exportLateBtn.addEventListener("click", () => {
       const token = localStorage.getItem("token");
-      const url = `window.location.origin/tenants/export/statement?type=late&token=${encodeURIComponent(
-        token
-      )}`;
+      const url =
+        window.location.origin +
+        `/tenants/export/statement?type=late&token=${encodeURIComponent(
+          token
+        )}`;
       window.open(url, "_blank");
       closeModal();
     });

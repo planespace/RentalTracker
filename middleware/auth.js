@@ -27,4 +27,4 @@ function authorize(req, res, next) {
   }
 }
 
-export { authorize };
+export default authorize;

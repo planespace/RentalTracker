@@ -22,4 +22,4 @@ function devDateMiddleware(req, res, next) {
   next();
 }
 
-export { devDateMiddleware };
+export default devDateMiddleware;

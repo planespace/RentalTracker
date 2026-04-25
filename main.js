@@ -38,6 +38,12 @@ function getAppToday() {
   return d;
 }
 
+let chartUpdateTimeout;
+function scheduleChartUpdate() {
+  clearTimeout(chartUpdateTimeout);
+  chartUpdateTimeout = setTimeout(updateCharts, 300);
+}
+
 function getAppTodayStr() {
   if (!currentAppDate) return new Date().toISOString().slice(0, 10);
   // currentAppDate comes from server as ISO string; extract date part
@@ -473,6 +479,16 @@ async function loadTenants() {
       return;
     }
     tenantArray = await response.json();
+
+    try {
+      tenantArray = await response.json();
+    } catch (jsonError) {
+      // If JSON fails, probably HTML login page – token expired
+      localStorage.removeItem("token");
+      window.location.replace("login.html");
+      return;
+    }
+
     await fetchCurrentDate();
     await fetchUserProfile();
     await fetchGlobalSettings();
@@ -826,47 +842,49 @@ function getTenantFirstMonth(tenant) {
   return null;
 }
 function updateTenantList(filteredList) {
-  let headerHtml = `<div class="tenant-info">`;
-  if (window.isBulkMode)
-    headerHtml += `<div class="checkbox-cell"><input type="checkbox" id="select-all-checkbox" title="Select all tenants"></div>`;
-  headerHtml += `<h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2></div>`;
-  tenantInfoDiv.innerHTML = headerHtml;
+  requestAnimationFrame(() => {
+    let headerHtml = `<div class="tenant-info">`;
+    if (window.isBulkMode)
+      headerHtml += `<div class="checkbox-cell"><input type="checkbox" id="select-all-checkbox" title="Select all tenants"></div>`;
+    headerHtml += `<h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2></div>`;
+    tenantInfoDiv.innerHTML = headerHtml;
 
-  filteredList.forEach((tenant) => {
-    let rowDiv = renderTenant(tenant);
+    filteredList.forEach((tenant) => {
+      let rowDiv = renderTenant(tenant);
+      if (window.isBulkMode) {
+        const checkboxCell = document.createElement("div");
+        checkboxCell.className = "checkbox-cell";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "tenant-select";
+        cb.dataset.id = tenant._id;
+        checkboxCell.appendChild(cb);
+        rowDiv.insertBefore(checkboxCell, rowDiv.firstChild);
+      }
+      tenantInfoDiv.appendChild(rowDiv);
+    });
+
     if (window.isBulkMode) {
-      const checkboxCell = document.createElement("div");
-      checkboxCell.className = "checkbox-cell";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.className = "tenant-select";
-      cb.dataset.id = tenant._id;
-      checkboxCell.appendChild(cb);
-      rowDiv.insertBefore(checkboxCell, rowDiv.firstChild);
+      const selectAll = document.getElementById("select-all-checkbox");
+      if (selectAll)
+        selectAll.addEventListener("change", (e) => {
+          document
+            .querySelectorAll(".tenant-select")
+            .forEach((cb) => (cb.checked = e.target.checked));
+        });
     }
-    tenantInfoDiv.appendChild(rowDiv);
-  });
-
-  if (window.isBulkMode) {
-    const selectAll = document.getElementById("select-all-checkbox");
-    if (selectAll)
-      selectAll.addEventListener("change", (e) => {
-        document
-          .querySelectorAll(".tenant-select")
-          .forEach((cb) => (cb.checked = e.target.checked));
-      });
-  }
-  updateStats(tenantArray);
-  if (filteredList.length === 0) {
-    tenantInfoDiv.innerHTML = `
+    updateStats(tenantArray);
+    if (filteredList.length === 0) {
+      tenantInfoDiv.innerHTML = `
     <div class="tenant-info">
       ${window.isBulkMode ? '<div class="checkbox-cell"></div>' : ""}
       <h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2>
     </div>
   `;
-    const nameInput = document.querySelector(".tenant-name");
-    if (nameInput) nameInput.focus();
-  }
+      const nameInput = document.querySelector(".tenant-name");
+      if (nameInput) nameInput.focus();
+    }
+  });
 }
 function updateStats(tenantArray) {
   document.querySelector(
@@ -1750,7 +1768,7 @@ document.addEventListener("click", async (e) => {
       if (response.ok) {
         await loadTenants();
         updateTenantList(tenantArray); // ← force re‑render of table
-        updateCharts(); // ← also refresh charts
+        scheduleChartUpdate();
         renderPaymentModal(tenantId);
         Toast.fire({ icon: "success", title: "Payment Recorded" });
       } else {

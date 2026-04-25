@@ -480,15 +480,6 @@ async function loadTenants() {
     }
     tenantArray = await response.json();
 
-    try {
-      tenantArray = await response.json();
-    } catch (jsonError) {
-      // If JSON fails, probably HTML login page – token expired
-      localStorage.removeItem("token");
-      window.location.replace("login.html");
-      return;
-    }
-
     await fetchCurrentDate();
     await fetchUserProfile();
     await fetchGlobalSettings();

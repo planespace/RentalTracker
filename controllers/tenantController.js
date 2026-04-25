@@ -1,18 +1,13 @@
 // ========================
 //   controllers/tenantController.js – FULLY FIXED
 // ========================
-import { Tenant } from "../models/Tenant";
-import Settings, { findById } from "../models/Settings"; // 👈 NEW GLOBAL SETTINGS MODEL
-import { findById as _findById } from "../models/User";
+import { Tenant } from "../models/Tenant.js";
+import Settings from "../models/Settings.js";
+import User from "../models/User.js";
 // ========================
 //   HELPER FUNCTIONS
 // ========================
-function getCorrectMonthFormat() {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
+
 async function syncAllTenantsToCurrentMonth() {
   const currentMonth = getCurrentMonthString();
   const allTenants = await Tenant.find({ active: true });
@@ -140,7 +135,7 @@ function getPreviousMonthString(monthString) {
 }
 
 async function getGlobalSettings(userId) {
-  let settings = await findById("global_" + userId);
+  let settings = await Settings.findById("global_" + userId);
   if (!settings) {
     settings = new Settings({
       _id: "global_" + userId,
@@ -964,7 +959,7 @@ async function getGlobalSettingsEndpoint(req, res) {
 async function updateGlobalSettings(req, res) {
   try {
     const { garbageFee, waterRatePerUnit, defaultDueDay } = req.body;
-    let settings = await findById("global_" + req.userId);
+    let settings = await Settings.findById("global_" + req.userId);
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
 
     if (garbageFee !== undefined) settings.garbageFee = garbageFee;
@@ -1134,7 +1129,7 @@ async function getTenantStatement(req, res) {
       _id: req.params.id,
       userId: req.userId,
     });
-    const User = require("../models/User");
+
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
@@ -1293,7 +1288,7 @@ function isTenantLate(tenant, currentMonth) {
 // ========================
 //   EXPORTS
 // ========================
-export default {
+export {
   getAllTenants,
   getTenantById,
   createTenant,

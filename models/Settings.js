@@ -1,5 +1,5 @@
 // models/settings.js
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const settingsSchema = new mongoose.Schema({
   _id: { type: String, default: "global" },
@@ -8,4 +8,5 @@ const settingsSchema = new mongoose.Schema({
   defaultDueDay: { type: Number, default: 1 },
 });
 
-module.exports = mongoose.model("Settings", settingsSchema);
+const Settings = mongoose.model("Settings", settingsSchema);
+export default Settings;

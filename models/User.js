@@ -1,8 +1,7 @@
 //models/User.js
-let mongoose = require("mongoose");
-const { register } = require("node:module");
+import mongoose from "mongoose";
 
-let userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true },
   password: { type: String, required: true },
@@ -10,6 +9,5 @@ let userSchema = new mongoose.Schema({
   landlordName: { type: String, default: "" },
 });
 
-let User = mongoose.model("User", userSchema);
-
-module.exports = User;
+const User = mongoose.model("User", userSchema);
+export default User;

@@ -1,16 +1,15 @@
 //routes/TenantRoutes.js
-const authMiddleware = require("../middleware/auth");
-const express = require("express");
+import authMiddleware from "../middleware/auth.js";
+import express from "express";
 const router = express.Router();
 router.use(authMiddleware);
 
-const {
+import {
   getAllTenants,
   getTenantById,
   createTenant,
   updateTenant,
   archiveTenant,
-
   updatePaymentHistory,
   getPaymentStatusByMonth,
   deletePaymentRecord,
@@ -31,7 +30,7 @@ const {
   getExportStatement,
   manualSync,
   bulkChangeDueDay,
-} = require("../controllers/tenantController").default;
+} from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
 router.get("/", getAllTenants);
@@ -66,4 +65,4 @@ router.patch("/:id/payment-history/:entryId", updatePaymentEntry);
 router.patch("/:id/meter-reading/:readingId", updateMeterReading);
 router.patch("/:id/meter-reading", addMeterReading);
 router.patch("/bulk-change-due-day", bulkChangeDueDay);
-module.exports = router;
+export default router;

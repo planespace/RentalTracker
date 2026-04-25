@@ -1,6 +1,6 @@
 // models/Tenant.js
 
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 function getCorrectMonthFormat() {
   const date = new Date();
@@ -58,6 +58,4 @@ const tenantSchema = new mongoose.Schema({
 
 let Tenant = mongoose.model("Tenant", tenantSchema);
 
-module.exports = {
-  Tenant,
-};
+export { Tenant };

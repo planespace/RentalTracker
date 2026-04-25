@@ -1,4 +1,4 @@
-//models/user.js
+//models/User.js
 let mongoose = require("mongoose");
 const { register } = require("node:module");
 

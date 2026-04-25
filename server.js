@@ -12,7 +12,10 @@ const devDateMiddleware = require("./middleware/devDate");
 app.use(devDateMiddleware);
 app.use(express.json());
 app.use(cors());
-const path = require("path");
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 // Serve static files from the current directory (where mainPage.html, login.html, etc. live)
 app.use(express.static(path.join(__dirname)));
 

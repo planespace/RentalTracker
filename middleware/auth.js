@@ -1,6 +1,6 @@
 //middleware/auth.js
 
-const jwt = require("jsonwebtoken");
+import jwt from "jsonwebtoken";
 
 function authorize(req, res, next) {
   try {
@@ -27,4 +27,4 @@ function authorize(req, res, next) {
   }
 }
 
-module.exports = authorize;
+export { authorize };

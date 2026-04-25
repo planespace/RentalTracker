@@ -56,6 +56,47 @@ function getAppTodayStr() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ----- Global top‑bar loader (shows on every fetch) -----
+(function () {
+  const bar = document.createElement("div");
+  bar.id = "top-loader";
+  bar.style.cssText = `
+    position: fixed; top:0; left:0; width:100%; height:3px; z-index:99999;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.4s ease;
+  `;
+  document.body.prepend(bar);
+
+  let active = 0;
+  const originalFetch = window.fetch;
+  window.fetch = function (...args) {
+    active++;
+    bar.style.transform = "scaleX(1)";
+    bar.style.opacity = "1";
+    const hide = () => {
+      active--;
+      if (active <= 0) {
+        active = 0;
+        bar.style.transform = "scaleX(0)";
+        setTimeout(() => {
+          bar.style.opacity = "0";
+        }, 400);
+      }
+    };
+    return originalFetch
+      .apply(this, args)
+      .then((res) => {
+        hide();
+        return res;
+      })
+      .catch((err) => {
+        hide();
+        throw err;
+      });
+  };
+})();
+
 // ----- FETCH WITH TIMEOUT (10 seconds) -----
 async function fetchWithTimeout(url, options = {}, timeout = 10000) {
   const controller = new AbortController();
@@ -2240,8 +2281,11 @@ document
 document
   .getElementById("sort-select")
   .addEventListener("change", applyFiltersAndSort);
-searchInput.addEventListener("input", applyFiltersAndSort);
-
+let searchTimeout;
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(applyFiltersAndSort, 200);
+});
 // ----- MONTH PICKER & SET MONTH -----
 document
   .querySelector(".tenants-div")

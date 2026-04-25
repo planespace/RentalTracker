@@ -1,5 +1,7 @@
 // middleware/devDate.js
 
+import mockdate from "mockdate";
+
 function devDateMiddleware(req, res, next) {
   // In production, only activate if the request contains the X-Dev-Date header
   // (the frontend only sends it when ?dev=true is in the URL).
@@ -7,7 +9,6 @@ function devDateMiddleware(req, res, next) {
   if (!devDateHeader) return next(); // no header → normal operation
 
   // Dev mode is requested – load mockdate dynamically
-  const mockdate = require("mockdate");
 
   const parsedDate = new Date(devDateHeader);
   if (!isNaN(parsedDate.getTime())) {
@@ -21,4 +22,4 @@ function devDateMiddleware(req, res, next) {
   next();
 }
 
-module.exports = devDateMiddleware;
+export { devDateMiddleware };

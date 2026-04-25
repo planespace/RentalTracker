@@ -4,9 +4,16 @@
 import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
+
 // ========================
 //   HELPER FUNCTIONS
 // ========================
+function getCorrectMonthFormat() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
 
 async function syncAllTenantsToCurrentMonth() {
   const currentMonth = getCurrentMonthString();
@@ -135,7 +142,7 @@ function getPreviousMonthString(monthString) {
 }
 
 async function getGlobalSettings(userId) {
-  let settings = await Settings.findById("global_" + userId);
+  let settings = await Settings.findById("global_" + userId); // ✅ FIXED
   if (!settings) {
     settings = new Settings({
       _id: "global_" + userId,
@@ -147,6 +154,7 @@ async function getGlobalSettings(userId) {
   }
   return settings;
 }
+
 function getPreviousMeterReading(tenant, targetMonth) {
   const sorted = [...tenant.waterMeterReadings].sort((a, b) =>
     a.month.localeCompare(b.month)
@@ -177,7 +185,7 @@ async function recalcFutureMonths(tenant, changedMonth) {
   let runningBalance = 0;
   let currentMonth = null;
   let monthIndex = 0;
-  const settings = await getGlobalSettings(tenant.userId); // 👈 GLOBAL SETTINGS
+  const settings = await getGlobalSettings(tenant.userId);
 
   for (let i = 0; i < allEntries.length; i++) {
     const entry = allEntries[i];
@@ -193,7 +201,8 @@ async function recalcFutureMonths(tenant, changedMonth) {
           depositExtra = Math.round(tenant.rent / depPeriod);
         }
       }
-      baseRent = tenant.rent + depositExtra;
+      // ✅ FIXED: declare baseRent with let
+      let baseRent = tenant.rent + depositExtra;
 
       monthIndex++;
 
@@ -212,7 +221,7 @@ async function recalcFutureMonths(tenant, changedMonth) {
         tenant.markModified("waterMeterReadings");
       }
 
-      const garbageCharge = settings.garbageFee; // 👈 GLOBAL
+      const garbageCharge = settings.garbageFee;
       const totalDue = baseRent + waterCharge + garbageCharge;
 
       const monthEntries = allEntries.filter((e) => e.month === month);
@@ -258,6 +267,7 @@ async function getAllTenants(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function restoreTenant(req, res) {
   try {
     const { id } = req.params;
@@ -294,7 +304,7 @@ async function getExportStatement(req, res) {
       tenants = tenants.filter((tenant) => isTenantLate(tenant, currentMonth));
     }
 
-    const user = await _findById(req.userId);
+    const user = await User.findById(req.userId); // ✅ FIXED
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
     // Sort tenants alphabetically for a clean report
@@ -675,8 +685,7 @@ async function createTenant(req, res) {
       }
     }
 
-    // ─────────────────────────────────────────────────────────
-    // Due date logic (unchanged)
+    // Due date logic
     const currentMonth = getCurrentMonthString();
     const targetMonth = currentMonth;
     let computedDueDate = getDueDateForMonth(dueDayNum, currentMonth);
@@ -704,7 +713,6 @@ async function createTenant(req, res) {
         }
       }
     }
-    // ─────────────────────────────────────────────────────────
 
     // Deposit logic
     const depPeriod = Number(depositPeriod) || 1; // default 1 month
@@ -749,6 +757,7 @@ async function createTenant(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function deletePaymentRecord(req, res) {
   try {
     const { id, entryId } = req.params;
@@ -810,7 +819,7 @@ async function updateTenant(req, res) {
       "houseNumber",
       "notes",
       "entryDate",
-      "dueDay", // ← changed from dueDate
+      "dueDay",
     ];
     allowedUpdates.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -830,8 +839,6 @@ async function updateTenant(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
-
-// ❌ REMOVED resetMonth – deprecated
 
 async function getPaymentStatusByMonth(req, res) {
   try {
@@ -894,9 +901,6 @@ async function setDeposit(req, res) {
   }
 }
 
-// ========================
-//   UTILITY ENDPOINTS
-// ========================
 async function addMeterReading(req, res) {
   try {
     const { id } = req.params;
@@ -905,7 +909,6 @@ async function addMeterReading(req, res) {
     const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
-    // Find the latest reading before the given month
     const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
       a.month.localeCompare(b.month)
     );
@@ -942,11 +945,6 @@ async function addMeterReading(req, res) {
   }
 }
 
-// ❌ REMOVED updateTenantUtilities – no longer needed
-
-// ========================
-//   GLOBAL SETTINGS ENDPOINTS
-// ========================
 async function getGlobalSettingsEndpoint(req, res) {
   try {
     const settings = await getGlobalSettings(req.userId);
@@ -959,7 +957,7 @@ async function getGlobalSettingsEndpoint(req, res) {
 async function updateGlobalSettings(req, res) {
   try {
     const { garbageFee, waterRatePerUnit, defaultDueDay } = req.body;
-    let settings = await Settings.findById("global_" + req.userId);
+    let settings = await Settings.findById("global_" + req.userId); // ✅ FIXED
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
 
     if (garbageFee !== undefined) settings.garbageFee = garbageFee;
@@ -969,10 +967,9 @@ async function updateGlobalSettings(req, res) {
 
     await settings.save();
 
-    // ---- Immediately update all active tenants with the new charges ----
+    // Immediately update all active tenants with the new charges
     const tenants = await Tenant.find({ userId: req.userId, active: true });
     for (let tenant of tenants) {
-      // Recalculate from the tenant's earliest month to current
       const earliestMonth =
         tenant.paymentHistory.length > 0
           ? tenant.paymentHistory.map((e) => e.month).sort()[0]
@@ -987,6 +984,7 @@ async function updateGlobalSettings(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function importTenants(req, res) {
   try {
     const { tenants } = req.body; // array of tenant objects
@@ -1026,7 +1024,7 @@ async function importTenants(req, res) {
         continue;
       }
 
-      // --- NEW: Extract dueDay from dueDate ---
+      // Extract dueDay from dueDate
       let dueDayNum = settings.defaultDueDay; // fallback to global default
       if (t.dueDate) {
         const parsedDueDate = new Date(t.dueDate);
@@ -1034,7 +1032,6 @@ async function importTenants(req, res) {
           dueDayNum = parsedDueDate.getDate(); // extract day (1-31)
         }
       }
-      // Ensure within valid range
       if (!dueDayNum || dueDayNum < 1 || dueDayNum > 31) {
         dueDayNum = settings.defaultDueDay || 1;
       }
@@ -1049,7 +1046,7 @@ async function importTenants(req, res) {
         houseNumber: t.houseNumber,
         notes: t.notes || "",
         entryDate,
-        dueDay: dueDayNum, // ← store dueDay, not dueDate
+        dueDay: dueDayNum,
         active: true,
         paymentHistory: [
           {
@@ -1062,7 +1059,7 @@ async function importTenants(req, res) {
             remainingBalance: rentNum + settings.garbageFee,
             paid: false,
             datePaid: null,
-            dueDate: getDueDateForMonth(dueDayNum, currentMonth), // compute for payment record
+            dueDate: getDueDateForMonth(dueDayNum, currentMonth),
             mpesaRef: "",
           },
         ],
@@ -1081,6 +1078,7 @@ async function importTenants(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function getArchivedCount(req, res) {
   try {
     const count = await Tenant.countDocuments({
@@ -1108,7 +1106,6 @@ async function deleteMeterReading(req, res) {
     const readingMonth = tenant.waterMeterReadings[readingIndex].month;
     tenant.waterMeterReadings.splice(readingIndex, 1);
 
-    // Recalculate future months (water charge will be 0 for that month now)
     await recalcFutureMonths(tenant, readingMonth);
     tenant.markModified("waterMeterReadings");
     await tenant.save();
@@ -1118,6 +1115,7 @@ async function deleteMeterReading(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function manualSync(req, res) {
   await syncAllTenantsToCurrentMonth();
   res.json({ success: true, currentMonth: getCurrentMonthString() });
@@ -1129,13 +1127,11 @@ async function getTenantStatement(req, res) {
       _id: req.params.id,
       userId: req.userId,
     });
-
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.userId); // ✅ FIXED (no require)
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
-    // Sort all entries: month → datePaid (nulls last) → _id
     const allEntries = [...tenant.paymentHistory].sort((a, b) => {
       if (a.month !== b.month) return a.month.localeCompare(b.month);
       const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
@@ -1162,13 +1158,11 @@ async function getTenantStatement(req, res) {
     `;
 
     for (let entry of allEntries) {
-      // Determine if this month falls within the deposit period
       let depositNote = "";
       if (tenant.deposit) {
-        const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0]; // earliest month (e.g., "2026-04")
+        const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
         if (firstMonth) {
           const depPeriod = tenant.depositPeriod || 1;
-          // Calculate the last deposit month
           const [fy, fm] = firstMonth.split("-").map(Number);
           const endDate = new Date(fy, fm - 1 + depPeriod - 1, 1);
           const lastDepMonth = `${endDate.getFullYear()}-${String(
@@ -1180,7 +1174,6 @@ async function getTenantStatement(req, res) {
         }
       }
 
-      // Original charge entries always have amountPaid === 0
       const isOriginalCharge = (entry.amountPaid || 0) === 0;
 
       const rentDisplay = isOriginalCharge
@@ -1229,13 +1222,11 @@ async function bulkChangeDueDay(req, res) {
         .json({ message: "Due day must be between 1 and 31." });
     }
 
-    // Update all active tenants
     const tenants = await Tenant.find({ userId: req.userId, active: true });
     for (let tenant of tenants) {
       tenant.dueDay = day;
       await tenant.save();
 
-      // Recalculate from earliest month to current
       const earliestMonth =
         tenant.paymentHistory.length > 0
           ? tenant.paymentHistory.map((e) => e.month).sort()[0]

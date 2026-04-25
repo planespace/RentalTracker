@@ -4571,3 +4571,9 @@ body.bulk-mode-active .due-date-cell {
     flex: 0 0 38px !important;
   }
 }
+
+.charge-lock {
+  font-size: 0.9rem;
+  opacity: 0.6;
+  cursor: default;
+}

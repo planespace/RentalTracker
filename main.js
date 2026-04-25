@@ -507,21 +507,29 @@ function getLast6Months() {
   }
   return months.reverse();
 }
+
 function getOutstandingBalanceForMonths(months) {
+  const currentMonth = getCurrentMonth();
   return months.map((month) => {
     let totalOutstanding = 0;
     tenantArray.forEach((tenant) => {
+      const firstMonth = getTenantFirstMonth(tenant);
+      // Skip months before tenant existed or after current month
+      if (month < firstMonth || month > currentMonth) return;
+
       let record = tenant.paymentHistory.find((r) => r.month === month);
       if (record) {
         if (record.remainingBalance > 0)
           totalOutstanding += record.remainingBalance;
       } else {
+        // No record yet – tenant owes rent for this month
         totalOutstanding += tenant.rent;
       }
     });
     return totalOutstanding;
   });
 }
+
 function updateCharts() {
   // ---------- Donut chart (paid/unpaid tenants) ----------
   let paid = 0,
@@ -799,6 +807,49 @@ function getTenantFirstMonth(tenant) {
   }
   return null;
 }
+
+function getTenantBalance(tenant) {
+  // Mirrors the logic in renderTenant (ui.js) – active month, sum charges - paid
+  const today = getAppToday();
+  let activeMonth = null;
+  for (let entry of tenant.paymentHistory || []) {
+    const due = normalizeDueDate(entry.dueDate);
+    if (due && due > today) {
+      activeMonth = entry.month;
+      break;
+    }
+  }
+  if (!activeMonth) activeMonth = getCurrentMonth();
+
+  let totalCharges = 0;
+  let totalPaid = 0;
+  const seenMonths = new Set();
+
+  for (let entry of tenant.paymentHistory || []) {
+    totalPaid += entry.amountPaid || 0;
+    if (seenMonths.has(entry.month) || entry.month > activeMonth) continue;
+
+    const charges =
+      (entry.baseRent || tenant.rent) +
+      (entry.waterCharge || 0) +
+      (entry.garbageCharge || 0);
+    totalCharges += charges;
+    seenMonths.add(entry.month);
+  }
+
+  if (!seenMonths.has(activeMonth)) {
+    totalCharges += tenant.rent;
+    const settings = globalSettings || { garbageFee: 0 };
+    totalCharges += settings.garbageFee || 0;
+  }
+
+  let balance = totalCharges - totalPaid;
+  if (balance === 0 && tenant.paymentHistory.length === 0) {
+    balance = tenant.rent;
+  }
+  return balance;
+}
+
 function updateTenantList(filteredList) {
   requestAnimationFrame(() => {
     let headerHtml = `<div class="tenant-info">`;
@@ -851,38 +902,56 @@ function updateStats(tenantArray) {
   document.querySelector(
     ".stats-subtitle"
   ).textContent = `📅 Statistics for: ${getCurrentMonth()}`;
+
   let totalOwed = 0,
-    totalPaidTenants = 0,
     totalUnpaidTenants = 0,
     totalTenants = tenantArray.length,
+    totalPaidTenants = 0,
     totalPaid = 0,
     collectionRate = 0,
     totalRent = 0,
     totalLateTenants = 0,
     totalPaidRent = 0;
+
   let highestDebtor = null,
     highestDebtAmount = 0;
+
   tenantArray.forEach((tenant) => {
     totalRent += Number(tenant.rent);
-    let rec = getCurrentPaymentRecord(tenant);
-    let isPaid = rec.paid;
-    let balance = rec.remainingBalance ?? tenant.rent;
-    if (!isPaid && balance > highestDebtAmount) {
+
+    // Use the same balance as the table row
+    const balance = getTenantBalance(tenant);
+    if (balance > highestDebtAmount) {
       highestDebtAmount = balance;
       highestDebtor = tenant;
     }
-    if (!isPaid) {
+
+    if (balance > 0) {
+      totalOwed += balance;
+      // Unpaid = any positive balance (past due or not) – we'll count overdue separately
       totalUnpaidTenants++;
-      if (balance > 0) totalOwed += balance;
-    } else {
+    }
+
+    // Paid tenants: balance <= 0
+    if (balance <= 0) {
       totalPaidTenants++;
       totalPaid += Number(tenant.rent);
     }
-    if (isLate(rec.dueDate, rec.paid, tenant)) totalLateTenants++;
-    if (rec.paid) totalPaidRent += Number(tenant.rent);
+
+    // Overdue (late) tenant detection
+    if (isLate(null, balance <= 0, tenant)) {
+      totalLateTenants++;
+    }
+
+    if (balance <= 0) {
+      totalPaidRent += Number(tenant.rent);
+    }
   });
+
   collectionRate =
     totalRent === 0 ? 0 : Math.round((totalPaid / totalRent) * 100);
+
+  // Update DOM … (the rest stays identical)
   document.querySelector(
     ".total-owed"
   ).textContent = `Total owed: ${formatCurrency(totalOwed)}`;
@@ -944,6 +1013,7 @@ async function showHistoryModal(id) {
   document.getElementById("tenant-actions-modal").style.display = "none";
   document.getElementById("profile-modal").style.display = "none";
 }
+
 function renderPaymentModal(tenantId) {
   let tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
@@ -1107,6 +1177,9 @@ function renderPaymentModal(tenantId) {
       balanceClass = "zero";
     }
 
+    // Determine if this is a charge entry (no payment amount, no date)
+    const isChargeEntry = (entry.amountPaid || 0) === 0 && !entry.datePaid;
+
     let div = document.createElement("div");
     div.className = "payment-record";
     div.innerHTML = `
@@ -1122,12 +1195,15 @@ function renderPaymentModal(tenantId) {
     <span class="record-date-paid">${
       entry.datePaid ? formatDate(entry.datePaid) : "—"
     }</span>
-
-    <button class="actions-btn" data-id="${entry._id}" data-month="${
-      entry.month
-    }" data-amount="${entry.amountPaid}" data-date="${
-      entry.datePaid || ""
-    }" data-mpesa="${entry.mpesaRef || ""}">⚙️</button>
+    ${
+      isChargeEntry
+        ? `<span class="charge-lock" title="System charge – not editable">🔒</span>`
+        : `<button class="actions-btn" data-id="${entry._id}" data-month="${
+            entry.month
+          }" data-amount="${entry.amountPaid}" data-date="${
+            entry.datePaid || ""
+          }" data-mpesa="${entry.mpesaRef || ""}">⚙️</button>`
+    }
     `;
     container.appendChild(div);
   });

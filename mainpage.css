@@ -3624,167 +3624,6 @@ body.bulk-mode-active .due-date-cell {
   }
 }
 
-@media (max-width: 768px) {
-  .tenant-info {
-    grid-template-columns: 1.5fr 1fr 1fr 1fr 0.8fr !important;
-  }
-  /* Or if using flex (your current layout), just remove the rent column width */
-  .tenant-info > :nth-child(1) {
-    width: 30% !important;
-  } /* Name */
-  .tenant-info > :nth-child(3) {
-    width: 20% !important;
-  } /* Balance */
-  .tenant-info > :nth-child(4) {
-    width: 20% !important;
-  } /* Entry Date */
-  .tenant-info > :nth-child(5) {
-    width: 20% !important;
-  } /* Due Date */
-  .tenant-info > :nth-child(6) {
-    width: 10% !important;
-  } /* Actions */
-}
-
-/* ========================
-   MOBILE LAYOUT FOR ≤480px (Rent column hidden, larger font)
-======================== */
-@media (max-width: 480px) {
-  .tenant-info,
-  .tenant-info * {
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  .tenant-info {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    gap: 0.25rem !important;
-    padding: 8px 2px !important;
-    border-bottom: 1px solid var(--border-light) !important;
-  }
-
-  .tenant-info:first-child {
-    padding: 6px 2px !important;
-    border-bottom: 2px solid var(--accent-cyan) !important;
-    background: var(--bg-elevated) !important;
-    border-radius: 0 !important;
-  }
-
-  .tenant-info:last-child {
-    border-bottom: none !important;
-  }
-
-  /* Column widths */
-  .tenant-info > :nth-child(1) {
-    flex: 0 0 32% !important;
-  } /* Name */
-  .tenant-info > :nth-child(3) {
-    flex: 0 0 20% !important;
-  } /* Balance */
-  .tenant-info > :nth-child(5) {
-    flex: 0 0 30% !important;
-  } /* Due Date */
-  .tenant-info > :nth-child(6) {
-    flex: 0 0 18% !important;
-  } /* Actions */
-
-  /* Hide Rent and Entry Date */
-
-  .tenant-info > :nth-child(4),
-  .tenant-info:first-child > :nth-child(4) {
-    display: none !important;
-  }
-
-  /* Text alignment */
-  .tenant-info > :nth-child(1) {
-    text-align: left !important;
-  }
-  .tenant-info > :nth-child(3) {
-    text-align: center !important;
-  }
-  .tenant-info > :nth-child(5) {
-    text-align: center !important;
-  }
-  .tenant-info > :nth-child(6) {
-    text-align: right !important;
-  }
-
-  /* Header alignment */
-  .tenant-info:first-child h2:nth-of-type(1) {
-    text-align: left !important;
-  }
-  .tenant-info:first-child h2:nth-of-type(3) {
-    text-align: center !important;
-  }
-  .tenant-info:first-child h2:nth-of-type(5) {
-    text-align: center !important;
-  }
-  .tenant-info:first-child h2:nth-of-type(6) {
-    text-align: right !important;
-  }
-
-  /* Larger font for data cells */
-  .tenant-info p,
-  .tenant-info .rent-value,
-  .tenant-info .balance-cell,
-  .tenant-info .due-date-value {
-    font-size: 0.875rem !important;
-    line-height: 1.4 !important;
-    font-weight: 500 !important;
-    white-space: normal !important;
-    word-break: break-word !important;
-  }
-
-  /* Due date stacking */
-  .due-date-cell {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    gap: 2px !important;
-  }
-
-  /* Action button */
-  .tenant-actions-btn {
-    padding: 4px 6px !important;
-    font-size: 0.75rem !important;
-    min-width: 44px !important;
-  }
-
-  /* Other elements (from original) */
-  .tenants-div {
-    padding: 0 4px 4px 4px !important;
-    border-radius: 16px !important;
-  }
-  body {
-    padding: 6px 4px !important;
-    padding-top: 85px !important;
-  }
-  .tenant-filter-inputs {
-    padding: 6px 6px !important;
-    gap: 6px !important;
-  }
-  .topbar-menu-btn {
-    font-size: 1.4rem !important;
-    padding: 0 8px !important;
-    width: 48px !important;
-    height: 44px !important;
-  }
-  #month-view-selector {
-    min-width: 130px !important;
-    font-size: 0.75rem !important;
-    padding: 6px 22px 6px 10px !important;
-  }
-  .current-month {
-    font-size: 1.2rem !important;
-  }
-  .stat {
-    padding: 12px 8px !important;
-    font-size: 1rem !important;
-  }
-}
-
 /* Payment action buttons (M-Pesa ref and settings) */
 .payment-record .ref-btn,
 .payment-record .actions-btn {
@@ -4585,4 +4424,150 @@ body.bulk-mode-active .due-date-cell {
 #save-global-settings,
 #cancel-global-settings {
   width: 200px;
+}
+
+/* ========================
+   CLEAN MOBILE LAYOUT – No scroll, Rent visible, Entry Date hidden
+======================== */
+@media (max-width: 640px) {
+  /* Container – prevent overflow */
+  .tenant-info-div {
+    overflow-x: hidden;
+  }
+
+  /* All rows – flex, even distribution */
+  .tenant-info {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    padding: 10px 6px !important;
+    border-bottom: 1px solid var(--border-light) !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Header row same layout */
+  .tenant-info:first-child {
+    background: var(--bg-elevated) !important;
+    border-bottom: 2px solid var(--accent-cyan) !important;
+    padding: 8px 6px !important;
+    border-radius: 0 !important;
+  }
+
+  /* Hide Entry Date column entirely */
+  .tenant-info > :nth-child(4),
+  .tenant-info:first-child > :nth-child(4) {
+    display: none !important;
+  }
+
+  /* All visible columns share space evenly except Actions */
+  .tenant-info > :nth-child(1), /* Name */
+  .tenant-info > :nth-child(2), /* Rent */
+  .tenant-info > :nth-child(3), /* Balance */
+  .tenant-info > :nth-child(5)  /* Due Date */ {
+    flex: 1 1 0% !important; /* grow equally */
+    min-width: 0 !important; /* allow shrinking */
+    text-align: center !important;
+  }
+
+  /* Actions column – fixed narrow width */
+  .tenant-info > :nth-child(6) {
+    flex: 0 0 44px !important;
+    text-align: center !important;
+    display: flex !important;
+    justify-content: center !important;
+  }
+
+  /* Header row columns same as above */
+  .tenant-info:first-child > :nth-child(1),
+  .tenant-info:first-child > :nth-child(2),
+  .tenant-info:first-child > :nth-child(3),
+  .tenant-info:first-child > :nth-child(5) {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    text-align: center !important;
+  }
+  .tenant-info:first-child > :nth-child(6) {
+    flex: 0 0 44px !important;
+    display: flex !important;
+    justify-content: center !important;
+  }
+
+  /* Header text styling */
+  .tenant-info:first-child h2 {
+    font-size: 0.65rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+  }
+
+  /* Data cell text */
+  .tenant-info p,
+  .tenant-info .rent-value,
+  .tenant-info .balance-cell,
+  .tenant-info .due-date-value {
+    font-size: 0.75rem !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important; /* keep on one line */
+    overflow: hidden !important;
+    text-overflow: ellipsis !important; /* add … if too long */
+    margin: 0;
+  }
+
+  /* Rent cell stacking (badge under amount) */
+  .rent-cell {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 2px !important;
+  }
+  .deposit-badge {
+    margin-left: 0 !important;
+    white-space: nowrap !important;
+    font-size: 0.6rem;
+  }
+
+  /* Action button compact */
+  .tenant-actions-btn {
+    padding: 4px 6px !important;
+    font-size: 0.75rem !important;
+    min-width: 32px !important;
+  }
+
+  /* Due date badge */
+  .due-status {
+    font-size: 0.6rem !important;
+    padding: 1px 4px;
+    white-space: nowrap;
+  }
+}
+
+/* Extra tight for very small phones (max 400px) – reduce gap a bit */
+@media (max-width: 400px) {
+  .tenant-info {
+    gap: 0.3rem !important;
+    padding: 8px 4px !important;
+  }
+  .tenant-info p,
+  .tenant-info .rent-value,
+  .tenant-info .balance-cell,
+  .tenant-info .due-date-value {
+    font-size: 0.7rem !important;
+  }
+  .tenant-info:first-child h2 {
+    font-size: 0.6rem !important;
+  }
+  .tenant-actions-btn {
+    padding: 3px 5px !important;
+    font-size: 0.7rem !important;
+  }
+  .tenant-info > :nth-child(6) {
+    flex: 0 0 38px !important;
+  }
+  .tenant-info:first-child > :nth-child(6) {
+    flex: 0 0 38px !important;
+  }
 }

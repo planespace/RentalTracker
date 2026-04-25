@@ -1,16 +1,5 @@
 // ui.js – Handles UI rendering & display (updated toasts)
 
-function normalizeDueDate(val) {
-  if (!val) return null;
-  if (val instanceof Date) return new Date(val);
-  // Try direct parsing (works for ISO strings and YYYY-MM-DD)
-  const d = new Date(val);
-  if (!isNaN(d.getTime())) return d;
-  // Fallback: if it's a plain date string without time, use T00:00:00
-  const try2 = new Date(val + "T00:00:00");
-  return isNaN(try2.getTime()) ? null : try2;
-}
-
 function renderTenant(tenant, index) {
   let currentRecord = getCurrentPaymentRecord(tenant);
   const today = getAppToday(); // midnight, dev‑aware
@@ -174,15 +163,6 @@ function renderTenant(tenant, index) {
   return newDiv;
 }
 // TODO Function to update list
-
-function formatDate(isoString) {
-  if (!isoString) return "—";
-  // If it's already a Date object, convert it to a string
-  if (isoString instanceof Date) {
-    return isoString.toISOString().split("T")[0];
-  }
-  return isoString.split("T")[0];
-}
 
 function populateMonthSelector() {
   let selector = document.getElementById("month-view-selector");
@@ -369,133 +349,6 @@ document.querySelector("#modal-profile").addEventListener("click", () => {
   document.body.classList.add("modal-open");
 });
 
-// Save button inside profile modal (use event delegation)
-document
-  .querySelector("#profile-modal")
-  .addEventListener("click", async (event) => {
-    if (event.target.id === "edit-profile-btn") {
-      let tenant = tenantArray.find(
-        (t) => t._id === window.currentActionsTenantId
-      );
-      document.querySelector("#profile-display").style.display = "none";
-      document.querySelector("#profile-edit").style.display = "block";
-      document.querySelector("#profile-edit").innerHTML = `
-    <div class="profile-field"><label>Name:</label> <input type="text" id="edit-name" value="${
-      tenant.name
-    }"></div>
-    <div class="profile-field"><label>Rent:</label> <input type="number" id="edit-rent" value="${
-      tenant.rent
-    }" step="any"></div>
-    <div class="profile-field"><label>Phone:</label> <input type="tel" id="edit-phone" value="${
-      tenant.phoneNumber || ""
-    }"></div>
-    <div class="profile-field"><label>House:</label> <input type="text" id="edit-house" value="${
-      tenant.houseNumber || ""
-    }"></div>
-    <div class="profile-field"><label>Notes:</label> <textarea id="edit-notes">${
-      tenant.notes || ""
-    }</textarea></div>
-   
-    <div class="profile-field"><label>Entry Date:</label> <input type="date" id="edit-entry-date" value="${formatDate(
-      tenant.entryDate
-    )}"></div>
-<div class="profile-field"><label>Due Day (1‑31):</label> <input type="number" id="edit-due-day" min="1" max="31" value="${
-        tenant.dueDay || 1
-      }"></div>
-
-    <div class="profile-buttons">
-      <button id="save-profile-edit">Save</button>
-      <button id="cancel-profile-edit">Cancel</button>
-    </div>
-  `;
-    }
-
-    if (event.target.id === "cancel-profile-edit") {
-      document.querySelector("#profile-display").style.display = "block";
-      document.querySelector("#profile-edit").style.display = "none";
-    }
-
-    if (event.target.id === "save-profile-edit") {
-      const saveBtn = event.target;
-      if (typeof setButtonLoading === "function") {
-        setButtonLoading(saveBtn, true);
-      }
-
-      try {
-        let tenantId = window.currentActionsTenantId;
-        let newName = document.getElementById("edit-name").value;
-        let newRent = Number(document.getElementById("edit-rent").value);
-        let newPhone = document.getElementById("edit-phone").value;
-        let newHouse = document.getElementById("edit-house").value;
-        let newNotes = document.getElementById("edit-notes").value;
-        let newEntryDate = document.getElementById("edit-entry-date").value;
-        let newDueDay =
-          parseInt(document.getElementById("edit-due-day").value) ||
-          tenant.dueDay;
-        let response = await fetch(
-          window.location.origin + `/tenants/${tenantId}`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-            body: JSON.stringify({
-              name: newName,
-              rent: newRent,
-              phoneNumber: newPhone,
-              houseNumber: newHouse,
-              notes: newNotes,
-              entryDate: newEntryDate,
-              dueDay: newDueDay,
-            }),
-          }
-        );
-
-        if (response.ok) {
-          await loadTenants();
-          document.getElementById("profile-modal").style.display = "none";
-          document.body.classList.remove("modal-open");
-          // Use the dark toast mixin (defined in main.js)
-          Toast.fire({
-            icon: "success",
-            title: "Profile Updated",
-          });
-        } else {
-          Toast.fire({
-            icon: "error",
-            title: "Update Failed",
-            text: "Failed to update profile.",
-          });
-        }
-      } catch (err) {
-        console.error("Profile update error:", err);
-        Toast.fire({
-          icon: "error",
-          title: "Network Error",
-          text: "Please check your connection.",
-        });
-      } finally {
-        if (typeof setButtonLoading === "function") {
-          setButtonLoading(saveBtn, false);
-        }
-      }
-    }
-
-    if (event.target.id === "cancel-profile-btn") {
-      document.getElementById("profile-modal").style.display = "none";
-    }
-  });
-
-function getPreviousMonthString(monthString) {
-  let [year, month] = monthString.split("-").map(Number);
-  let date = new Date(year, month - 1, 1);
-  date.setMonth(date.getMonth() - 1);
-  let newYear = date.getFullYear();
-  let newMonth = String(date.getMonth() + 1).padStart(2, "0");
-  return `${newYear}-${newMonth}`;
-}
-
 function setMonthPickerDefault() {
   const picker = document.getElementById("manual-month-picker");
   const currentMonth = getCurrentMonth();
@@ -508,15 +361,6 @@ function setMonthPickerDefault() {
       picker.value = currentMonth;
     }
   }
-}
-
-function getNextMonthString(monthString) {
-  let [year, month] = monthString.split("-").map(Number);
-  let date = new Date(year, month - 1, 1);
-  date.setMonth(date.getMonth() + 1);
-  let newYear = date.getFullYear();
-  let newMonth = String(date.getMonth() + 1).padStart(2, "0");
-  return `${newYear}-${newMonth}`;
 }
 
 function updateAllTimeStats(tenantArray) {

@@ -2640,10 +2640,6 @@ body.bulk-mode-active .due-date-cell {
 }
 
 /* ========================
-   POLISHED MOBILE (≤480px) – ONLY WHEN NOT IN BULK MODE
-======================== */
-
-/* ========================
    BULK MODE – MOBILE (≤768px) – DEDICATED LAYOUT
 ======================== */
 @media (max-width: 768px) {
@@ -3628,14 +3624,6 @@ body.bulk-mode-active .due-date-cell {
   }
 }
 
-/* Hide Rent Amount column on mobile */
-@media (max-width: 768px) {
-  .tenant-info > :nth-child(2),
-  .tenant-info:first-child > :nth-child(2) {
-    display: none !important;
-  }
-}
-
 @media (max-width: 768px) {
   .tenant-info {
     grid-template-columns: 1.5fr 1fr 1fr 1fr 0.8fr !important;
@@ -3656,25 +3644,6 @@ body.bulk-mode-active .due-date-cell {
   .tenant-info > :nth-child(6) {
     width: 10% !important;
   } /* Actions */
-}
-/* Hide Rent Amount column on mobile – using class for data and nth-child for header */
-@media (max-width: 768px) {
-  /* Hide the rent data cells */
-  .tenant-info .rent-cell {
-    display: none !important;
-  }
-  /* Hide the rent header (second h2 in the first row) */
-  .tenant-info:first-child h2:nth-of-type(2) {
-    display: none !important;
-  }
-}
-
-/* Hide Rent column on all mobile devices (≤768px) */
-@media (max-width: 768px) {
-  .tenant-info .rent-cell,
-  .tenant-info:first-child h2:nth-of-type(2) {
-    display: none !important;
-  }
 }
 
 /* ========================
@@ -3722,9 +3691,8 @@ body.bulk-mode-active .due-date-cell {
   } /* Actions */
 
   /* Hide Rent and Entry Date */
-  .tenant-info > :nth-child(2),
+
   .tenant-info > :nth-child(4),
-  .tenant-info:first-child > :nth-child(2),
   .tenant-info:first-child > :nth-child(4) {
     display: none !important;
   }

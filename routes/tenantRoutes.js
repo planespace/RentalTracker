@@ -31,7 +31,7 @@ const {
   getExportStatement,
   manualSync,
   bulkChangeDueDay,
-} = require("../controllers/tenantController");
+} = require("../controllers/tenantController").default;
 
 // ----- STATIC ROUTES (no parameters) -----
 router.get("/", getAllTenants);

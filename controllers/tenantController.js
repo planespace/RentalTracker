@@ -1,9 +1,9 @@
 // ========================
 //   controllers/tenantController.js – FULLY FIXED
 // ========================
-let { Tenant } = require("../models/Tenant");
-const Settings = require("../models/Settings"); // 👈 NEW GLOBAL SETTINGS MODEL
-const User = require("../models/User");
+import { Tenant } from "../models/Tenant";
+import Settings, { findById } from "../models/Settings"; // 👈 NEW GLOBAL SETTINGS MODEL
+import { findById as _findById } from "../models/User";
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -140,7 +140,7 @@ function getPreviousMonthString(monthString) {
 }
 
 async function getGlobalSettings(userId) {
-  let settings = await Settings.findById("global_" + userId);
+  let settings = await findById("global_" + userId);
   if (!settings) {
     settings = new Settings({
       _id: "global_" + userId,
@@ -299,7 +299,7 @@ async function getExportStatement(req, res) {
       tenants = tenants.filter((tenant) => isTenantLate(tenant, currentMonth));
     }
 
-    const user = await User.findById(req.userId);
+    const user = await _findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
     // Sort tenants alphabetically for a clean report
@@ -964,7 +964,7 @@ async function getGlobalSettingsEndpoint(req, res) {
 async function updateGlobalSettings(req, res) {
   try {
     const { garbageFee, waterRatePerUnit, defaultDueDay } = req.body;
-    let settings = await Settings.findById("global_" + req.userId);
+    let settings = await findById("global_" + req.userId);
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
 
     if (garbageFee !== undefined) settings.garbageFee = garbageFee;
@@ -1293,7 +1293,7 @@ function isTenantLate(tenant, currentMonth) {
 // ========================
 //   EXPORTS
 // ========================
-module.exports = {
+export default {
   getAllTenants,
   getTenantById,
   createTenant,

@@ -483,6 +483,7 @@ async function loadTenants() {
     await fetchCurrentDate();
     await fetchUserProfile();
     await fetchGlobalSettings();
+    populateMonthSelector();
     updateTenantList(tenantArray);
     updateCharts();
     populateMonthSelector();
@@ -699,25 +700,6 @@ function getCurrentPaymentRecord(tenant) {
   });
   return records[records.length - 1];
 }
-function formatDate(isoString) {
-  if (!isoString) return "—";
-  // If it's already a Date object, convert it to a string
-  if (isoString instanceof Date) {
-    return isoString.toISOString().split("T")[0];
-  }
-  return isoString.split("T")[0];
-}
-function formatCurrency(amount) {
-  return amount.toLocaleString();
-}
-
-function getCurrentMonth() {
-  if (!currentAppDate) return "";
-  const d = new Date(currentAppDate);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
 
 function getDueDateForMonthLocal(tenant, yearMonth) {
   const dueDay = tenant.dueDay || 1;
@@ -760,22 +742,7 @@ function getTenantNextDueDate(tenant) {
 
   return dueDateStr; // always a string
 }
-function getPreviousMonthString(monthString) {
-  let [year, month] = monthString.split("-").map(Number);
-  let date = new Date(year, month - 1, 1);
-  date.setMonth(date.getMonth() - 1);
-  let newYear = date.getFullYear();
-  let newMonth = String(date.getMonth() + 1).padStart(2, "0");
-  return `${newYear}-${newMonth}`;
-}
-function getNextMonthString(monthString) {
-  let [year, month] = monthString.split("-").map(Number);
-  let date = new Date(year, month - 1, 1);
-  date.setMonth(date.getMonth() + 1);
-  let newYear = date.getFullYear();
-  let newMonth = String(date.getMonth() + 1).padStart(2, "0");
-  return `${newYear}-${newMonth}`;
-}
+
 function isLate(dueDate, paid, tenant) {
   const today = getAppToday();
 

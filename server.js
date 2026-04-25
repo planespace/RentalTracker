@@ -25,9 +25,8 @@ app.use("/auth", authRoutes);
 
 connectTOMongoDB().then(() => {
   // Run sync on startup
-  const {
-    syncAllTenantsToCurrentMonth,
-  } = require("./controllers/tenantController");
+  const { syncAllTenantsToCurrentMonth } =
+    require("./controllers/tenantController").default;
   syncAllTenantsToCurrentMonth();
   // Then every hour
   setInterval(syncAllTenantsToCurrentMonth, 60 * 60 * 1000);

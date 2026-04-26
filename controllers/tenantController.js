@@ -295,6 +295,7 @@ async function getExportStatement(req, res) {
     const { type } = req.query; // 'all' or 'late'
     let tenants = await Tenant.find({ userId: req.userId, active: true });
 
+    // ---------- Today's date (dev‑aware) ----------
     let today = new Date();
     if (req.query.devDate) {
       const devDate = new Date(req.query.devDate);
@@ -302,9 +303,11 @@ async function getExportStatement(req, res) {
     }
     today.setHours(0, 0, 0, 0);
 
+    // ---------- Global settings ----------
     const settings = await getGlobalSettings(req.userId);
     const garbageFee = settings.garbageFee || 0;
 
+    // ---------- Helper: cumulative balance ----------
     function getCumulativeBalance(tenant, currentDate) {
       let activeMonth = null;
       for (let entry of tenant.paymentHistory || []) {
@@ -319,12 +322,15 @@ async function getExportStatement(req, res) {
         const m = String(currentDate.getMonth() + 1).padStart(2, "0");
         activeMonth = `${y}-${m}`;
       }
-      let totalCharges = 0,
-        totalPaid = 0;
+
+      let totalCharges = 0;
+      let totalPaid = 0;
       const seenMonths = new Set();
+
       for (let entry of tenant.paymentHistory || []) {
         totalPaid += entry.amountPaid || 0;
         if (seenMonths.has(entry.month) || entry.month > activeMonth) continue;
+
         const charges =
           (entry.baseRent || tenant.rent) +
           (entry.waterCharge || 0) +
@@ -332,14 +338,19 @@ async function getExportStatement(req, res) {
         totalCharges += charges;
         seenMonths.add(entry.month);
       }
-      if (!seenMonths.has(activeMonth))
+
+      if (!seenMonths.has(activeMonth)) {
         totalCharges += tenant.rent + garbageFee;
+      }
+
       let balance = totalCharges - totalPaid;
-      if (balance === 0 && tenant.paymentHistory.length === 0)
+      if (balance === 0 && tenant.paymentHistory.length === 0) {
         balance = tenant.rent;
+      }
       return balance;
     }
 
+    // ---------- Helper: past‑due balance ----------
     function getPastDueBalance(tenant, currentDate) {
       let overdue = 0;
       for (let entry of tenant.paymentHistory || []) {
@@ -351,76 +362,151 @@ async function getExportStatement(req, res) {
       return overdue;
     }
 
+    // ---------- Pre‑compute stats for All Tenants report ----------
+    const activeTenantsCount = tenants.length;
+    let totalCollected = 0; // all‑time
+    let expectedThisMonth = 0;
+    let collectedThisMonth = 0;
+    const currentMonthStr = getCurrentMonthString();
+
+    tenants.forEach((t) => {
+      t.paymentHistory.forEach((e) => {
+        totalCollected += e.amountPaid || 0;
+      });
+      // Expected rent for the current month (just the base rent – no deposit/water/garbage projection here)
+      expectedThisMonth += t.rent;
+      // Look for a payment record for the current month and sum its paid amount
+      const currentMonthRecord = t.paymentHistory.find(
+        (r) => r.month === currentMonthStr
+      );
+      if (currentMonthRecord) {
+        collectedThisMonth += currentMonthRecord.amountPaid || 0;
+      }
+    });
+
+    // ---------- Filter for late tenants ----------
     if (type === "late") {
-      tenants = tenants.filter((t) => getPastDueBalance(t, today) > 0);
+      tenants = tenants.filter(
+        (tenant) => getPastDueBalance(tenant, today) > 0
+      );
     }
 
+    // ---------- Landlord info ----------
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
+
     tenants.sort((a, b) => a.name.localeCompare(b.name));
 
+    // ---------- Generate HTML ----------
     let totalOwed = 0;
-    const currentMonthStr = getCurrentMonthString();
 
     let html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>${
-    type === "late" ? "Late Tenants Report" : "All Tenants Report"
-  }</title>
+  <title>${type === "late" ? "Late Tenants Report" : "Tenant Roster"}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
-    .header { text-align:center; margin-bottom: 30px; }
-    .header h1 { font-size:2rem; color:#0f172a; margin-bottom:5px; }
-    .header p { color:#475569; font-size:0.9rem; }
-    .summary-box { display:flex; justify-content:center; gap:30px; margin:25px 0; }
-    .summary-item { background:#f1f5f9; border-radius:12px; padding:16px 28px; text-align:center; }
-    .summary-item .label { font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; color:#64748b; }
-    .summary-item .value { font-size:2rem; font-weight:700; color:#0f172a; margin-top:5px; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; background:#ffffff; }
+    .header { text-align:center; margin-bottom: 40px; }
+    .header h1 { font-size:2.5rem; font-weight:800; color:#0f172a; margin-bottom:5px; letter-spacing:-0.5px; }
+    .header p { color:#475569; font-size:1rem; font-weight:400; }
+
+    .summary-box { display:flex; justify-content:center; gap:25px; margin:30px 0; flex-wrap:wrap; }
+    .summary-item { background:#f8fafc; border-radius:16px; padding:20px 32px; text-align:center;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.05); border:1px solid #e2e8f0; min-width:120px; }
+    .summary-item .label { font-size:0.75rem; text-transform:uppercase; letter-spacing:1.5px; color:#64748b; margin-bottom:8px; }
+    .summary-item .value { font-size:2.2rem; font-weight:700; color:#0f172a; }
     .summary-item .value.owed { color:#dc2626; }
-    table { width:100%; border-collapse:collapse; margin-top:10px; }
-    th, td { text-align:center !important; padding:8px 6px; font-size:0.85rem; }
-    th { background:#e2e8f0; text-transform:uppercase; font-size:0.8rem; color:#334155; }
-    td { border-bottom:1px solid #e2e8f0; }
-    .status-badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+    .summary-item .value.collected { color:#16a34a; }
+
+    table { width:100%; border-collapse:collapse; margin-top:20px; border-radius:12px; overflow:hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04); border:1px solid #e2e8f0; }
+    th, td { text-align:center !important; }
+    th { background:#f1f5f9; text-transform:uppercase; font-size:0.75rem; letter-spacing:0.5px; color:#475569;
+         padding:12px 8px; font-weight:600; }
+    td { padding:12px 8px; font-size:0.9rem; border-bottom:1px solid #f1f5f9; color:#334155; }
+    tr:last-child td { border-bottom:none; }
+    tr:nth-child(even) td { background:#f8fafc; }
+
+    .status-badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:0.7rem; font-weight:600; }
     .status-paid { background:#dcfce7; color:#16a34a; }
     .status-unpaid { background:#fee2e2; color:#dc2626; }
     .status-overpaid { background:#dbeafe; color:#2563eb; }
-    .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }   /* block to appear below */
-    .balance-red { color:#dc2626; font-weight:700; }                    /* NEW */
-    .print-btn { margin-top:30px; text-align:center; }
-    .print-btn button { background:#3b82f6; color:white; border:none; padding:10px 30px; border-radius:8px; font-size:1rem; cursor:pointer; }
-    @media print { .print-btn { display:none; } }
+
+    .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }
+    .balance-red { color:#dc2626; font-weight:700; }
+    .balance-green { color:#16a34a; font-weight:700; }
+
+    .print-btn { margin-top:35px; text-align:right; }
+    .print-btn button { background:#0f172a; color:white; border:none; padding:12px 28px; border-radius:8px;
+                       font-size:0.9rem; font-weight:600; cursor:pointer; transition:0.2s; }
+    .print-btn button:hover { background:#1e293b; }
+    @media print { .print-btn { display:none; } body { padding:20px; } }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>${landlordDisplay}</h1>
     <p>${
-      type === "late" ? "Late Tenants Report" : "All Tenants Report"
-    } – Generated on ${new Date().toLocaleDateString()}</p>
+      type === "late" ? "Late Tenants Report" : "Complete Tenant Roster"
+    } – ${new Date().toLocaleDateString()}</p>
   </div>
+
   <div class="summary-box">
+`;
+
+    if (type === "late") {
+      html += `
     <div class="summary-item">
-      <div class="label">Total ${type === "late" ? "Past Due" : "Owed"}</div>
-      <div class="value owed">KSH 0</div>
+      <div class="label">Total Past Due</div>
+      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
     </div>
     <div class="summary-item">
-      <div class="label">${
-        type === "late" ? "Late Tenants" : "Total Tenants"
-      }</div>
+      <div class="label">Late Tenants</div>
       <div class="value">${tenants.length}</div>
     </div>
+      `;
+    } else {
+      // All tenants – 5 cards
+      html += `
+    <div class="summary-item">
+      <div class="label">Total Owed</div>
+      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Active Tenants</div>
+      <div class="value">${activeTenantsCount}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Total Collected (All‑Time)</div>
+      <div class="value collected">KSH ${totalCollected.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Expected This Month</div>
+      <div class="value">KSH ${expectedThisMonth.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Collected This Month</div>
+      <div class="value collected">KSH ${collectedThisMonth.toLocaleString()}</div>
+    </div>
+      `;
+    }
+
+    html += `
   </div>
+
   <table>
     <thead>
       <tr>
-        <th>Name</th><th>House</th><th>Phone</th><th>Rent</th>
-        <th>${type === "late" ? "Past Due Balance" : "Current Balance"}</th>
-        <th>Status</th><th>Due Date</th>
+        <th>Tenant</th>
+        <th>House</th>
+        <th>Phone</th>
+        <th>Rent</th>
+        <th>${type === "late" ? "Past Due" : "Balance"}</th>
+        <th>Status</th>
+        <th>Due Date</th>
       </tr>
     </thead>
     <tbody>
@@ -445,7 +531,7 @@ async function getExportStatement(req, res) {
 
       totalOwed += balance > 0 ? balance : 0;
 
-      // Deposit badge with a line break before it
+      // Deposit badge
       let depositBadge = "";
       if (tenant.deposit && tenant.depositPeriod) {
         const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
@@ -463,7 +549,7 @@ async function getExportStatement(req, res) {
             today.getMonth() + 1
           ).padStart(2, "0")}`;
           if (todayMonth <= lastDepMonth) {
-            depositBadge = '<br><span class="deposit-badge">+Deposit</span>'; // line break + block
+            depositBadge = '<br><span class="deposit-badge">+Deposit</span>';
           }
         }
       }
@@ -489,11 +575,11 @@ async function getExportStatement(req, res) {
           : "—";
       }
 
-      const balanceCellClass = balance > 0 ? "balance-red" : "";
+      const balanceCellClass = balance > 0 ? "balance-red" : "balance-green";
 
       html += `
         <tr>
-          <td>${tenant.name}</td>
+          <td style="font-weight:600;">${tenant.name}</td>
           <td>${tenant.houseNumber}</td>
           <td>${tenant.phoneNumber}</td>
           <td>KSH ${tenant.rent.toLocaleString()}${depositBadge}</td>
@@ -504,6 +590,7 @@ async function getExportStatement(req, res) {
       `;
     });
 
+    // Replace placeholder in the summary cards
     html = html.replace(
       "KSH 0</div>",
       `KSH ${totalOwed.toLocaleString()}</div>`
@@ -512,7 +599,10 @@ async function getExportStatement(req, res) {
     html += `
     </tbody>
   </table>
-  <div class="print-btn"><button onclick="window.print()">🖨️ Save as PDF</button></div>
+
+  <div class="print-btn">
+    <button onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
 </body>
 </html>`;
 

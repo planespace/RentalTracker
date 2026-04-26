@@ -507,7 +507,7 @@ async function loadTenants() {
     await fetchUserProfile();
     await fetchGlobalSettings();
     populateMonthSelector();
-    updateTenantList(tenantArray);
+    applyFiltersAndSort();
     updateCharts();
     populateMonthSelector();
     setMonthPickerDefault();
@@ -2458,7 +2458,16 @@ function applyFiltersAndSort() {
   }
 
   if (sortValue === "rent-high") result.sort((a, b) => b.rent - a.rent);
-  else if (sortValue === "rent-low") result.sort((a, b) => a.rent - b.rent);
+  else if (sortValue === "rent-low") result.sort((a, b) => a.rent - b.rent)
+    else {
+      // Default: sort by house number (numeric)
+      result.sort((a, b) => {
+        const numA = parseInt(a.houseNumber) || 0;
+        const numB = parseInt(b.houseNumber) || 0;
+        return numA - numB;
+      });
+    }
+
 
   if (searchTerm) {
     result = result.filter(

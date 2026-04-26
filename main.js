@@ -27,7 +27,7 @@ let paidDonutChart = null;
 let trendLineChart = null;
 let currentAppDate;
 let tenantArray = [];
-let globalSettings = { garbageFee: 0, waterRatePerUnit: 0 };
+let globalSettings = { garbageFee: 0, waterRatePerUnit: 0, totalHouses: 0 };
 
 let userProfile = { name: "", email: "", phone: "", landlordName: "" };
 
@@ -429,7 +429,8 @@ async function fetchGlobalSettings() {
 async function updateGlobalSettingsOnServer(
   garbageFee,
   waterRatePerUnit,
-  defaultDueDay
+  defaultDueDay,
+  totalHouses
 ) {
   const response = await fetchWithTimeout(
     window.location.origin + "/tenants/settings",
@@ -439,7 +440,7 @@ async function updateGlobalSettingsOnServer(
         "Content-Type": "application/json",
         Authorization: `Bearer ${localStorage.getItem("token")}`,
       },
-      body: JSON.stringify({ garbageFee, waterRatePerUnit, defaultDueDay }),
+      body: JSON.stringify({ garbageFee, waterRatePerUnit, defaultDueDay,totalHouses }),
     }
   );
   if (response.status === 401) {
@@ -464,27 +465,6 @@ async function fetchCurrentDate() {
 let showArchived = false;
 
 async function loadTenants() {
-  try {
-    const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-    });
-    if (resp.ok) {
-      const tenants = await resp.json();
-      const currentMonth = new Date().toISOString().slice(0, 7); // "2026-04"
-      const needsSync = tenants.some(
-        (t) => !t.paymentHistory?.some((e) => e.month === currentMonth)
-      );
-      if (needsSync) {
-        await fetchWithTimeout(window.location.origin + "/tenants/sync", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        });
-      }
-    }
-  } catch (err) {
-    console.warn("Background sync check failed", err);
-  }
-
   try {
     const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -534,6 +514,7 @@ async function loadTenants() {
     updateAllTimeStats(tenantArray);
     updateArchivedBadge();
     updateStatusBar();
+    updateOccupancy()
   } catch (err) {
     showNetworkErrorModal(err.message);
   }
@@ -1047,6 +1028,19 @@ function updateStats(tenantArray) {
   ).textContent = `Total paid rent: ${formatCurrency(totalPaidRent)}`;
 }
 
+function updateOccupancy() {
+  const total = globalSettings.totalHouses || 0;
+  const occupied = tenantArray.length;
+  const el = document.getElementById("occupancy-indicator");
+  if (!el) return;
+  if (total > 0) {
+    el.textContent = `🏠 ${occupied} / ${total} houses occupied`;
+    el.style.display = "";
+  } else {
+    el.style.display = "none";
+  }
+}
+
 // ----- MODALS: Tenant Actions, History, Profile, Payment -----
 async function showTenantActionsModal(id) {
   window.currentActionsTenantId = id;
@@ -1534,6 +1528,13 @@ function showGlobalSettingsModal() {
         }" class="swal2-input" style="margin: 0;">
       </div>
 
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+  <label style="color: var(--text-secondary); font-size: 0.9rem;">Total Houses</label>
+  <input type="number" id="global-total-houses" min="0" value="${
+    globalSettings.totalHouses || 0
+  }" class="swal2-input" style="margin: 0;">
+</div>
+
       <!-- NEW BULK CHANGE DUE DAY BUTTON -->
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-due-day-btn" class="modal-action-btn" style="background: var(--accent-cyan);">
@@ -1683,19 +1684,21 @@ function showGlobalSettingsModal() {
         parseFloat(document.getElementById("global-waterrate").value) || 0;
       const defaultDueDay =
         parseInt(document.getElementById("global-default-due-day").value) || 1;
-
+const totalHouses = parseInt(document.getElementById("global-total-houses").value) || 0;
       setButtonLoading(e.target, true);
       try {
         const ok = await updateGlobalSettingsOnServer(
           garbageFee,
           waterRatePerUnit,
-          defaultDueDay
+          defaultDueDay,
+          totalHouses
         );
         if (ok) {
           await fetchGlobalSettings();
           await loadTenants();
           updateTenantList(tenantArray); // extra safety
           updateStatusBar();
+          updateOccupancy()
           Toast.fire({ icon: "success", title: "Settings updated" });
           document.getElementById("global-garbage").value =
             globalSettings.garbageFee || 0;

@@ -6,6 +6,7 @@ const settingsSchema = new mongoose.Schema({
   garbageFee: { type: Number, default: 0 },
   waterRatePerUnit: { type: Number, default: 0 },
   defaultDueDay: { type: Number, default: 1 },
+  totalHouses: { type: Number, default: 0 },
 });
 
 const Settings = mongoose.model("Settings", settingsSchema);

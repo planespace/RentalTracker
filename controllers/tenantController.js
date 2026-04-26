@@ -1155,7 +1155,8 @@ async function updateGlobalSettings(req, res) {
     if (waterRatePerUnit !== undefined)
       settings.waterRatePerUnit = waterRatePerUnit;
     if (defaultDueDay !== undefined) settings.defaultDueDay = defaultDueDay;
-
+    if (req.body.totalHouses !== undefined)
+      settings.totalHouses = Number(req.body.totalHouses);
     await settings.save();
 
     // ---- Immediately update all active tenants with the new charges ----

@@ -31,11 +31,11 @@ async function login(req, res) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
     const token = jwt.sign({ id: matchingUser._id }, process.env.JWT_SECRET, {
-      expiresIn: "365d",
+      expiresIn: "7d",
     });
     res.json({ token });
   } catch (error) {
-    console.log("Failed to login", error);
+    res.status(500).json({ message: "Registration failed" });
   }
 }
 

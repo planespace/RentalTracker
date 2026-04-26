@@ -510,27 +510,30 @@ function getLast6Months() {
 }
 
 function getOutstandingBalanceForMonths(months) {
-  const currentMonth = getCurrentMonth();
-  return months.map((month) => {
-    let totalOutstanding = 0;
+  return months.map((targetMonth) => {
+    let total = 0;
     tenantArray.forEach((tenant) => {
-      const firstMonth = getTenantFirstMonth(tenant);
-      // Skip months before tenant existed or after current month
-      if (month < firstMonth || month > currentMonth) return;
-
-      let record = tenant.paymentHistory.find((r) => r.month === month);
-      if (record) {
-        if (record.remainingBalance > 0)
-          totalOutstanding += record.remainingBalance;
-      } else {
-        // No record yet – tenant owes rent for this month
-        totalOutstanding += tenant.rent;
+      // Sum charges for all months <= targetMonth whose due date < targetMonth
+      let charges = 0;
+      for (let entry of tenant.paymentHistory || []) {
+        if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
+          const due = normalizeDueDate(entry.dueDate);
+          // Only include if the entry's month is <= targetMonth and its due date has passed
+          if (due && due < new Date(targetMonth + "-01")) {
+            // first day of month (simple compare)
+            charges += entry.totalDue || 0;
+          }
+        }
       }
+      let paid = 0;
+      for (let entry of tenant.paymentHistory || []) {
+        paid += entry.amountPaid || 0;
+      }
+      total += Math.max(0, charges - paid);
     });
-    return totalOutstanding;
+    return total;
   });
 }
-
 function updateCharts() {
   // ---------- Donut chart (paid/unpaid tenants) ----------
   let paid = 0,
@@ -851,6 +854,28 @@ function getTenantBalance(tenant) {
   return balance;
 }
 
+function getTenantPastDueAmount(tenant, todayOverride) {
+  const today = todayOverride || getAppToday();
+  // Sum of charges for months whose due date has already passed
+  let overdueCharges = 0;
+  for (let entry of tenant.paymentHistory || []) {
+    // Only consider original charge entries (amountPaid === 0 and no datePaid)
+    if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
+      const due = normalizeDueDate(entry.dueDate);
+      if (due && due < today) {
+        overdueCharges += entry.totalDue || 0;
+      }
+    }
+  }
+  // Total amount paid (across all entries)
+  let totalPaid = 0;
+  for (let entry of tenant.paymentHistory || []) {
+    totalPaid += entry.amountPaid || 0;
+  }
+  // Overdue = charges past due minus everything already paid (oldest‑first)
+  return Math.max(0, overdueCharges - totalPaid);
+}
+
 function updateTenantList(filteredList) {
   requestAnimationFrame(() => {
     let headerHtml = `<div class="tenant-info">`;
@@ -917,45 +942,41 @@ function updateStats(tenantArray) {
   let highestDebtor = null,
     highestDebtAmount = 0;
 
+  const today = getAppToday();
+
   tenantArray.forEach((tenant) => {
     totalRent += Number(tenant.rent);
 
-    // Use the same balance as the table row
-    const balance = getTenantBalance(tenant);
-    if (balance > highestDebtAmount) {
-      highestDebtAmount = balance;
+    // Use the new past‑due balance (only overdue months)
+    const pastDue = getTenantPastDueAmount(tenant, today);
+    if (pastDue > highestDebtAmount) {
+      highestDebtAmount = pastDue;
       highestDebtor = tenant;
     }
 
-    if (balance > 0) {
-      totalOwed += balance;
-      // Unpaid = any positive balance (past due or not) – we'll count overdue separately
-      totalUnpaidTenants++;
-    }
-
-    // Paid tenants: balance <= 0
-    if (balance <= 0) {
-      totalPaidTenants++;
-      totalPaid += Number(tenant.rent);
-    }
-
-    // Overdue (late) tenant detection
-    if (isLate(null, balance <= 0, tenant)) {
-      totalLateTenants++;
-    }
-
-    if (balance <= 0) {
+    if (pastDue > 0) {
+      totalOwed += pastDue;
+      totalUnpaidTenants++; // has overdue debt
+      totalLateTenants++; // same – they are late
+    } else {
+      totalPaidTenants++; // no overdue debt = "paid" for our purposes
       totalPaidRent += Number(tenant.rent);
+    }
+
+    // Still count total paid rent for collection rate (using the tenant's rent for the current month)
+    const rec = getCurrentPaymentRecord(tenant);
+    if (rec.paid) {
+      totalPaid += Number(tenant.rent);
     }
   });
 
   collectionRate =
     totalRent === 0 ? 0 : Math.round((totalPaid / totalRent) * 100);
 
-  // Update DOM … (the rest stays identical)
+  // Update DOM (unchanged except we now show "Past Due" instead of "Owed" for some labels)
   document.querySelector(
     ".total-owed"
-  ).textContent = `Total owed: ${formatCurrency(totalOwed)}`;
+  ).textContent = `Total past due: ${formatCurrency(totalOwed)}`;
   document.querySelector(
     ".total-unpaid-tenants"
   ).textContent = `Unpaid tenants: ${totalUnpaidTenants}`;
@@ -1708,11 +1729,14 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.id === "modal-statement") {
     const token = localStorage.getItem("token");
-    const url =
+    let url =
       window.location.origin +
       `/tenants/${
         window.currentActionsTenantId
       }/statement?token=${encodeURIComponent(token)}`;
+    if (currentDevDate) {
+      url += `&devDate=${currentDevDate}`;
+    }
     window.open(url, "_blank");
   }
   if (e.target.id === "modal-payment-management") {
@@ -2263,7 +2287,7 @@ tenantsInputs.addEventListener("click", async (event) => {
               ? parseInt(
                   document.getElementById("deposit-period-input").value
                 ) || 1
-              : 1,
+              : 0,
           }),
         }
       );

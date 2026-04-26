@@ -14,8 +14,13 @@ function getCorrectMonthFormat() {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
 }
-async function syncAllTenantsToCurrentMonth() {
-  const currentMonth = getCurrentMonthString();
+
+async function syncAllTenantsToCurrentMonth(todayOverride) {
+  const today = todayOverride || new Date();
+  const currentMonth = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, "0")}`;
+
   const allTenants = await Tenant.find({ active: true });
 
   const byUser = {};
@@ -46,21 +51,18 @@ async function syncAllTenantsToCurrentMonth() {
           (e) => e.month === monthToCreate
         );
         if (!exists) {
-          // Determine the correct due date
           let dueDate;
 
-          // Check if this is the very first month for the tenant
           const isFirstMonthEver =
             tenant.paymentHistory.length === 0
               ? monthToCreate === currentMonth
               : false;
 
           if (isFirstMonthEver) {
-            // Same logic as when a tenant is created: push to a future month if past
             dueDate = getDueDateForMonth(tenant, monthToCreate);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            while (dueDate.getTime() < today.getTime()) {
+            const todayDate = new Date(today);
+            todayDate.setHours(0, 0, 0, 0);
+            while (dueDate.getTime() < todayDate.getTime()) {
               const nextStr = getNextMonthString(
                 `${dueDate.getFullYear()}-${String(
                   dueDate.getMonth() + 1
@@ -69,7 +71,6 @@ async function syncAllTenantsToCurrentMonth() {
               dueDate = getDueDateForMonth(tenant, nextStr);
             }
           } else {
-            // Subsequent months: due date = due day of the NEXT calendar month
             const nextMonthStr = getNextMonthString(monthToCreate);
             dueDate = getDueDateForMonth(tenant, nextMonthStr);
           }
@@ -303,11 +304,10 @@ async function getExportStatement(req, res) {
     }
     today.setHours(0, 0, 0, 0);
 
-    // ---------- Global settings ----------
     const settings = await getGlobalSettings(req.userId);
     const garbageFee = settings.garbageFee || 0;
 
-    // ---------- Helper: cumulative balance ----------
+    // ---------- Helper: cumulative balance (includes current month) ----------
     function getCumulativeBalance(tenant, currentDate) {
       let activeMonth = null;
       for (let entry of tenant.paymentHistory || []) {
@@ -350,56 +350,58 @@ async function getExportStatement(req, res) {
       return balance;
     }
 
-    // ---------- Helper: past‑due balance ----------
-    function getPastDueBalance(tenant, currentDate) {
-      let overdue = 0;
-      for (let entry of tenant.paymentHistory || []) {
-        if (entry.remainingBalance > 0 && entry.dueDate) {
-          if (new Date(entry.dueDate) < currentDate)
-            overdue += entry.remainingBalance;
+    // ---------- Helper: past‑due amount (only overdue months) ----------
+    function getPastDueAmount(tenant, currentDate) {
+      let overdueCharges = 0;
+      for (let entry of tenant.paymentHistory) {
+        if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
+          const due = entry.dueDate ? new Date(entry.dueDate) : null;
+          if (due && due < currentDate) {
+            overdueCharges += entry.totalDue || 0;
+          }
         }
       }
-      return overdue;
+      let totalPaid = 0;
+      for (let entry of tenant.paymentHistory) {
+        totalPaid += entry.amountPaid || 0;
+      }
+      return Math.max(0, overdueCharges - totalPaid);
     }
 
-    // ---------- Pre‑compute stats for All Tenants report ----------
-    const activeTenantsCount = tenants.length;
-    let totalCollected = 0; // all‑time
-    let expectedThisMonth = 0;
-    let collectedThisMonth = 0;
-    const currentMonthStr = getCurrentMonthString();
+    // ---------- Filter for late tenants (only when type=late) ----------
+    if (type === "late") {
+      tenants = tenants.filter((tenant) => getPastDueAmount(tenant, today) > 0);
+    }
 
-    tenants.forEach((t) => {
-      t.paymentHistory.forEach((e) => {
-        totalCollected += e.amountPaid || 0;
-      });
-      // Expected rent for the current month (just the base rent – no deposit/water/garbage projection here)
-      expectedThisMonth += t.rent;
-      // Look for a payment record for the current month and sum its paid amount
-      const currentMonthRecord = t.paymentHistory.find(
-        (r) => r.month === currentMonthStr
-      );
-      if (currentMonthRecord) {
-        collectedThisMonth += currentMonthRecord.amountPaid || 0;
+    // ---------- User / landlord info ----------
+    const user = await User.findById(req.userId);
+    const landlordDisplay = user.landlordName || user.name || "Landlord";
+    tenants.sort((a, b) => a.name.localeCompare(b.name));
+
+    // ---------- Calculate totals for summary cards ----------
+    let totalAmount = 0; // Total Owed or Total Past Due
+    let collectedThisMonth = 0; // Only used for All Tenants
+    const currentMonthStr = `${today.getFullYear()}-${String(
+      today.getMonth() + 1
+    ).padStart(2, "0")}`;
+
+    tenants.forEach((tenant) => {
+      if (type === "late") {
+        totalAmount += getPastDueAmount(tenant, today);
+      } else {
+        totalAmount += Math.max(0, getCumulativeBalance(tenant, today));
+        // Sum amounts paid for the current month
+        const currentMonthEntries = tenant.paymentHistory.filter(
+          (e) => e.month === currentMonthStr && e.amountPaid > 0
+        );
+        collectedThisMonth += currentMonthEntries.reduce(
+          (sum, e) => sum + e.amountPaid,
+          0
+        );
       }
     });
 
-    // ---------- Filter for late tenants ----------
-    if (type === "late") {
-      tenants = tenants.filter(
-        (tenant) => getPastDueBalance(tenant, today) > 0
-      );
-    }
-
-    // ---------- Landlord info ----------
-    const user = await User.findById(req.userId);
-    const landlordDisplay = user.landlordName || user.name || "Landlord";
-
-    tenants.sort((a, b) => a.name.localeCompare(b.name));
-
     // ---------- Generate HTML ----------
-    let totalOwed = 0;
-
     let html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -451,50 +453,35 @@ async function getExportStatement(req, res) {
     <h1>${landlordDisplay}</h1>
     <p>${
       type === "late" ? "Late Tenants Report" : "Complete Tenant Roster"
-    } – ${new Date().toLocaleDateString()}</p>
+    } – ${today.toLocaleDateString()}</p>
   </div>
 
   <div class="summary-box">
+    <div class="summary-item">
+      <div class="label">${
+        type === "late" ? "Total Past Due" : "Total Owed"
+      }</div>
+      <div class="value owed">KSH ${totalAmount.toLocaleString()}</div>
+    </div>
 `;
 
-    if (type === "late") {
+    // Add the "Collected This Month" card only for the All Tenants report
+    if (type !== "late") {
       html += `
-    <div class="summary-item">
-      <div class="label">Total Past Due</div>
-      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
-    </div>
-    <div class="summary-item">
-      <div class="label">Late Tenants</div>
-      <div class="value">${tenants.length}</div>
-    </div>
-      `;
-    } else {
-      // All tenants – 5 cards
-      html += `
-    <div class="summary-item">
-      <div class="label">Total Owed</div>
-      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
-    </div>
-    <div class="summary-item">
-      <div class="label">Active Tenants</div>
-      <div class="value">${activeTenantsCount}</div>
-    </div>
-    <div class="summary-item">
-      <div class="label">Total Collected (All‑Time)</div>
-      <div class="value collected">KSH ${totalCollected.toLocaleString()}</div>
-    </div>
-    <div class="summary-item">
-      <div class="label">Expected This Month</div>
-      <div class="value">KSH ${expectedThisMonth.toLocaleString()}</div>
-    </div>
     <div class="summary-item">
       <div class="label">Collected This Month</div>
       <div class="value collected">KSH ${collectedThisMonth.toLocaleString()}</div>
     </div>
-      `;
+    `;
     }
 
     html += `
+    <div class="summary-item">
+      <div class="label">${
+        type === "late" ? "Late Tenants" : "Active Tenants"
+      }</div>
+      <div class="value">${tenants.length}</div>
+    </div>
   </div>
 
   <table>
@@ -506,7 +493,6 @@ async function getExportStatement(req, res) {
         <th>Rent</th>
         <th>${type === "late" ? "Past Due" : "Balance"}</th>
         <th>Status</th>
-        <th>Due Date</th>
       </tr>
     </thead>
     <tbody>
@@ -515,21 +501,22 @@ async function getExportStatement(req, res) {
     tenants.forEach((tenant) => {
       let balance, statusText, statusClass;
       if (type === "late") {
-        balance = getPastDueBalance(tenant, today);
+        balance = getPastDueAmount(tenant, today);
         statusText = "Past Due";
         statusClass = "status-unpaid";
       } else {
         balance = getCumulativeBalance(tenant, today);
-        const isPaid = balance <= 0;
-        statusText = isPaid ? "Paid" : balance > 0 ? "Unpaid" : "Overpaid";
-        statusClass = isPaid
-          ? "status-paid"
-          : balance > 0
-          ? "status-unpaid"
-          : "status-overpaid";
+        if (balance > 0) {
+          statusText = "Unpaid";
+          statusClass = "status-unpaid";
+        } else if (balance < 0) {
+          statusText = "Overpaid";
+          statusClass = "status-overpaid";
+        } else {
+          statusText = "Paid";
+          statusClass = "status-paid";
+        }
       }
-
-      totalOwed += balance > 0 ? balance : 0;
 
       // Deposit badge
       let depositBadge = "";
@@ -554,27 +541,6 @@ async function getExportStatement(req, res) {
         }
       }
 
-      let displayDueDate = "—";
-      if (type === "late") {
-        for (let entry of tenant.paymentHistory) {
-          if (
-            entry.remainingBalance > 0 &&
-            entry.dueDate &&
-            new Date(entry.dueDate) < today
-          ) {
-            displayDueDate = new Date(entry.dueDate).toLocaleDateString();
-            break;
-          }
-        }
-      } else {
-        const record = tenant.paymentHistory.find(
-          (r) => r.month === currentMonthStr
-        );
-        displayDueDate = record?.dueDate
-          ? new Date(record.dueDate).toLocaleDateString()
-          : "—";
-      }
-
       const balanceCellClass = balance > 0 ? "balance-red" : "balance-green";
 
       html += `
@@ -585,16 +551,21 @@ async function getExportStatement(req, res) {
           <td>KSH ${tenant.rent.toLocaleString()}${depositBadge}</td>
           <td class="${balanceCellClass}">KSH ${balance.toLocaleString()}</td>
           <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-          <td>${displayDueDate}</td>
         </tr>
       `;
     });
 
-    // Replace placeholder in the summary cards
+    // Replace placeholder totals with actual values
     html = html.replace(
       "KSH 0</div>",
-      `KSH ${totalOwed.toLocaleString()}</div>`
+      `KSH ${totalAmount.toLocaleString()}</div>`
     );
+    if (type !== "late") {
+      html = html.replace(
+        "KSH 0</div>",
+        `KSH ${collectedThisMonth.toLocaleString()}</div>`
+      );
+    }
 
     html += `
     </tbody>
@@ -611,7 +582,6 @@ async function getExportStatement(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
-
 async function getTenantById(req, res) {
   try {
     let id = req.params.id;
@@ -953,8 +923,8 @@ async function createTenant(req, res) {
     // ─────────────────────────────────────────────────────────
 
     // Deposit logic
-    const depPeriod = Number(depositPeriod) || 1; // default 1 month
-    const deposit = depPeriod > 0; // if period > 0, deposit is active
+    const depPeriod = depositPeriod !== undefined ? Number(depositPeriod) : 1;
+    const deposit = depPeriod > 0;
     const depositInstalment = deposit ? Math.round(rentNum / depPeriod) : 0;
     const baseRent = rentNum;
     const waterCharge = 0;
@@ -1391,10 +1361,6 @@ async function deleteMeterReading(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
-async function manualSync(req, res) {
-  await syncAllTenantsToCurrentMonth();
-  res.json({ success: true, currentMonth: getCurrentMonthString() });
-}
 
 async function getTenantStatement(req, res) {
   try {
@@ -1406,6 +1372,14 @@ async function getTenantStatement(req, res) {
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+
+    // Determine today’s date (dev‑aware)
+    let today = new Date();
+    if (req.query.devDate) {
+      const devDate = new Date(req.query.devDate);
+      if (!isNaN(devDate.getTime())) today = devDate;
+    }
+    today.setHours(0, 0, 0, 0);
 
     // Sort all entries: month → datePaid (nulls last) → _id
     const allEntries = [...tenant.paymentHistory].sort((a, b) => {
@@ -1431,6 +1405,27 @@ async function getTenantStatement(req, res) {
       return month >= firstMonth && month <= lastDepMonth;
     }
 
+    // Compute overdue balance (only months with due date < today)
+    function getPastDueAmount() {
+      let overdueCharges = 0;
+      for (let entry of allEntries) {
+        // Only consider charge entries (amountPaid === 0 and no datePaid)
+        if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
+          const due = entry.dueDate ? new Date(entry.dueDate) : null;
+          if (due && due < today) {
+            overdueCharges += entry.totalDue || 0;
+          }
+        }
+      }
+      let totalPaid = 0;
+      for (let entry of allEntries) {
+        totalPaid += entry.amountPaid || 0;
+      }
+      return Math.max(0, overdueCharges - totalPaid);
+    }
+
+    const overdueBalance = getPastDueAmount();
+
     let html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -1452,6 +1447,7 @@ async function getTenantStatement(req, res) {
     .charge-row td { background:#f1f5f9; font-weight:600; }
     .payment-row td { color:#475569; }
     .balance { font-weight:700; }
+    .red-balance { color:#dc2626; font-weight:700; }
     .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }
     .water-detail { font-size:0.75rem; color:#64748b; display:block; }
     .print-btn { margin-top:30px; text-align:center; }
@@ -1462,7 +1458,7 @@ async function getTenantStatement(req, res) {
 <body>
   <div class="header">
     <h1>${landlordDisplay}</h1>
-    <p>Statement generated on ${new Date().toLocaleDateString()}</p>
+    <p>Statement generated on ${today.toLocaleDateString()}</p>
   </div>
   <div class="tenant-info">
     <p><strong>Tenant:</strong> ${tenant.name}</p>
@@ -1481,7 +1477,6 @@ async function getTenantStatement(req, res) {
         <th>Total Due</th>
         <th>Amount Paid</th>
         <th>Balance</th>
-        <th>Due Date</th>
         <th>Date Paid</th>
         <th>M‑Pesa Ref</th>
       </tr>
@@ -1495,13 +1490,10 @@ async function getTenantStatement(req, res) {
 
       if (entry.month !== currentMonth) {
         currentMonth = entry.month;
-
-        // Deposit badge – show below rent on its own line
         const depositText = isDepositMonth(entry.month)
           ? '<br><span class="deposit-badge">+Deposit</span>'
           : "";
 
-        // Water details
         const reading = tenant.waterMeterReadings?.find(
           (r) => r.month === entry.month
         );
@@ -1516,10 +1508,8 @@ async function getTenantStatement(req, res) {
           } u × ${reading.rate.toLocaleString()})</span>`;
         }
 
-        // Format due date for this charge entry
-        const dueDateStr = entry.dueDate
-          ? new Date(entry.dueDate).toLocaleDateString()
-          : "—";
+        const balanceClass =
+          entry.remainingBalance > 0 ? "red-balance" : "balance";
 
         html += `
           <tr class="charge-row">
@@ -1529,26 +1519,22 @@ async function getTenantStatement(req, res) {
             <td>${(entry.garbageCharge || 0).toLocaleString()}</td>
             <td>${(entry.totalDue || 0).toLocaleString()}</td>
             <td></td>
-            <td class="balance">${entry.remainingBalance.toLocaleString()}</td>
-            <td>${dueDateStr}</td>
+            <td class="${balanceClass}">${entry.remainingBalance.toLocaleString()}</td>
             <td></td>
             <td></td>
           </tr>
         `;
       }
 
-      // Payment rows
       if (!isOriginalCharge && entry.amountPaid > 0) {
+        const balanceClass =
+          entry.remainingBalance > 0 ? "red-balance" : "balance";
         html += `
           <tr class="payment-row">
             <td>↳ Payment</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td></td><td></td><td></td><td></td>
             <td>${entry.amountPaid.toLocaleString()}</td>
-            <td class="balance">${entry.remainingBalance.toLocaleString()}</td>
-            <td></td>
+            <td class="${balanceClass}">${entry.remainingBalance.toLocaleString()}</td>
             <td>${
               entry.datePaid
                 ? new Date(entry.datePaid).toLocaleDateString()
@@ -1560,26 +1546,37 @@ async function getTenantStatement(req, res) {
       }
     }
 
-    const lastEntry = allEntries[allEntries.length - 1];
-    const currentBalance = lastEntry ? lastEntry.remainingBalance || 0 : 0;
-
     html += `
     </tbody>
   </table>
   <div style="margin-top:20px; text-align:center; font-size:1.2rem; font-weight:700;">
-    Current Balance: KSH ${currentBalance.toLocaleString()}
+    Current Overdue Balance: KSH ${overdueBalance.toLocaleString()}
   </div>
   <div class="print-btn">
     <button onclick="window.print()">🖨️ Save as PDF</button>
   </div>
 </body>
-</html>
-`;
+</html>`;
 
     res.send(html);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+}
+
+async function manualSync(req, res) {
+  let today = new Date();
+  if (req.headers["x-dev-date"]) {
+    const devDate = new Date(req.headers["x-dev-date"]);
+    if (!isNaN(devDate.getTime())) today = devDate;
+  }
+  await syncAllTenantsToCurrentMonth(today);
+  res.json({
+    success: true,
+    currentMonth: `${today.getFullYear()}-${String(
+      today.getMonth() + 1
+    ).padStart(2, "0")}`,
+  });
 }
 
 async function bulkChangeDueDay(req, res) {

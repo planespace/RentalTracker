@@ -368,7 +368,7 @@ async function getExportStatement(req, res) {
       return Math.max(0, overdueCharges - totalPaid);
     }
 
-    // ---------- Filter for late tenants (only when type=late) ----------
+    // ---------- Filter for late tenants ----------
     if (type === "late") {
       tenants = tenants.filter((tenant) => getPastDueAmount(tenant, today) > 0);
     }
@@ -378,19 +378,21 @@ async function getExportStatement(req, res) {
     const landlordDisplay = user.landlordName || user.name || "Landlord";
     tenants.sort((a, b) => a.name.localeCompare(b.name));
 
-    // ---------- Calculate totals for summary cards ----------
-    let totalAmount = 0; // Total Owed or Total Past Due
-    let collectedThisMonth = 0; // Only used for All Tenants
+    // ---------- Calculate totals ----------
+    let totalOwed = 0;
+    let collectedThisMonth = 0;
+    let expectedThisMonth = 0;
     const currentMonthStr = `${today.getFullYear()}-${String(
       today.getMonth() + 1
     ).padStart(2, "0")}`;
 
     tenants.forEach((tenant) => {
+      expectedThisMonth += tenant.rent; // always sum expected rent
+
       if (type === "late") {
-        totalAmount += getPastDueAmount(tenant, today);
+        totalOwed += getPastDueAmount(tenant, today);
       } else {
-        totalAmount += Math.max(0, getCumulativeBalance(tenant, today));
-        // Sum amounts paid for the current month
+        totalOwed += Math.max(0, getCumulativeBalance(tenant, today));
         const currentMonthEntries = tenant.paymentHistory.filter(
           (e) => e.month === currentMonthStr && e.amountPaid > 0
         );
@@ -457,31 +459,43 @@ async function getExportStatement(req, res) {
   </div>
 
   <div class="summary-box">
-    <div class="summary-item">
-      <div class="label">${
-        type === "late" ? "Total Past Due" : "Total Owed"
-      }</div>
-      <div class="value owed">KSH ${totalAmount.toLocaleString()}</div>
-    </div>
 `;
 
-    // Add the "Collected This Month" card only for the All Tenants report
-    if (type !== "late") {
+    if (type === "late") {
+      // Late Tenants – only two cards
       html += `
+    <div class="summary-item">
+      <div class="label">Total Past Due</div>
+      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Late Tenants</div>
+      <div class="value">${tenants.length}</div>
+    </div>
+      `;
+    } else {
+      // All Tenants – four cards
+      html += `
+    <div class="summary-item">
+      <div class="label">Total Owed</div>
+      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
+    </div>
     <div class="summary-item">
       <div class="label">Collected This Month</div>
       <div class="value collected">KSH ${collectedThisMonth.toLocaleString()}</div>
     </div>
-    `;
+    <div class="summary-item">
+      <div class="label">Expected This Month</div>
+      <div class="value">KSH ${expectedThisMonth.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Active Tenants</div>
+      <div class="value">${tenants.length}</div>
+    </div>
+      `;
     }
 
     html += `
-    <div class="summary-item">
-      <div class="label">${
-        type === "late" ? "Late Tenants" : "Active Tenants"
-      }</div>
-      <div class="value">${tenants.length}</div>
-    </div>
   </div>
 
   <table>
@@ -554,18 +568,6 @@ async function getExportStatement(req, res) {
         </tr>
       `;
     });
-
-    // Replace placeholder totals with actual values
-    html = html.replace(
-      "KSH 0</div>",
-      `KSH ${totalAmount.toLocaleString()}</div>`
-    );
-    if (type !== "late") {
-      html = html.replace(
-        "KSH 0</div>",
-        `KSH ${collectedThisMonth.toLocaleString()}</div>`
-      );
-    }
 
     html += `
     </tbody>

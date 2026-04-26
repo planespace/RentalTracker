@@ -1383,7 +1383,6 @@ async function getTenantStatement(req, res) {
     function getPastDueAmount() {
       let overdueCharges = 0;
       for (let entry of allEntries) {
-        // Only consider charge entries (amountPaid === 0 and no datePaid)
         if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
           const due = entry.dueDate ? new Date(entry.dueDate) : null;
           if (due && due < today) {
@@ -1423,7 +1422,7 @@ async function getTenantStatement(req, res) {
     .balance { font-weight:700; }
     .red-balance { color:#dc2626; font-weight:700; }
     .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }
-    .water-detail { font-size:0.75rem; color:#64748b; display:block; }
+    .water-detail { font-size:0.7rem; color:#64748b; display:block; margin-top:2px; }
     .print-btn { margin-top:30px; text-align:center; }
     .print-btn button { background:#3b82f6; color:white; border:none; padding:10px 30px; border-radius:8px; font-size:1rem; cursor:pointer; }
     @media print { .print-btn { display:none; } }
@@ -1468,18 +1467,17 @@ async function getTenantStatement(req, res) {
           ? '<br><span class="deposit-badge">+Deposit</span>'
           : "";
 
+        // Clean water display: cost on first line, math on second line
         const reading = tenant.waterMeterReadings?.find(
           (r) => r.month === entry.month
         );
         let waterDisplay = entry.waterCharge
           ? entry.waterCharge.toLocaleString()
           : "0";
-        if (reading) {
+        if (reading && reading.unitsUsed > 0) {
           waterDisplay = `${entry.waterCharge.toLocaleString()}<br><span class="water-detail">(${
-            reading.reading
-          } – ${
             reading.unitsUsed
-          } u × ${reading.rate.toLocaleString()})</span>`;
+          } units × ${reading.rate.toLocaleString()})</span>`;
         }
 
         const balanceClass =

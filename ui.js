@@ -4,69 +4,6 @@ function renderTenant(tenant, index) {
   let currentRecord = getCurrentPaymentRecord(tenant);
   const today = getAppToday(); // midnight, dev‑aware
 
-  // Determine the "active billing month": first month with a future due date.
-  let activeMonth = null;
-  for (let entry of tenant.paymentHistory || []) {
-    const due = normalizeDueDate(entry.dueDate);
-    if (due && due > today) {
-      activeMonth = entry.month;
-      break;
-    }
-  }
-  // If all due dates are past, the active month is the current calendar month
-  if (!activeMonth) activeMonth = getCurrentMonth();
-
-  // ----- Balance = sum of charges for months ≤ active month (minus total paid) -----
-  let totalCharges = 0;
-  let totalPaid = 0;
-  const seenMonths = new Set();
-
-  for (let entry of tenant.paymentHistory || []) {
-    // Sum all payments
-    totalPaid += entry.amountPaid || 0;
-
-    // Only count charges once per month, and only if month ≤ active month
-    if (seenMonths.has(entry.month) || entry.month > activeMonth) continue;
-
-    const charges =
-      (entry.baseRent || tenant.rent) +
-      (entry.waterCharge || 0) +
-      (entry.garbageCharge || 0);
-    totalCharges += charges;
-    seenMonths.add(entry.month);
-  }
-
-  // If the active month has no payment record yet, add the tenant’s rent
-  if (!seenMonths.has(activeMonth)) {
-    totalCharges += tenant.rent;
-    const settings = globalSettings || { garbageFee: 0 };
-    totalCharges += settings.garbageFee || 0;
-  }
-
-  let balance = totalCharges - totalPaid;
-
-  // Fallback: if no payment history at all, use tenant.rent
-  if (balance === 0 && tenant.paymentHistory.length === 0) {
-    balance = tenant.rent;
-  }
-
-  // Formatting
-  let balanceClass = "";
-  let balanceText = "";
-  if (balance < 0) {
-    balanceClass = "balance-overpaid";
-    balanceText = `+${formatCurrency(Math.abs(balance))}`;
-  } else if (balance === 0) {
-    balanceClass = "balance-paid";
-    balanceText = formatCurrency(0);
-  } else {
-    balanceClass = "balance-unpaid";
-    balanceText = formatCurrency(balance);
-  }
-
-  const displayDueDate = getTenantNextDueDate(tenant);
-  const isFullyPaid = currentRecord.paid && balance <= 0;
-
   // ---------- Past‑due logic (per month, using latest entry only) ----------
   let isPastDue = false;
 
@@ -113,14 +50,46 @@ function renderTenant(tenant, index) {
 
   let statusText = "";
   let statusClass = "status-badge due-status";
+
+  // ----- Balance = latest cumulative remaining balance from payment history -----
+  let balance = tenant.rent; // fallback if no history
+  if (tenant.paymentHistory && tenant.paymentHistory.length > 0) {
+    // Sort same way the server does: month → datePaid (nulls last) → _id
+    const sorted = [...tenant.paymentHistory].sort((a, b) => {
+      if (a.month !== b.month) return a.month.localeCompare(b.month);
+      const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+      const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+      if (aDate !== bDate) return aDate - bDate;
+      return a._id.toString().localeCompare(b._id.toString());
+    });
+    balance = sorted[sorted.length - 1].remainingBalance;
+  }
+
+  const isFullyPaid = currentRecord.paid && balance <= 0;
+
   if (isFullyPaid && !isPastDue) statusText = "✅ On time";
   else if (isPastDue) {
     statusText = "⚠️ Past due";
     statusClass += " overdue";
   } else statusText = "✅ On time";
 
-  // Deposit badge – visible until the due date of the LAST deposit month passes
+  // Formatting
+  let balanceClass = "";
+  let balanceText = "";
+  if (balance < 0) {
+    balanceClass = "balance-overpaid";
+    balanceText = `+${formatCurrency(Math.abs(balance))}`;
+  } else if (balance === 0) {
+    balanceClass = "balance-paid";
+    balanceText = formatCurrency(0);
+  } else {
+    balanceClass = "balance-unpaid";
+    balanceText = formatCurrency(balance);
+  }
 
+  const displayDueDate = getTenantNextDueDate(tenant);
+
+  // Deposit badge – visible until the due date of the LAST deposit month passes
   let hasDeposit = false;
   if (tenant.deposit) {
     const firstMonth = getTenantFirstMonth(tenant); // e.g., "2026-04"

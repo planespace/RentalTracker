@@ -3036,3 +3036,51 @@ if (window.location.search.includes("dev=true")) {
 } else {
   document.querySelector(".set-month-row").style.display = "none";
 }
+
+function updateAllTimeStats(tenantArray) {
+  let allTimeOwed = 0;
+  let allTimeCollected = 0;
+  let highestDebtAmount = 0;
+  let highestDebtor = null;
+
+  tenantArray.forEach((tenant) => {
+    // Total collected – sum all payments ever made
+    tenant.paymentHistory.forEach((record) => {
+      if (record.amountPaid) {
+        allTimeCollected += record.amountPaid;
+      }
+    });
+
+    // CURRENT outstanding balance (latest running balance)
+    let balance = tenant.rent;   // fallback
+    if (tenant.paymentHistory && tenant.paymentHistory.length > 0) {
+      // sort exactly like renderTenant does
+      const sorted = [...tenant.paymentHistory].sort((a, b) => {
+        if (a.month !== b.month) return a.month.localeCompare(b.month);
+        const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+        const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+        if (aDate !== bDate) return aDate - bDate;
+        return a._id.toString().localeCompare(b._id.toString());
+      });
+      balance = sorted[sorted.length - 1].remainingBalance;
+    }
+
+    if (balance > 0) {
+      allTimeOwed += balance;
+      if (balance > highestDebtAmount) {
+        highestDebtAmount = balance;
+        highestDebtor = tenant;
+      }
+    }
+  });
+
+  document.querySelector(".all-time-owed").textContent =
+    `Total owed: ${formatCurrency(allTimeOwed)}`;
+  document.querySelector(".all-time-collected").textContent =
+    `Collected: ${formatCurrency(allTimeCollected)}`;
+  const debtorText = highestDebtor
+    ? `${highestDebtor.name} – ${formatCurrency(highestDebtAmount)}`
+    : "No debt";
+  document.querySelector(".all-time-highest-debtor").textContent = debtorText;
+}
+

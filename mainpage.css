@@ -4587,3 +4587,9 @@ body.bulk-mode-active .due-date-cell {
   border-radius: 10px;
   margin-top: 2px;
 }
+
+#save-utilities-btn,#cancel-utilities-btn,#save-landlord-profile,#cancel-landlord-profile {
+  width: 200px;
+}
+
+

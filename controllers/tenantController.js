@@ -295,83 +295,228 @@ async function getExportStatement(req, res) {
     const { type } = req.query; // 'all' or 'late'
     let tenants = await Tenant.find({ userId: req.userId, active: true });
 
-    // Filter for late tenants using the correct latest‑entry logic
-    if (type === "late") {
-      const currentMonth = getCurrentMonthString();
-      tenants = tenants.filter((tenant) => isTenantLate(tenant, currentMonth));
+    // ---------- Determine today's date (dev-aware) ----------
+    let today = new Date();
+    if (req.query.devDate) {
+      const devDate = new Date(req.query.devDate);
+      if (!isNaN(devDate.getTime())) today = devDate;
+    }
+    today.setHours(0, 0, 0, 0);
+
+    // ---------- Get global settings (needed for garbage fee in balance) ----------
+    const settings = await getGlobalSettings(req.userId);
+    const garbageFee = settings.garbageFee || 0;
+
+    // ---------- Server-side cumulative balance helper ----------
+    function getTenantBalance(tenant, currentDate) {
+      let activeMonth = null;
+      for (let entry of tenant.paymentHistory || []) {
+        const due = new Date(entry.dueDate);
+        if (!isNaN(due.getTime()) && due > currentDate) {
+          activeMonth = entry.month;
+          break;
+        }
+      }
+      if (!activeMonth) {
+        const y = currentDate.getFullYear();
+        const m = String(currentDate.getMonth() + 1).padStart(2, "0");
+        activeMonth = `${y}-${m}`;
+      }
+
+      let totalCharges = 0;
+      let totalPaid = 0;
+      const seenMonths = new Set();
+
+      for (let entry of tenant.paymentHistory || []) {
+        totalPaid += entry.amountPaid || 0;
+        if (seenMonths.has(entry.month) || entry.month > activeMonth) continue;
+
+        const charges =
+          (entry.baseRent || tenant.rent) +
+          (entry.waterCharge || 0) +
+          (entry.garbageCharge || 0);
+        totalCharges += charges;
+        seenMonths.add(entry.month);
+      }
+
+      if (!seenMonths.has(activeMonth)) {
+        totalCharges += tenant.rent + garbageFee; // projected rent + garbage
+      }
+
+      let balance = totalCharges - totalPaid;
+      if (balance === 0 && tenant.paymentHistory.length === 0) {
+        balance = tenant.rent;
+      }
+      return balance;
     }
 
-    const user = await User.findById(req.userId); // ✅ FIXED: User.findById
+    // ---------- Filter for late tenants (any month with past-due positive balance) ----------
+    if (type === "late") {
+      tenants = tenants.filter((tenant) => {
+        for (let entry of tenant.paymentHistory) {
+          if (entry.remainingBalance > 0 && entry.dueDate) {
+            const due = new Date(entry.dueDate);
+            if (due < today) return true;
+          }
+        }
+        return false;
+      });
+    }
+
+    // ---------- User & landlord info ----------
+    const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
-    // Sort tenants alphabetically for a clean report
+    // Sort tenants alphabetically
     tenants.sort((a, b) => a.name.localeCompare(b.name));
 
-    let html = `
-      <html>
-      <head>
-        <title>Tenant Statement - ${
-          type === "late" ? "Late Tenants" : "All Tenants"
-        }</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          h1 { color: #1e293b; text-align: center; }
-          table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-          th { background: #f1f5f9; }
-          .summary { margin-top: 20px; font-weight: bold; }
-          @media print { button { display: none; } }
-        </style>
-      </head>
-      <body>
-        <h1>${landlordDisplay}</h1>
-        <h3>${
-          type === "late" ? "Late Tenants Report" : "All Tenants Report"
-        }</h3>
-        <p>Generated on: ${new Date().toLocaleDateString()}</p>
-        <table>
-          <thead>
-            <tr><th>Name</th><th>House</th><th>Phone</th><th>Rent</th><th>Current Balance</th><th>Status</th><th>Due Date</th></tr>
-          </thead>
-          <tbody>
-    `;
-
+    // ---------- Generate HTML ----------
     let totalOwed = 0;
-    for (const tenant of tenants) {
-      const currentMonth = getCurrentMonthString();
-      const record = tenant.paymentHistory.find(
-        (r) => r.month === currentMonth
-      );
-      const balance = record?.remainingBalance ?? tenant.rent;
-      const isPaid = record?.paid && balance <= 0;
+    const currentMonthStr = getCurrentMonthString(); // for display purposes if needed
+
+    let html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${
+    type === "late" ? "Late Tenants Report" : "All Tenants Report"
+  }</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
+    .header { text-align:center; margin-bottom: 30px; }
+    .header h1 { font-size:2rem; color:#0f172a; margin-bottom:5px; }
+    .header p { color:#475569; font-size:0.9rem; }
+    .summary-box { display:flex; justify-content:center; gap:30px; margin:25px 0; }
+    .summary-item { background:#f1f5f9; border-radius:12px; padding:16px 28px; text-align:center; }
+    .summary-item .label { font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; color:#64748b; }
+    .summary-item .value { font-size:2rem; font-weight:700; color:#0f172a; margin-top:5px; }
+    .summary-item .value.owed { color:#dc2626; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { text-align:center !important; padding:8px 6px; font-size:0.85rem; }
+    th { background:#e2e8f0; text-transform:uppercase; font-size:0.8rem; color:#334155; }
+    td { border-bottom:1px solid #e2e8f0; }
+    .status-badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+    .status-paid { background:#dcfce7; color:#16a34a; }
+    .status-unpaid { background:#fee2e2; color:#dc2626; }
+    .status-overpaid { background:#dbeafe; color:#2563eb; }
+    .deposit-badge { font-size:0.7rem; color:#b45309; }
+    .print-btn { margin-top:30px; text-align:center; }
+    .print-btn button { background:#3b82f6; color:white; border:none; padding:10px 30px; border-radius:8px; font-size:1rem; cursor:pointer; }
+    @media print { .print-btn { display:none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${landlordDisplay}</h1>
+    <p>${
+      type === "late" ? "Late Tenants Report" : "All Tenants Report"
+    } – Generated on ${new Date().toLocaleDateString()}</p>
+  </div>
+
+  <div class="summary-box">
+    <div class="summary-item">
+      <div class="label">Total Owed</div>
+      <div class="value owed">KSH ${totalOwed.toLocaleString()}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">${
+        type === "late" ? "Late Tenants" : "Total Tenants"
+      }</div>
+      <div class="value">${tenants.length}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>House</th>
+        <th>Phone</th>
+        <th>Rent</th>
+        <th>Current Balance</th>
+        <th>Status</th>
+        <th>Due Date</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
+
+    // Build rows
+    tenants.forEach((tenant) => {
+      // Cumulative balance using today's dev date
+      const balance = getTenantBalance(tenant, today);
+      totalOwed += balance > 0 ? balance : 0;
+
+      const isPaid = balance <= 0;
       const status = isPaid ? "Paid" : balance > 0 ? "Unpaid" : "Overpaid";
-      if (balance > 0) totalOwed += balance;
+      const statusClass = isPaid
+        ? "status-paid"
+        : balance > 0
+        ? "status-unpaid"
+        : "status-overpaid";
+
+      // Deposit badge
+      let depositBadge = "";
+      if (tenant.deposit && tenant.depositPeriod) {
+        const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
+        if (firstMonth) {
+          const [fy, fm] = firstMonth.split("-").map(Number);
+          const endDate = new Date(
+            fy,
+            fm - 1 + (tenant.depositPeriod || 1) - 1,
+            1
+          );
+          const lastDepMonth = `${endDate.getFullYear()}-${String(
+            endDate.getMonth() + 1
+          ).padStart(2, "0")}`;
+          const todayMonth = `${today.getFullYear()}-${String(
+            today.getMonth() + 1
+          ).padStart(2, "0")}`;
+          if (todayMonth <= lastDepMonth) {
+            depositBadge = ' <span class="deposit-badge">+Deposit</span>';
+          }
+        }
+      }
+
+      // Due date display: use the earliest unpaid month's due date if available, else fallback
+      const record = tenant.paymentHistory.find(
+        (r) => r.month === currentMonthStr
+      );
+      const displayDueDate = record?.dueDate
+        ? new Date(record.dueDate).toLocaleDateString()
+        : "—";
 
       html += `
         <tr>
           <td>${tenant.name}</td>
           <td>${tenant.houseNumber}</td>
           <td>${tenant.phoneNumber}</td>
-          <td>KSH ${tenant.rent.toLocaleString()}</td>
+          <td>KSH ${tenant.rent.toLocaleString()}${depositBadge}</td>
           <td>KSH ${balance.toLocaleString()}</td>
-          <td>${status}</td>
-          <td>${
-            record?.dueDate
-              ? new Date(record.dueDate).toLocaleDateString()
-              : "—"
-          }</td>
+          <td><span class="status-badge ${statusClass}">${status}</span></td>
+          <td>${displayDueDate}</td>
         </tr>
       `;
-    }
+    });
+
+    // Update the total owed in the summary (we already calculated it, but we'll replace the placeholder)
+    html = html.replace(
+      "KSH 0</div>",
+      `KSH ${totalOwed.toLocaleString()}</div>`
+    ); // just in case
 
     html += `
-          </tbody>
-         </table>
-         <div class="summary">Total Balance: KSH ${totalOwed.toLocaleString()}</div>
-         <button onclick="window.print()">Save as PDF</button>
-       </body>
-      </html>
-    `;
+    </tbody>
+  </table>
+
+  <div class="print-btn">
+    <button onclick="window.print()">🖨️ Save as PDF</button>
+  </div>
+</body>
+</html>
+`;
 
     res.send(html);
   } catch (error) {
@@ -1006,9 +1151,10 @@ async function updateGlobalSettings(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function importTenants(req, res) {
   try {
-    const { tenants } = req.body; // array of tenant objects
+    const { tenants } = req.body; // array of tenant objects from CSV
     const userId = req.userId;
     const currentMonth = getCurrentMonthString();
     const settings = await getGlobalSettings(req.userId);
@@ -1045,20 +1191,37 @@ async function importTenants(req, res) {
         continue;
       }
 
-      // --- NEW: Extract dueDay from dueDate ---
-      let dueDayNum = settings.defaultDueDay; // fallback to global default
-      if (t.dueDate) {
-        const parsedDueDate = new Date(t.dueDate);
-        if (!isNaN(parsedDueDate.getTime())) {
-          dueDayNum = parsedDueDate.getDate(); // extract day (1-31)
+      // ----- dueDay – directly from CSV, fallback to global default -----
+      let dueDayNum = settings.defaultDueDay || 1;
+      if (t.dueDay !== undefined && t.dueDay !== "") {
+        const parsed = parseInt(t.dueDay);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) {
+          dueDayNum = parsed;
         }
       }
-      // Ensure within valid range
-      if (!dueDayNum || dueDayNum < 1 || dueDayNum > 31) {
-        dueDayNum = settings.defaultDueDay || 1;
+
+      // ----- Deposit logic -----
+      let deposit = false;
+      let depositPeriod = 1;
+      if (t.depositPeriod !== undefined && t.depositPeriod !== "") {
+        const period = parseInt(t.depositPeriod);
+        if (!isNaN(period) && period > 0) {
+          deposit = true;
+          depositPeriod = period;
+        }
       }
 
       const entryDate = t.entryDate ? new Date(t.entryDate) : new Date();
+
+      // Build first month's payment entry with deposit instalment
+      const depositInstalment = deposit
+        ? Math.round(rentNum / depositPeriod)
+        : 0;
+      const baseRent = rentNum;
+      const waterCharge = 0;
+      const garbageCharge = settings.garbageFee;
+      const totalDue =
+        baseRent + depositInstalment + waterCharge + garbageCharge;
 
       const newTenant = new Tenant({
         userId,
@@ -1068,20 +1231,22 @@ async function importTenants(req, res) {
         houseNumber: t.houseNumber,
         notes: t.notes || "",
         entryDate,
-        dueDay: dueDayNum, // ← store dueDay, not dueDate
+        dueDay: dueDayNum,
+        deposit,
+        depositPeriod,
         active: true,
         paymentHistory: [
           {
             month: currentMonth,
-            baseRent: rentNum,
-            waterCharge: 0,
-            garbageCharge: settings.garbageFee,
-            totalDue: rentNum + settings.garbageFee,
+            baseRent: baseRent + depositInstalment, // includes deposit instalment
+            waterCharge,
+            garbageCharge,
+            totalDue,
             amountPaid: 0,
-            remainingBalance: rentNum + settings.garbageFee,
+            remainingBalance: totalDue,
             paid: false,
             datePaid: null,
-            dueDate: getDueDateForMonth(dueDayNum, currentMonth), // compute for payment record
+            dueDate: getDueDateForMonth(dueDayNum, currentMonth),
             mpesaRef: "",
           },
         ],
@@ -1100,6 +1265,7 @@ async function importTenants(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function getArchivedCount(req, res) {
   try {
     const count = await Tenant.countDocuments({
@@ -1148,7 +1314,6 @@ async function getTenantStatement(req, res) {
       _id: req.params.id,
       userId: req.userId,
     });
-    // ✅ FIXED: removed "const User = require("../models/User");" and used User.findById
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
 
@@ -1163,74 +1328,165 @@ async function getTenantStatement(req, res) {
       return a._id.toString().localeCompare(b._id.toString());
     });
 
-    let html = `
-      <html><head><title>Statement - ${tenant.name}</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h2 { color: #1e293b; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background: #f1f5f9; }
-        .summary { margin-top: 20px; font-weight: bold; }
-        @media print { button { display: none; } }
-      </style></head><body>
-      <h2>Statement for ${tenant.name}</h2>
-      <p>House: ${tenant.houseNumber} | Phone: ${tenant.phoneNumber}</p>
-      <table>
-        <tr><th>Month</th><th>Rent</th><th>Water</th><th>Garbage</th><th>Total Due</th><th>Paid</th><th>Balance</th><th>Date</th><th>M‑Pesa Ref</th></tr>
-    `;
+    // Get all unique months to determine the tenant's first month
+    const allMonths = [...new Set(allEntries.map((e) => e.month))].sort();
+    const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
 
-    for (let entry of allEntries) {
-      // Determine if this month falls within the deposit period
-      let depositNote = "";
-      if (tenant.deposit) {
-        const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0]; // earliest month (e.g., "2026-04")
-        if (firstMonth) {
-          const depPeriod = tenant.depositPeriod || 1;
-          // Calculate the last deposit month
-          const [fy, fm] = firstMonth.split("-").map(Number);
-          const endDate = new Date(fy, fm - 1 + depPeriod - 1, 1);
-          const lastDepMonth = `${endDate.getFullYear()}-${String(
-            endDate.getMonth() + 1
-          ).padStart(2, "0")}`;
-          if (entry.month >= firstMonth && entry.month <= lastDepMonth) {
-            depositNote = " (+Deposit)";
-          }
+    // Helper to check if a month is within the deposit period
+    function isDepositMonth(month) {
+      if (!tenant.deposit || !tenant.depositPeriod || !firstMonth) return false;
+      const [fy, fm] = firstMonth.split("-").map(Number);
+      const endDate = new Date(fy, fm - 1 + (tenant.depositPeriod || 1) - 1, 1);
+      const lastDepMonth = `${endDate.getFullYear()}-${String(
+        endDate.getMonth() + 1
+      ).padStart(2, "0")}`;
+      return month >= firstMonth && month <= lastDepMonth;
+    }
+
+    let html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Statement – ${tenant.name}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
+    .header { text-align:center; margin-bottom: 30px; }
+    .header h1 { font-size:2rem; color:#0f172a; }
+    .header p { color:#475569; font-size:0.9rem; }
+    .tenant-info { margin-bottom:25px; padding:12px; background:#f8fafc; border-radius:8px; text-align:center; }
+    .tenant-info p { margin:3px 0; font-size:0.95rem; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { text-align:center !important; padding:8px 6px; font-size:0.85rem; }
+    th { background:#e2e8f0; text-transform:uppercase; font-size:0.8rem; color:#334155; }
+    td { border-bottom:1px solid #e2e8f0; }
+    .charge-row td { background:#f1f5f9; font-weight:600; }
+    .payment-row td { color:#475569; }
+    .balance { font-weight:700; }
+    .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }
+    .water-detail { font-size:0.75rem; color:#64748b; display:block; }
+    .print-btn { margin-top:30px; text-align:center; }
+    .print-btn button { background:#3b82f6; color:white; border:none; padding:10px 30px; border-radius:8px; font-size:1rem; cursor:pointer; }
+    @media print { .print-btn { display:none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${landlordDisplay}</h1>
+    <p>Statement generated on ${new Date().toLocaleDateString()}</p>
+  </div>
+  <div class="tenant-info">
+    <p><strong>Tenant:</strong> ${tenant.name}</p>
+    <p><strong>House:</strong> ${
+      tenant.houseNumber
+    } &nbsp;&nbsp; <strong>Phone:</strong> ${tenant.phoneNumber}</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Month</th>
+        <th>Rent</th>
+        <th>Water</th>
+        <th>Garbage</th>
+        <th>Total Due</th>
+        <th>Amount Paid</th>
+        <th>Balance</th>
+        <th>Due Date</th>
+        <th>Date Paid</th>
+        <th>M‑Pesa Ref</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
+
+    let currentMonth = null;
+    for (const entry of allEntries) {
+      const isOriginalCharge = (entry.amountPaid || 0) === 0 && !entry.datePaid;
+
+      if (entry.month !== currentMonth) {
+        currentMonth = entry.month;
+
+        // Deposit badge – show below rent on its own line
+        const depositText = isDepositMonth(entry.month)
+          ? '<br><span class="deposit-badge">+Deposit</span>'
+          : "";
+
+        // Water details
+        const reading = tenant.waterMeterReadings?.find(
+          (r) => r.month === entry.month
+        );
+        let waterDisplay = entry.waterCharge
+          ? entry.waterCharge.toLocaleString()
+          : "0";
+        if (reading) {
+          waterDisplay = `${entry.waterCharge.toLocaleString()}<br><span class="water-detail">(${
+            reading.reading
+          } – ${
+            reading.unitsUsed
+          } u × ${reading.rate.toLocaleString()})</span>`;
         }
+
+        // Format due date for this charge entry
+        const dueDateStr = entry.dueDate
+          ? new Date(entry.dueDate).toLocaleDateString()
+          : "—";
+
+        html += `
+          <tr class="charge-row">
+            <td>${entry.month}</td>
+            <td>${(entry.baseRent || 0).toLocaleString()}${depositText}</td>
+            <td>${waterDisplay}</td>
+            <td>${(entry.garbageCharge || 0).toLocaleString()}</td>
+            <td>${(entry.totalDue || 0).toLocaleString()}</td>
+            <td></td>
+            <td class="balance">${entry.remainingBalance.toLocaleString()}</td>
+            <td>${dueDateStr}</td>
+            <td></td>
+            <td></td>
+          </tr>
+        `;
       }
 
-      // Original charge entries always have amountPaid === 0
-      const isOriginalCharge = (entry.amountPaid || 0) === 0;
-
-      const rentDisplay = isOriginalCharge
-        ? (entry.baseRent || 0) + depositNote
-        : "—";
-      const waterDisplay = isOriginalCharge ? entry.waterCharge || 0 : "—";
-      const garbageDisplay = isOriginalCharge ? entry.garbageCharge || 0 : "—";
-      const totalDueDisplay = isOriginalCharge ? entry.totalDue || 0 : "—";
-
-      html += `<tr>
-        <td>${entry.month}</td>
-        <td>${rentDisplay}</td>
-        <td>${waterDisplay}</td>
-        <td>${garbageDisplay}</td>
-        <td>${totalDueDisplay}</td>
-        <td>${entry.amountPaid || 0}</td>
-        <td>${entry.remainingBalance || 0}</td>
-        <td>${
-          entry.datePaid ? new Date(entry.datePaid).toLocaleDateString() : "—"
-        }</td>
-        <td>${entry.mpesaRef || "—"}</td>
-      </tr>`;
+      // Payment rows
+      if (!isOriginalCharge && entry.amountPaid > 0) {
+        html += `
+          <tr class="payment-row">
+            <td>↳ Payment</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>${entry.amountPaid.toLocaleString()}</td>
+            <td class="balance">${entry.remainingBalance.toLocaleString()}</td>
+            <td></td>
+            <td>${
+              entry.datePaid
+                ? new Date(entry.datePaid).toLocaleDateString()
+                : "—"
+            }</td>
+            <td>${entry.mpesaRef || "—"}</td>
+          </tr>
+        `;
+      }
     }
 
     const lastEntry = allEntries[allEntries.length - 1];
     const currentBalance = lastEntry ? lastEntry.remainingBalance || 0 : 0;
 
-    html += `</table>
-     <div class="summary">Current Balance: KSH ${currentBalance.toLocaleString()}</div>
-      <button onclick="window.print()">Save as PDF</button>
-      </body></html>`;
+    html += `
+    </tbody>
+  </table>
+  <div style="margin-top:20px; text-align:center; font-size:1.2rem; font-weight:700;">
+    Current Balance: KSH ${currentBalance.toLocaleString()}
+  </div>
+  <div class="print-btn">
+    <button onclick="window.print()">🖨️ Save as PDF</button>
+  </div>
+</body>
+</html>
+`;
 
     res.send(html);
   } catch (error) {
@@ -1270,7 +1526,7 @@ async function bulkChangeDueDay(req, res) {
   }
 }
 
-function isTenantLate(tenant, currentMonth) {
+function isTenantLate(tenant, currentMonth, todayOverride) {
   const latestByMonth = new Map();
   for (let entry of tenant.paymentHistory) {
     const existing = latestByMonth.get(entry.month);
@@ -1290,7 +1546,7 @@ function isTenantLate(tenant, currentMonth) {
     }
   }
 
-  const today = new Date();
+  const today = todayOverride || new Date();
   today.setHours(0, 0, 0, 0);
 
   for (let entry of latestByMonth.values()) {

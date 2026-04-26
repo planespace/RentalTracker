@@ -123,6 +123,7 @@ async function fetchWithTimeout(url, options = {}, timeout = 10000) {
     throw error;
   }
 }
+
 // ----- DEV MODE DATE OVERRIDE (must be early) -----
 let currentDevDate = null;
 const urlParams = new URLSearchParams(window.location.search);
@@ -1642,6 +1643,19 @@ document.addEventListener("click", async (e) => {
     const selectedMonth =
       document.getElementById("reading-month")?.value || getCurrentMonth();
 
+    // --- NEW CHECK ---
+    if (
+      !globalSettings.waterRatePerUnit ||
+      globalSettings.waterRatePerUnit <= 0
+    ) {
+      Toast.fire({
+        icon: "warning",
+        title: "Water rate not set",
+        text: "Please configure the water rate in Global Settings first.",
+      });
+      return; // stop execution
+    }
+
     // ✅ Correct previous reading: the latest reading strictly before selected month
     const tenant = tenantArray.find((t) => t._id === tenantId);
     const allReadings = (tenant?.waterMeterReadings || []).sort((a, b) =>
@@ -2764,29 +2778,31 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btn) btn.addEventListener("click", closeModal);
   });
 
-  // Export All Tenants (as PDF)
+  // Export All Tenants (as styled HTML in new tab)
   const exportAllBtn = document.getElementById("export-all-data-btn");
   if (exportAllBtn) {
     exportAllBtn.addEventListener("click", () => {
       const token = localStorage.getItem("token");
-      const url =
+      let url =
         window.location.origin +
         `/tenants/export/statement?type=all&token=${encodeURIComponent(token)}`;
+      if (currentDevDate) url += `&devDate=${currentDevDate}`;
       window.open(url, "_blank");
       closeModal();
     });
   }
 
-  // Export Late Tenants (as PDF)
+  // Export Late Tenants (as styled HTML in new tab)
   const exportLateBtn = document.getElementById("export-late-data-btn");
   if (exportLateBtn) {
     exportLateBtn.addEventListener("click", () => {
       const token = localStorage.getItem("token");
-      const url =
+      let url =
         window.location.origin +
         `/tenants/export/statement?type=late&token=${encodeURIComponent(
           token
         )}`;
+      if (currentDevDate) url += `&devDate=${currentDevDate}`;
       window.open(url, "_blank");
       closeModal();
     });

@@ -961,7 +961,6 @@ function updateTenantList(filteredList) {
       // Only focus the name input when there are truly zero tenants in the system
       if (tenantArray.length === 0) {
         const nameInput = document.querySelector(".tenant-name");
-        if (nameInput) nameInput.focus();
       }
     }
   });
@@ -1542,6 +1541,12 @@ function showGlobalSettingsModal() {
         </button>
       </div>
 
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+  <button id="change-rent-btn" class="modal-action-btn" style="background: var(--accent-cyan);">
+    💰 Change Rent for All Tenants
+  </button>
+</div>
+
       <div class="utility-actions" style="margin-top: 8px;">
         <button id="save-global-settings" class="modal-action-btn">Save</button>
         <button id="cancel-global-settings" class="modal-action-btn danger">Cancel</button>
@@ -1601,6 +1606,59 @@ function showGlobalSettingsModal() {
             Toast.fire({
               icon: "success",
               title: `Due day updated to ${newDay}`,
+            });
+          } else {
+            const err = await res.json();
+            Toast.fire({
+              icon: "error",
+              title: err.message || "Update failed",
+            });
+          }
+        } catch (err) {
+          Toast.fire({ icon: "error", title: err.message });
+        } finally {
+          setButtonLoading(e.target, false);
+        }
+      }
+    }
+
+    // ----- NEW: Change Rent for All Tenants -----
+    if (e.target.id === "change-rent-btn") {
+      const { value: newRent } = await Swal.fire({
+        title: "Change Rent for All Tenants",
+        input: "number",
+        inputLabel: "New Rent Amount (KSH)",
+        inputAttributes: { min: "1", step: "any" },
+        inputValue: globalSettings.defaultDueDay || 1, // placeholder
+        showCancelButton: true,
+        confirmButtonText: "Update All",
+        confirmButtonColor: "#3b82f6",
+        background: "#1e293b",
+        color: "#f1f5f9",
+        inputValidator: (val) => {
+          if (!val || Number(val) <= 0) return "Enter a valid positive amount";
+        },
+      });
+
+      if (newRent) {
+        setButtonLoading(e.target, true);
+        try {
+          const res = await fetchWithTimeout(
+            window.location.origin + "/tenants/bulk-change-rent",
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+              body: JSON.stringify({ newRent: Number(newRent) }),
+            }
+          );
+          if (res.ok) {
+            await loadTenants();
+            Toast.fire({
+              icon: "success",
+              title: `Rent updated to ${newRent}`,
             });
           } else {
             const err = await res.json();

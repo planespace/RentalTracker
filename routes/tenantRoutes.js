@@ -29,6 +29,7 @@ import {
   getExportStatement,
   manualSync,
   bulkChangeDueDay,
+  bulkChangeRent,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -55,7 +56,7 @@ router.patch("/:id/archive", archiveTenant);
 router.delete("/:id/payment-history/:entryId", deletePaymentRecord);
 router.delete("/:id/meter-reading/:readingId", deleteMeterReading);
 router.patch("/bulk-mark-paid", bulkMarkPaid);
-
+router.patch("/bulk-change-rent", bulkChangeRent);
 router.patch("/settings", updateGlobalSettings); // 👈 before /:id routes
 
 router.patch("/:id/payment-history", updatePaymentHistory);

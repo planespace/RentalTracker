@@ -1042,12 +1042,6 @@ async function updateTenant(req, res) {
     });
     await existing.save();
 
-    if (rentChanged) {
-      const currentMonth = getCurrentMonthString();
-      await recalcFutureMonths(existing, currentMonth);
-      await existing.save();
-    }
-
     res.json(existing);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1550,6 +1544,29 @@ async function manualSync(req, res) {
   });
 }
 
+async function bulkChangeRent(req, res) {
+  try {
+    const { newRent } = req.body;
+    const rentNum = Number(newRent);
+    if (!rentNum || rentNum <= 0 || isNaN(rentNum)) {
+      return res
+        .status(400)
+        .json({ message: "Rent must be a positive number." });
+    }
+
+    // Update all active tenants
+    const tenants = await Tenant.find({ userId: req.userId, active: true });
+    for (let tenant of tenants) {
+      tenant.rent = rentNum;
+      await tenant.save();
+    }
+
+    res.json({ success: true, updatedCount: tenants.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 async function bulkChangeDueDay(req, res) {
   try {
     const { newDueDay } = req.body;
@@ -1645,4 +1662,5 @@ export {
   getExportStatement,
   syncAllTenantsToCurrentMonth,
   bulkChangeDueDay,
+  bulkChangeRent,
 };

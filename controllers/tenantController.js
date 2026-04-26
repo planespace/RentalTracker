@@ -70,10 +70,10 @@ async function syncAllTenantsToCurrentMonth(todayOverride) {
               );
               dueDate = getDueDateForMonth(tenant, nextStr);
             }
-          } } else {
-  // Subsequent months: due date = due day of the SAME month
-  dueDate = getDueDateForMonth(tenant, monthToCreate);
-}
+          } else {
+            // Subsequent months: due date = due day of the SAME month
+            dueDate = getDueDateForMonth(tenant, monthToCreate);
+          }
           tenant.paymentHistory.push({
             month: monthToCreate,
             baseRent: tenant.rent,

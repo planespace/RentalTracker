@@ -15,7 +15,6 @@ import {
   deletePaymentRecord,
   bulkMarkPaid,
   getCurrentDate,
-  setDeposit,
   updatePaymentEntry,
   addMeterReading,
   getTenantStatement,
@@ -60,7 +59,7 @@ router.patch("/bulk-mark-paid", bulkMarkPaid);
 router.patch("/settings", updateGlobalSettings); // 👈 before /:id routes
 
 router.patch("/:id/payment-history", updatePaymentHistory);
-router.patch("/:id/set-deposit", setDeposit);
+
 router.patch("/:id/payment-history/:entryId", updatePaymentEntry);
 router.patch("/:id/meter-reading/:readingId", updateMeterReading);
 router.patch("/:id/meter-reading", addMeterReading);

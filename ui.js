@@ -253,8 +253,7 @@ function renderPastMonthTable(paymentData, month) {
       ? new Date(paymentRecord.dueDate)
       : new Date();
     due.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getAppToday();
 
     if (isFullyPaid) {
       statusText = "✅ On time";

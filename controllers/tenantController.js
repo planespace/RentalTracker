@@ -1088,34 +1088,6 @@ async function archiveTenant(req, res) {
   }
 }
 
-async function setDeposit(req, res) {
-  try {
-    const { id } = req.params;
-    const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
-    if (!tenant) return res.status(404).json({ message: "Tenant not found" });
-
-    const currentMonth = getCurrentMonthString();
-    const entry = tenant.paymentHistory.find((e) => e.month === currentMonth);
-    if (!entry)
-      return res
-        .status(400)
-        .json({ message: "No payment entry for current month" });
-
-    tenant.deposit = true;
-    entry.totalDue = tenant.rent * 2;
-    entry.baseRent = tenant.rent;
-    entry.remainingBalance = entry.totalDue;
-    entry.paid = false;
-    await tenant.save();
-    await recalcFutureMonths(tenant, entry.month);
-    await tenant.save();
-
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-}
-
 // ========================
 //   UTILITY ENDPOINTS
 // ========================
@@ -1660,7 +1632,6 @@ export {
   deletePaymentRecord,
   bulkMarkPaid,
   getCurrentDate,
-  setDeposit,
   updatePaymentEntry,
   addMeterReading,
   getTenantStatement,

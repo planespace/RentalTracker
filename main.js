@@ -2460,14 +2460,14 @@ function applyFiltersAndSort() {
   if (sortValue === "rent-high") result.sort((a, b) => b.rent - a.rent);
   else if (sortValue === "rent-low") result.sort((a, b) => a.rent - b.rent)
     else {
-      // Default: sort by house number (numeric)
+      // Default: natural alphanumeric sort by house number
       result.sort((a, b) => {
-        const numA = parseInt(a.houseNumber) || 0;
-        const numB = parseInt(b.houseNumber) || 0;
-        return numA - numB;
+        const ha = String(a.houseNumber || "").trim();
+        const hb = String(b.houseNumber || "").trim();
+        return ha.localeCompare(hb, undefined, { numeric: true, sensitivity: "base" });
       });
     }
-
+    
 
   if (searchTerm) {
     result = result.filter(

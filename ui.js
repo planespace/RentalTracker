@@ -90,14 +90,25 @@ function renderTenant(tenant, index) {
     }
   }
 
+  // Track the earliest unpaid due date to compute days overdue
+  let earliestUnpaidDue = null;
   for (let entry of latestByMonth.values()) {
     if (entry.remainingBalance > 0) {
       const due = normalizeDueDate(entry.dueDate);
       if (due && due < today) {
         isPastDue = true;
-        break;
+        if (!earliestUnpaidDue || due < earliestUnpaidDue) {
+          earliestUnpaidDue = due;
+        }
       }
     }
+  }
+
+  let daysOverdue = 0;
+  if (earliestUnpaidDue) {
+    daysOverdue = Math.floor(
+      (today - earliestUnpaidDue) / (1000 * 60 * 60 * 24)
+    );
   }
 
   let statusText = "";
@@ -151,6 +162,13 @@ function renderTenant(tenant, index) {
   <div class="due-date-cell">
     <span class="due-date-value">${formatDate(displayDueDate) || "—"}</span>
     <span class="${statusClass}">${statusText}</span>
+    ${
+      isPastDue
+        ? `<span class="overdue-days">${daysOverdue} day${
+            daysOverdue !== 1 ? "s" : ""
+          }</span>`
+        : ""
+    }
   </div>
   <div class="actions-cell">
   ${

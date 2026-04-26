@@ -464,6 +464,48 @@ async function fetchCurrentDate() {
 let showArchived = false;
 
 async function loadTenants() {
+  try {
+    const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    });
+    if (resp.ok) {
+      const tenants = await resp.json();
+      const currentMonth = new Date().toISOString().slice(0, 7); // "2026-04"
+      const needsSync = tenants.some(
+        (t) => !t.paymentHistory?.some((e) => e.month === currentMonth)
+      );
+      if (needsSync) {
+        await fetchWithTimeout(window.location.origin + "/tenants/sync", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Background sync check failed", err);
+  }
+
+  try {
+    const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    });
+    if (resp.ok) {
+      const tenants = await resp.json();
+      const currentMonth = new Date().toISOString().slice(0, 7); // "2026-04"
+      const needsSync = tenants.some(
+        (t) => !t.paymentHistory?.some((e) => e.month === currentMonth)
+      );
+      if (needsSync) {
+        await fetchWithTimeout(window.location.origin + "/tenants/sync", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Background sync check failed", err);
+  }
+
   const url = showArchived
     ? window.location.origin + "/tenants?archived=true"
     : window.location.origin + "/tenants";

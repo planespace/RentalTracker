@@ -958,8 +958,11 @@ function updateTenantList(filteredList) {
       <h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2>
     </div>
   `;
-      const nameInput = document.querySelector(".tenant-name");
-      if (nameInput) nameInput.focus();
+      // Only focus the name input when there are truly zero tenants in the system
+      if (tenantArray.length === 0) {
+        const nameInput = document.querySelector(".tenant-name");
+        if (nameInput) nameInput.focus();
+      }
     }
   });
 }

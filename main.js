@@ -38,6 +38,14 @@ function getAppToday() {
   return d;
 }
 
+function getLocalDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+
 let chartUpdateTimeout;
 function scheduleChartUpdate() {
   clearTimeout(chartUpdateTimeout);
@@ -533,39 +541,35 @@ function getLast6Months() {
 }
 
 function getOutstandingBalanceForMonths(months) {
+  const today = getAppToday();
   return months.map((targetMonth) => {
-    let total = 0;
-    tenantArray.forEach((tenant) => {
-      // Sum charges for all months <= targetMonth whose due date < targetMonth
-      let charges = 0;
-      for (let entry of tenant.paymentHistory || []) {
-        if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
-          const due = normalizeDueDate(entry.dueDate);
-          // Only include if the entry's month is <= targetMonth and its due date has passed
-          if (due && due < new Date(targetMonth + "-01")) {
-            // first day of month (simple compare)
-            charges += entry.totalDue || 0;
-          }
-        }
-      }
-      let paid = 0;
-      for (let entry of tenant.paymentHistory || []) {
-        paid += entry.amountPaid || 0;
-      }
-      total += Math.max(0, charges - paid);
-    });
-    return total;
+    // For each target month, we want the total overdue that existed at the end of that month.
+    // Overdue = sum of remainingBalance for months whose due date < last day of targetMonth.
+    // Use the end of targetMonth as the "today" for that historical date.
+    const [year, mon] = targetMonth.split("-").map(Number);
+    const endOfMonth = new Date(year, mon, 0); // last day of targetMonth, local midnight
+    endOfMonth.setHours(0, 0, 0, 0);
+
+    let totalOverdue = 0;
+    for (let tenant of tenantArray) {
+      // Use the same overdue logic as getTenantPastDueAmount, but with endOfMonth as the snapshot date.
+      const overdue = getTenantPastDueAmount(tenant, endOfMonth);
+      totalOverdue += overdue;
+    }
+    return totalOverdue;
   });
 }
 function updateCharts() {
-  // ---------- Donut chart (paid/unpaid tenants) ----------
-  let paid = 0,
-    unpaid = 0;
-  tenantArray.forEach((tenant) => {
-    let rec = getCurrentPaymentRecord(tenant);
-    if (rec.paid) paid++;
+  // ---------- Donut chart (paid = no overdue balance) ----------
+  let paid = 0, unpaid = 0;
+  const today = getAppToday();
+
+  for (let tenant of tenantArray) {
+    const pastDue = getTenantPastDueAmount(tenant, today);
+    if (pastDue === 0) paid++;
     else unpaid++;
-  });
+  }
+
   const donutCtx = document.getElementById("paidDonutChart").getContext("2d");
   const donutData = [paid, unpaid];
   if (paidDonutChart) {
@@ -576,14 +580,12 @@ function updateCharts() {
       type: "doughnut",
       data: {
         labels: ["Paid", "Unpaid"],
-        datasets: [
-          {
-            data: donutData,
-            backgroundColor: ["#10b981", "#ef4444"],
-            borderWidth: 0,
-            cutout: "65%",
-          },
-        ],
+        datasets: [{
+          data: donutData,
+          backgroundColor: ["#10b981", "#ef4444"],
+          borderWidth: 0,
+          cutout: "65%",
+        }],
       },
       options: {
         responsive: true,
@@ -595,29 +597,36 @@ function updateCharts() {
       },
     });
   }
-  let percentage =
-    tenantArray.length === 0
-      ? 0
-      : Math.round((paid / tenantArray.length) * 100);
-  document.getElementById(
-    "donutLabel"
-  ).innerText = `Paid: ${paid} / ${tenantArray.length} (${percentage}%)`;
+  let percentage = tenantArray.length === 0 ? 0 : Math.round((paid / tenantArray.length) * 100);
+  document.getElementById("donutLabel").innerText = `Paid: ${paid} / ${tenantArray.length} (${percentage}%)`;
 
   // ---------- Line chart (last 6 months: expected vs collected) ----------
   const months = getLast6Months();
   let expectedData = [];
   let collectedData = [];
+
   months.forEach((month) => {
     let expectedSum = 0;
     let collectedSum = 0;
     tenantArray.forEach((tenant) => {
-      expectedSum += Number(tenant.rent);
-      let rec = tenant.paymentHistory.find((r) => r.month === month);
-      if (rec && rec.amountPaid) collectedSum += Number(rec.amountPaid);
+      // Expected: totalDue from the charge entry (if exists)
+      const chargeEntry = tenant.paymentHistory.find(
+        e => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      if (chargeEntry) {
+        expectedSum += chargeEntry.totalDue || 0;
+      } else {
+        // Fallback only if no charge entry (should rarely happen)
+        expectedSum += tenant.rent + (globalSettings.garbageFee || 0);
+      }
+      // Collected: sum of all payment entries for that month
+      const paidEntries = tenant.paymentHistory.filter(e => e.month === month && e.amountPaid > 0);
+      collectedSum += paidEntries.reduce((sum, e) => sum + e.amountPaid, 0);
     });
     expectedData.push(expectedSum);
     collectedData.push(collectedSum);
   });
+
   const lineCtx = document.getElementById("trendLineChart").getContext("2d");
   if (trendLineChart) {
     trendLineChart.data.datasets[0].data = expectedData;
@@ -659,8 +668,7 @@ function updateCharts() {
         plugins: {
           tooltip: {
             callbacks: {
-              label: (ctx) =>
-                `${ctx.dataset.label}: ${formatCurrency(ctx.raw)}`,
+              label: (ctx) => `${ctx.dataset.label}: ${formatCurrency(ctx.raw)}`,
             },
           },
         },
@@ -738,44 +746,59 @@ function getCurrentPaymentRecord(tenant) {
 
 function getDueDateForMonthLocal(tenant, yearMonth) {
   const dueDay = tenant.dueDay || 1;
-  const [year, month] = yearMonth.split("-").map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
+  let [year, month] = yearMonth.split("-").map(Number);
+  // Add one month (the due date is in the following month)
+  let nextMonth = month + 1;
+  let nextYear = year;
+  if (nextMonth > 12) {
+    nextMonth = 1;
+    nextYear++;
+  }
+  const lastDay = new Date(nextYear, nextMonth, 0).getDate();
   const day = Math.min(dueDay, lastDay);
-  const mm = String(month).padStart(2, "0");
+  const mm = String(nextMonth).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`; // plain “YYYY-MM-DD”
+  return `${nextYear}-${mm}-${dd}`;
 }
 
 function getTenantNextDueDate(tenant) {
-  const currentMonth = getCurrentMonth(); // "2026-05"
-  let dueDateStr = getDueDateForMonthLocal(tenant, currentMonth); // "2026-05-05"
-  const todayStr = getAppTodayStr(); // "2026-05-05"
+  const today = getAppToday();
+  const todayStr = getLocalDateString(today);
 
-  // Simple string comparison works because YYYY-MM-DD is lexicographically correct
-  while (dueDateStr < todayStr) {
-    const [y, m] = dueDateStr.split("-").map(Number);
-    const nextMonth = getNextMonthString(`${y}-${String(m).padStart(2, "0")}`);
-    dueDateStr = getDueDateForMonthLocal(tenant, nextMonth);
-  }
-
-  // If entry date is later than the computed due date, push further
-  if (tenant.entryDate) {
-    const entryStr = formatDate(tenant.entryDate); // "2026-04-23"
-    if (entryStr && dueDateStr < entryStr) {
-      // entry date after due date
-      // We need to advance until due date is after entry
-      // Use string comparison
-      while (dueDateStr < entryStr) {
-        const [y, m] = dueDateStr.split("-").map(Number);
-        const nextMonth = getNextMonthString(
-          `${y}-${String(m).padStart(2, "0")}`
-        );
-        dueDateStr = getDueDateForMonthLocal(tenant, nextMonth);
-      }
+  // Get all months from payment history, sorted ascending
+  const months = [...new Set(tenant.paymentHistory.map(e => e.month))].sort();
+  
+  for (let month of months) {
+    // Get the latest (final) entry for this month
+    const monthEntries = tenant.paymentHistory.filter(e => e.month === month);
+    monthEntries.sort((a, b) => {
+      const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+      const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+      if (aDate !== bDate) return aDate - bDate;
+      return a._id.toString().localeCompare(b._id.toString());
+    });
+    const latest = monthEntries[monthEntries.length - 1];
+    if (!latest.dueDate) continue;
+    
+    const dueDateStr = getLocalDateString(new Date(latest.dueDate));
+    // Return the first month whose due date is today or in the future
+    if (dueDateStr >= todayStr) {
+      return dueDateStr;
     }
   }
-
-  return dueDateStr; // always a string
+  
+  // If all due dates are in the past (shouldn't happen normally), return the latest month's due date
+  if (months.length > 0) {
+    const lastMonth = months[months.length - 1];
+    const lastEntry = tenant.paymentHistory.find(e => e.month === lastMonth);
+    if (lastEntry && lastEntry.dueDate) {
+      return getLocalDateString(new Date(lastEntry.dueDate));
+    }
+  }
+  
+  // Ultimate fallback – compute from the current calendar month
+  const currentMonth = getCurrentMonth();
+  return getDueDateForMonthLocal(tenant, currentMonth);
 }
 
 function isLate(dueDate, paid, tenant) {
@@ -877,26 +900,65 @@ function getTenantBalance(tenant) {
   return balance;
 }
 
-function getTenantPastDueAmount(tenant, todayOverride) {
-  const today = todayOverride || getAppToday();
-  // Sum of charges for months whose due date has already passed
-  let overdueCharges = 0;
-  for (let entry of tenant.paymentHistory || []) {
-    // Only consider original charge entries (amountPaid === 0 and no datePaid)
-    if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
-      const due = normalizeDueDate(entry.dueDate);
-      if (due && due < today) {
-        overdueCharges += entry.totalDue || 0;
+function getTenantPastDueAmount(tenant, todayDate) {
+  const todayUTC = new Date(Date.UTC(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()));
+  const todayStr = `${todayUTC.getUTCFullYear()}-${String(todayUTC.getUTCMonth() + 1).padStart(2, '0')}-${String(todayUTC.getUTCDate()).padStart(2, '0')}`;
+
+  const months = [...new Set(tenant.paymentHistory.map(e => e.month))].sort();
+
+  for (let month of months) {
+    const monthEntries = tenant.paymentHistory.filter(e => e.month === month);
+    monthEntries.sort((a, b) => {
+      const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+      const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+      if (aDate !== bDate) return aDate - bDate;
+      return a._id.toString().localeCompare(b._id.toString());
+    });
+    const latest = monthEntries[monthEntries.length - 1];
+    if (!latest.dueDate) continue;
+    const dueUTC = new Date(latest.dueDate);
+    const dueStr = `${dueUTC.getUTCFullYear()}-${String(dueUTC.getUTCMonth() + 1).padStart(2, '0')}-${String(dueUTC.getUTCDate()).padStart(2, '0')}`;
+    if (dueStr >= todayStr) break;
+    if (latest.remainingBalance > 0) return latest.remainingBalance;
+  }
+  return 0;
+}
+
+window.getTenantPastDueAmount = getTenantPastDueAmount;
+
+// ========================
+//   EXPECTED & COLLECTED FOR A GIVEN MONTH
+// ========================
+
+function getExpectedForMonth(tenant, monthStr, settings) {
+  // Try to get the charge entry (amountPaid === 0 and no datePaid)
+  const chargeEntry = tenant.paymentHistory.find(
+    e => e.month === monthStr && (e.amountPaid || 0) === 0 && !e.datePaid
+  );
+  if (chargeEntry) return chargeEntry.totalDue || 0;
+  // Fallback compute (should rarely happen)
+  let depositExtra = 0;
+  if (tenant.deposit && tenant.depositPeriod) {
+    const firstMonth = tenant.paymentHistory.map(e => e.month).sort()[0];
+    if (firstMonth) {
+      const [fy, fm] = firstMonth.split("-").map(Number);
+      const endDate = new Date(fy, fm - 1 + tenant.depositPeriod - 1, 1);
+      const lastDepMonth = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}`;
+      if (monthStr <= lastDepMonth) {
+        depositExtra = Math.round(tenant.rent / tenant.depositPeriod);
       }
     }
   }
-  // Total amount paid (across all entries)
-  let totalPaid = 0;
-  for (let entry of tenant.paymentHistory || []) {
-    totalPaid += entry.amountPaid || 0;
-  }
-  // Overdue = charges past due minus everything already paid (oldest‑first)
-  return Math.max(0, overdueCharges - totalPaid);
+  const baseRent = tenant.rent + depositExtra;
+  const waterCharge = tenant.waterMeterReadings?.find(r => r.month === monthStr)?.cost || 0;
+  const garbage = (settings && settings.garbageFee) || globalSettings?.garbageFee || 0;
+  return baseRent + waterCharge + garbage;
+}
+
+function getCollectedForMonth(tenant, monthStr) {
+  return tenant.paymentHistory
+    .filter(e => e.month === monthStr && e.amountPaid > 0)
+    .reduce((sum, e) => sum + e.amountPaid, 0);
 }
 
 function updateTenantList(filteredList) {
@@ -946,86 +1008,62 @@ function updateTenantList(filteredList) {
     }
   });
 }
-function updateStats(tenantArray) {
-  document.querySelector(
-    ".current-month"
-  ).innerHTML = `Current Month&Year: ${getCurrentMonth()}`;
-  document.querySelector(
-    ".stats-subtitle"
-  ).textContent = `📅 Statistics for: ${getCurrentMonth()}`;
-
-  let totalOwed = 0,
-    totalUnpaidTenants = 0,
-    totalTenants = tenantArray.length,
-    totalPaidTenants = 0,
-    totalPaid = 0,
-    collectionRate = 0,
-    totalRent = 0,
-    totalLateTenants = 0,
-    totalPaidRent = 0;
-
-  let highestDebtor = null,
-    highestDebtAmount = 0;
-
+function getCurrentBillingMonthForTenant(tenant) {
   const today = getAppToday();
+  const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const todayStr = `${todayUTC.getUTCFullYear()}-${String(todayUTC.getUTCMonth() + 1).padStart(2, '0')}-${String(todayUTC.getUTCDate()).padStart(2, '0')}`;
+  const months = [...new Set(tenant.paymentHistory.map(e => e.month))].sort();
+  for (let month of months) {
+    const entry = tenant.paymentHistory.find(e => e.month === month);
+    if (!entry || !entry.dueDate) continue;
+    const dueUTC = new Date(entry.dueDate);
+    const dueStr = `${dueUTC.getUTCFullYear()}-${String(dueUTC.getUTCMonth() + 1).padStart(2, '0')}-${String(dueUTC.getUTCDate()).padStart(2, '0')}`;
+    if (dueStr >= todayStr) return month;
+  }
+  return months.length ? months[months.length - 1] : getCurrentMonth();
+}
 
-  tenantArray.forEach((tenant) => {
-    totalRent += Number(tenant.rent);
+function updateStats(tenantArray) {
+  document.querySelector(".current-month").innerHTML = `Current Month&Year: ${getCurrentMonth()}`;
+  document.querySelector(".stats-subtitle").textContent = `📅 Statistics for: ${getCurrentMonth()}`;
 
-    // Use the new past‑due balance (only overdue months)
-    const pastDue = getTenantPastDueAmount(tenant, today);
-    if (pastDue > highestDebtAmount) {
-      highestDebtAmount = pastDue;
-      highestDebtor = tenant;
-    }
+  let totalOwed = 0;
+  let paidTenantsCount = 0;
+  let expectedCurrentMonth = 0;
+  let collectedCurrentMonth = 0;
+  let collectionRate = 0;
+  const today = getAppToday();
+  const settings = globalSettings;
 
-    if (pastDue > 0) {
-      totalOwed += pastDue;
-      totalUnpaidTenants++; // has overdue debt
-      totalLateTenants++; // same – they are late
+  for (let tenant of tenantArray) {
+    const overdue = getTenantPastDueAmount(tenant, today);
+    if (overdue > 0) {
+      totalOwed += overdue;
     } else {
-      totalPaidTenants++; // no overdue debt = "paid" for our purposes
-      totalPaidRent += Number(tenant.rent);
+      paidTenantsCount++;
     }
 
-    // Still count total paid rent for collection rate (using the tenant's rent for the current month)
-    const rec = getCurrentPaymentRecord(tenant);
-    if (rec.paid) {
-      totalPaid += Number(tenant.rent);
-    }
-  });
+    const billingMonth = getCurrentBillingMonthForTenant(tenant);
+    expectedCurrentMonth += getExpectedForMonth(tenant, billingMonth, settings);
+    collectedCurrentMonth += getCollectedForMonth(tenant, billingMonth);
+  }
 
-  collectionRate =
-    totalRent === 0 ? 0 : Math.round((totalPaid / totalRent) * 100);
+  collectionRate = expectedCurrentMonth === 0 ? 0 : Math.round((collectedCurrentMonth / expectedCurrentMonth) * 100);
 
-  // Update DOM (unchanged except we now show "Past Due" instead of "Owed" for some labels)
-  document.querySelector(
-    ".total-owed"
-  ).textContent = `Total past due: ${formatCurrency(totalOwed)}`;
-  document.querySelector(
-    ".total-unpaid-tenants"
-  ).textContent = `Unpaid tenants: ${totalUnpaidTenants}`;
-  document.querySelector(
-    ".total-paid-tenants"
-  ).textContent = `Paid tenants: ${totalPaidTenants}`;
-  document.querySelector(
-    ".total-tenants"
-  ).textContent = `Total tenants: ${totalTenants}`;
-  document.querySelector(
-    ".collection-rate"
-  ).textContent = `Collection rate: %${collectionRate}`;
-  document.querySelector(
-    ".total-expected-rent"
-  ).textContent = `Total expected rent: ${formatCurrency(totalRent)}`;
-  document.querySelector(".highest-debtor").textContent = highestDebtor
-    ? `${highestDebtor.name} – ${formatCurrency(highestDebtAmount)}`
-    : "No unpaid tenants";
-  document.querySelector(
-    ".total-late-tenants"
-  ).textContent = `Total late tenants: ${totalLateTenants}`;
-  document.querySelector(
-    ".total-paid-rent"
-  ).textContent = `Total paid rent: ${formatCurrency(totalPaidRent)}`;
+  document.querySelector(".total-owed").textContent = `Total past due: ${formatCurrency(totalOwed)}`;
+  document.querySelector(".total-paid-tenants").textContent = `Paid tenants: ${paidTenantsCount}`;
+  document.querySelector(".total-expected-rent").textContent = `Expected this month: ${formatCurrency(expectedCurrentMonth)}`;
+  document.querySelector(".total-paid-rent").textContent = `Collected this month: ${formatCurrency(collectedCurrentMonth)}`;
+  document.querySelector(".collection-rate").textContent = `Collection rate: ${collectionRate}%`;
+  document.querySelector(".total-late-tenants").textContent = `Late tenants: ${tenantArray.length - paidTenantsCount}`;
+
+  // Clear unwanted stats
+  const totalTenantsEl = document.querySelector(".total-tenants");
+  const totalUnpaidEl = document.querySelector(".total-unpaid-tenants");
+  const highestDebtorEl = document.querySelector(".highest-debtor");
+  if (totalTenantsEl) totalTenantsEl.textContent = "";
+  if (totalUnpaidEl) totalUnpaidEl.textContent = "";
+  if (highestDebtorEl) highestDebtorEl.textContent = "";
 }
 
 function updateOccupancy() {
@@ -3051,45 +3089,27 @@ function updateAllTimeStats(tenantArray) {
   let allTimeCollected = 0;
   let highestDebtAmount = 0;
   let highestDebtor = null;
+  const today = getAppToday();
 
-  tenantArray.forEach((tenant) => {
+  for (let tenant of tenantArray) {
     // Total collected – sum all payments ever made
     tenant.paymentHistory.forEach((record) => {
-      if (record.amountPaid) {
-        allTimeCollected += record.amountPaid;
-      }
+      if (record.amountPaid) allTimeCollected += record.amountPaid;
     });
 
-    // CURRENT outstanding balance (latest running balance)
-    let balance = tenant.rent;   // fallback
-    if (tenant.paymentHistory && tenant.paymentHistory.length > 0) {
-      // sort exactly like renderTenant does
-      const sorted = [...tenant.paymentHistory].sort((a, b) => {
-        if (a.month !== b.month) return a.month.localeCompare(b.month);
-        const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
-        const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
-        if (aDate !== bDate) return aDate - bDate;
-        return a._id.toString().localeCompare(b._id.toString());
-      });
-      balance = sorted[sorted.length - 1].remainingBalance;
-    }
-
-    if (balance > 0) {
-      allTimeOwed += balance;
-      if (balance > highestDebtAmount) {
-        highestDebtAmount = balance;
+    // Overdue balance (past billing months only)
+    const overdue = getTenantPastDueAmount(tenant, today);
+    if (overdue > 0) {
+      allTimeOwed += overdue;
+      if (overdue > highestDebtAmount) {
+        highestDebtAmount = overdue;
         highestDebtor = tenant;
       }
     }
-  });
+  }
 
-  document.querySelector(".all-time-owed").textContent =
-    `Total owed: ${formatCurrency(allTimeOwed)}`;
-  document.querySelector(".all-time-collected").textContent =
-    `Collected: ${formatCurrency(allTimeCollected)}`;
-  const debtorText = highestDebtor
-    ? `${highestDebtor.name} – ${formatCurrency(highestDebtAmount)}`
-    : "No debt";
+  document.querySelector(".all-time-owed").textContent = `Total owed: ${formatCurrency(allTimeOwed)}`;
+  document.querySelector(".all-time-collected").textContent = `Collected: ${formatCurrency(allTimeCollected)}`;
+  const debtorText = highestDebtor ? `${highestDebtor.name} – ${formatCurrency(highestDebtAmount)}` : "No debt";
   document.querySelector(".all-time-highest-debtor").textContent = debtorText;
 }
-

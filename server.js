@@ -31,13 +31,16 @@ app.use("/tenants", tenantRoutes);
 app.use("/auth", authRoutes);
 
 connectTOMongoDB().then(async () => {
-  // Run sync on startup
-  const { syncAllTenantsToCurrentMonth } = await import(
-    "./controllers/tenantController.js"
-  );
-  syncAllTenantsToCurrentMonth();
-  // Then every hour
-  setInterval(syncAllTenantsToCurrentMonth, 60 * 60 * 1000);
+  const { syncAllTenantsToCurrentMonth } = await import("./controllers/tenantController.js");
+  // Pass UTC midnight of the current real date
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  await syncAllTenantsToCurrentMonth(todayUTC);
+  setInterval(async () => {
+    const now = new Date();
+    const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    await syncAllTenantsToCurrentMonth(todayUTC);
+  }, 60 * 60 * 1000);
 });
 
 const PORT = process.env.PORT || 5000;

@@ -1,60 +1,43 @@
 // ui.js – Handles UI rendering & display (updated toasts)
 
 function renderTenant(tenant, index) {
-  let currentRecord = getCurrentPaymentRecord(tenant);
-  const today = getAppToday(); // midnight, dev‑aware
-
-  // ---------- Past‑due logic (per month, using latest entry only) ----------
-  let isPastDue = false;
-
-  // Build a map: month -> entry with the latest datePaid (or newest _id)
-  const latestByMonth = new Map();
-  for (let entry of tenant.paymentHistory || []) {
-    const existing = latestByMonth.get(entry.month);
-    if (!existing) {
-      latestByMonth.set(entry.month, entry);
-    } else {
-      const aDate = entry.datePaid ? new Date(entry.datePaid).getTime() : 0;
-      const bDate = existing.datePaid
-        ? new Date(existing.datePaid).getTime()
-        : 0;
-      if (
-        aDate > bDate ||
-        (aDate === bDate && entry._id.toString() > existing._id.toString())
-      ) {
-        latestByMonth.set(entry.month, entry);
-      }
-    }
-  }
-
-  // Track the earliest unpaid due date to compute days overdue
-  let earliestUnpaidDue = null;
-  for (let entry of latestByMonth.values()) {
-    if (entry.remainingBalance > 0) {
-      const due = normalizeDueDate(entry.dueDate);
-      if (due && due < today) {
-        isPastDue = true;
-        if (!earliestUnpaidDue || due < earliestUnpaidDue) {
-          earliestUnpaidDue = due;
-        }
-      }
-    }
-  }
-
-  let daysOverdue = 0;
-  if (earliestUnpaidDue) {
-    daysOverdue = Math.floor(
-      (today - earliestUnpaidDue) / (1000 * 60 * 60 * 24)
-    );
-  }
+  const today = getAppToday();
+  const overdue = window.getTenantPastDueAmount ? window.getTenantPastDueAmount(tenant, today) : 0;
 
   let statusText = "";
   let statusClass = "status-badge due-status";
+  let daysOverdue = 0;
 
-  // ----- Balance = latest cumulative remaining balance from payment history -----
-  let balance = tenant.rent; // fallback if no history
+  if (overdue === 0) {
+    statusText = "✅ On time";
+  } else {
+    statusText = "⚠️ Past due";
+    statusClass += " overdue";
+    // Find the earliest due date among months with remainingBalance > 0
+    let earliestDue = null;
+    const latestByMonth = new Map();
+    for (let entry of tenant.paymentHistory) {
+      const existing = latestByMonth.get(entry.month);
+      if (!existing || (entry.datePaid && (!existing.datePaid || entry.datePaid > existing.datePaid))) {
+        latestByMonth.set(entry.month, entry);
+      }
+    }
+    for (let entry of latestByMonth.values()) {
+      if (entry.remainingBalance > 0 && entry.dueDate) {
+        const due = new Date(entry.dueDate);
+        if (due < today && (!earliestDue || due < earliestDue)) {
+          earliestDue = due;
+        }
+      }
+    }
+    if (earliestDue) {
+      daysOverdue = Math.floor((today - earliestDue) / (1000 * 60 * 60 * 24));
+    }
+  }
+
+  // Balance = latest cumulative remaining balance
+  let balance = tenant.rent;
   if (tenant.paymentHistory && tenant.paymentHistory.length > 0) {
-    // Sort same way the server does: month → datePaid (nulls last) → _id
     const sorted = [...tenant.paymentHistory].sort((a, b) => {
       if (a.month !== b.month) return a.month.localeCompare(b.month);
       const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
@@ -65,15 +48,6 @@ function renderTenant(tenant, index) {
     balance = sorted[sorted.length - 1].remainingBalance;
   }
 
-  const isFullyPaid = currentRecord.paid && balance <= 0;
-
-  if (isFullyPaid && !isPastDue) statusText = "✅ On time";
-  else if (isPastDue) {
-    statusText = "⚠️ Past due";
-    statusClass += " overdue";
-  } else statusText = "✅ On time";
-
-  // Formatting
   let balanceClass = "";
   let balanceText = "";
   if (balance < 0) {
@@ -92,7 +66,7 @@ function renderTenant(tenant, index) {
   // Deposit badge – visible until the due date of the LAST deposit month passes
   let hasDeposit = false;
   if (tenant.deposit) {
-    const firstMonth = getTenantFirstMonth(tenant); // e.g., "2026-04"
+    const firstMonth = getTenantFirstMonth(tenant);
     if (firstMonth) {
       const addMonths = (monthStr, n) => {
         const [y, m] = monthStr.split("-").map(Number);
@@ -102,17 +76,12 @@ function renderTenant(tenant, index) {
         return `${year}-${month}`;
       };
       const depositPeriod = tenant.depositPeriod || 1;
-      const endMonth = addMonths(firstMonth, depositPeriod - 1); // last month with deposit instalment
-
-      // Find the payment entry for the end month
+      const endMonth = addMonths(firstMonth, depositPeriod - 1);
       const endEntry = tenant.paymentHistory?.find((e) => e.month === endMonth);
       if (endEntry) {
         const due = normalizeDueDate(endEntry.dueDate);
-        if (due && due > today) {
-          hasDeposit = true; // deadline not yet passed
-        }
+        if (due && due > today) hasDeposit = true;
       } else {
-        // If the entry doesn't exist yet (future month), deposit is still active
         hasDeposit = true;
       }
     }
@@ -131,13 +100,7 @@ function renderTenant(tenant, index) {
   <div class="due-date-cell">
     <span class="due-date-value">${formatDate(displayDueDate) || "—"}</span>
     <span class="${statusClass}">${statusText}</span>
-    ${
-      isPastDue
-        ? `<span class="overdue-days">${daysOverdue} day${
-            daysOverdue !== 1 ? "s" : ""
-          }</span>`
-        : ""
-    }
+    ${overdue > 0 && daysOverdue > 0 ? `<span class="overdue-days">${daysOverdue} day${daysOverdue !== 1 ? "s" : ""}</span>` : ""}
   </div>
   <div class="actions-cell">
   ${
@@ -146,7 +109,6 @@ function renderTenant(tenant, index) {
       : `<button class="tenant-actions-btn" data-id="${tenant._id}">🛠️</button>`
   }
   </div>`;
-
   return newDiv;
 }
 // TODO Function to update list

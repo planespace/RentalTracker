@@ -915,10 +915,12 @@ function getTenantPastDueAmount(tenant, todayDate) {
   const todayStr = `${todayUTC.getUTCFullYear()}-${String(
     todayUTC.getUTCMonth() + 1
   ).padStart(2, "0")}-${String(todayUTC.getUTCDate()).padStart(2, "0")}`;
+  let overdue = 0;
 
+  // Get all months
   const months = [...new Set(tenant.paymentHistory.map((e) => e.month))].sort();
-
   for (let month of months) {
+    // Get the latest entry (final remainingBalance) for this month
     const monthEntries = tenant.paymentHistory.filter((e) => e.month === month);
     monthEntries.sort((a, b) => {
       const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
@@ -932,10 +934,10 @@ function getTenantPastDueAmount(tenant, todayDate) {
     const dueStr = `${dueUTC.getUTCFullYear()}-${String(
       dueUTC.getUTCMonth() + 1
     ).padStart(2, "0")}-${String(dueUTC.getUTCDate()).padStart(2, "0")}`;
-    if (dueStr >= todayStr) break;
-    if (latest.remainingBalance > 0) return latest.remainingBalance;
+    if (dueStr >= todayStr) break; // stop at current/future month
+    if (latest.remainingBalance > 0) overdue += latest.remainingBalance;
   }
-  return 0;
+  return overdue;
 }
 
 window.getTenantPastDueAmount = getTenantPastDueAmount;

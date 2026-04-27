@@ -96,7 +96,7 @@ async function syncAllTenantsToCurrentMonth(todayOverride) {
     if (lastDueTime < todayTime) {
       const nextMonth = getNextMonthString(lastMonth);
       if (!tenant.paymentHistory.some((e) => e.month === nextMonth)) {
-        const nextDueDate = getDueDateForMonth(tenant, nextMonth);
+        const nextDueDate = getNextMonthDueDate(tenant, nextMonth);
         tenant.paymentHistory.push({
           month: nextMonth,
           baseRent: tenant.rent,
@@ -158,6 +158,25 @@ function getPreviousMonthString(monthString) {
   let newYear = date.getFullYear();
   let newMonth = String(date.getMonth() + 1).padStart(2, "0");
   return `${newYear}-${newMonth}`;
+}
+
+function getNextMonthDueDate(tenant, yearMonth) {
+  const dueDate = getDueDateForMonth(tenant, yearMonth);
+  let year = dueDate.getUTCFullYear();
+  let month = dueDate.getUTCMonth(); // 0‑11
+  let day = dueDate.getUTCDate();
+
+  // Advance by one month
+  let nextYear = year;
+  let nextMonth = month + 1;
+  if (nextMonth > 11) {
+    nextMonth = 0;
+    nextYear++;
+  }
+  // Adjust day to last day of next month if necessary
+  const lastDay = new Date(Date.UTC(nextYear, nextMonth + 1, 0)).getUTCDate();
+  const finalDay = Math.min(day, lastDay);
+  return new Date(Date.UTC(nextYear, nextMonth, finalDay));
 }
 
 async function getGlobalSettings(userId) {
@@ -774,7 +793,12 @@ async function updatePaymentHistory(req, res) {
     }
 
     if (earliestChangedMonth) {
-      await recalcFutureMonths(tenant, earliestChangedMonth);
+      // Force full recalculation from the earliest month to catch any cascading changes
+      const allMonths = [
+        ...new Set(tenant.paymentHistory.map((e) => e.month)),
+      ].sort();
+      const earliestMonth = allMonths[0];
+      await recalcFutureMonths(tenant, earliestMonth);
     }
 
     tenant.markModified("paymentHistory");

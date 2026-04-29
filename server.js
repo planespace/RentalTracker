@@ -45,7 +45,7 @@ connectTOMongoDB().then(async () => {
       Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
     );
     await syncAllTenantsToCurrentMonth(todayUTC);
-  }, 60 * 60 * 1000);
+  }, 10 * 60 * 1000);
 });
 
 startScheduler();

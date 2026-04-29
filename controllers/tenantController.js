@@ -1963,16 +1963,21 @@ async function getOverdueCount(req, res) {
   }
 }
 
-const atmClient = africastalking({
-  username: process.env.AFRICASTALKING_USERNAME,
-  apiKey: process.env.AFRICASTALKING_API_KEY,
-});
+let atmClient = null;
+if (process.env.AFRICASTALKING_USERNAME && process.env.AFRICASTALKING_API_KEY) {
+  atmClient = africastalking({
+    username: process.env.AFRICASTALKING_USERNAME,
+    apiKey: process.env.AFRICASTALKING_API_KEY,
+  });
+} else {
+  console.warn("Africa's Talking credentials missing — SMS features disabled.");
+}
 
 async function getSmsBalance(req, res) {
   try {
-    // Africa's Talking doesn't have a direct balance endpoint for SMS;
-    // but you can fetch via application data. Alternative: store credit in env or DB.
-    // Simpler: fetch from /api/application endpoint.
+    if (!atmClient) {
+      return res.json({ balance: null, error: "SMS not configured" });
+    }
     const response = await atmClient.application.fetchApplicationData();
     const balance = response.UserData?.creditBalance || 0;
     res.json({ balance });
@@ -1984,6 +1989,10 @@ async function getSmsBalance(req, res) {
 
 async function handleSmsWebhook(req, res) {
   try {
+    if (!atmClient) {
+      return res.sendStatus(200);
+    }
+
     const data = req.body;
     // Africa's Talking sends a JSON with delivery reports
     // Expected format: { data: [{ id, status, ... }] }

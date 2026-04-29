@@ -7,11 +7,17 @@ import SmsLog from "../models/SmsLog.js";
 
 const Settings = mongoose.model("Settings");
 
-const client = africastalking({
-  username: process.env.AFRICASTALKING_USERNAME,
-  apiKey: process.env.AFRICASTALKING_API_KEY,
-});
-const sms = client.SMS;
+let client = null;
+if (process.env.AFRICASTALKING_USERNAME && process.env.AFRICASTALKING_API_KEY) {
+  const client = africastalking({
+    username: process.env.AFRICASTALKING_USERNAME,
+    apiKey: process.env.AFRICASTALKING_API_KEY,
+  });
+} else {
+  console.warn("Africa's Talking credentials missing — SMS sending disabled.");
+}
+
+const sms = client ? client.SMS : null;
 
 function formatPhoneNumber(phone) {
   if (!phone) return null;
@@ -92,6 +98,10 @@ export async function sendSms(
       throw new Error(`Invalid phone number: ${tenantPhone}`);
     }
     console.log(`[LIVE MODE] Sending to tenant: ${to}`);
+  }
+  if (!sms) {
+    console.warn("[SMS] SMS client not configured – skipping sending");
+    return;
   }
 
   const fromSender = isTestMode ? "BEAST" : undefined;

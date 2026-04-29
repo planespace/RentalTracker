@@ -1578,11 +1578,11 @@ async function getTenantStatement(req, res) {
 
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
-    // 🔥 SAFETY FIXES: ensure paymentHistory is an array
+    // Safety: ensure paymentHistory is an array
     if (!tenant.paymentHistory) tenant.paymentHistory = [];
     if (!Array.isArray(tenant.paymentHistory)) tenant.paymentHistory = [];
 
-    // Determine today’s date (dev‑aware)
+    // Determine today's date (dev‑aware)
     let today;
     if (req.query.devDate) {
       const devDate = new Date(req.query.devDate);
@@ -1615,6 +1615,12 @@ async function getTenantStatement(req, res) {
     const allMonths = [...new Set(allEntries.map((e) => e.month))].sort();
     const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
 
+    // Build a map of the final remaining balance for each month (last entry)
+    const finalBalanceByMonth = {};
+    for (const entry of allEntries) {
+      finalBalanceByMonth[entry.month] = entry.remainingBalance;
+    }
+
     function isDepositMonth(month) {
       if (!tenant.deposit || !tenant.depositPeriod || !firstMonth) return false;
       const [fy, fm] = firstMonth.split("-").map(Number);
@@ -1625,7 +1631,7 @@ async function getTenantStatement(req, res) {
       return month >= firstMonth && month <= lastDepMonth;
     }
 
-    // SAFE overdue calculation
+    // Overdue calculation helper
     function getPastDueAmount(tenant) {
       if (!tenant.paymentHistory || tenant.paymentHistory.length === 0)
         return 0;
@@ -1657,7 +1663,7 @@ async function getTenantStatement(req, res) {
         if (dueStr < todayStr) {
           lastPastBalance = latest.remainingBalance;
         } else {
-          break; // stop at the first month that is not past due
+          break;
         }
       }
       return lastPastBalance < 0 ? 0 : lastPastBalance;
@@ -1665,7 +1671,7 @@ async function getTenantStatement(req, res) {
 
     const overdueBalance = getPastDueAmount(tenant);
 
-    // ---------- HTML generation (YOUR ORIGINAL CODE) ----------
+    // ---------- HTML ----------
     let html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -1733,8 +1739,17 @@ async function getTenantStatement(req, res) {
             reading.unitsUsed
           } units × ${reading.rate.toLocaleString()})</span>`;
         }
-        const balanceClass =
-          entry.remainingBalance > 0 ? "red-balance" : "balance";
+
+        // ---- NEW: calculate month's own balance + carry-over ----
+        const monthIndex = allMonths.indexOf(entry.month);
+        const previousMonth = monthIndex > 0 ? allMonths[monthIndex - 1] : null;
+        const carryOver = previousMonth
+          ? finalBalanceByMonth[previousMonth] || 0
+          : 0;
+
+        const monthBalance = (entry.totalDue || 0) + carryOver;
+        const balanceClass = monthBalance > 0 ? "red-balance" : "balance";
+
         html += `
           <tr class="charge-row">
             <td>${entry.month}</td>
@@ -1743,7 +1758,7 @@ async function getTenantStatement(req, res) {
             <td>${(entry.garbageCharge || 0).toLocaleString()}</td>
             <td>${(entry.totalDue || 0).toLocaleString()}</td>
             <td></td>
-            <td class="${balanceClass}">${entry.remainingBalance.toLocaleString()}</td>
+            <td class="${balanceClass}">${monthBalance.toLocaleString()}</td>
             <td></td>
             <td></td>
           </tr>

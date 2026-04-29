@@ -1440,13 +1440,6 @@ async function importTenants(req, res) {
         continue;
       }
 
-      // --- Phone number validation ---
-      const phoneDigits = t.phoneNumber.toString().replace(/\D/g, "");
-      if (phoneDigits.length < 9 || phoneDigits.length > 12) {
-        errors.push(`Skipped ${t.name}: invalid phone number`);
-        continue;
-      }
-
       const rentNum = Number(t.rent);
       if (isNaN(rentNum) || rentNum <= 0) {
         errors.push(`Skipped ${t.name}: invalid rent`);
@@ -1516,7 +1509,7 @@ async function importTenants(req, res) {
             remainingBalance: totalDue,
             paid: false,
             datePaid: null,
-            dueDate: getDueDateForMonth(dueDayNum, currentMonth),
+            dueDate: getDueDateForMonth(dueDayNum, currentMonth, today),
             mpesaRef: "",
           },
         ],

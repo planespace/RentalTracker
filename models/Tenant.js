@@ -38,6 +38,7 @@ const tenantSchema = new mongoose.Schema({
   paymentHistory: [paymentEntrySchema],
   notes: { type: String, default: "" },
   active: { type: Boolean, default: true },
+  reminderSentMonths: { type: [String], default: [] },
   entryDate: { type: Date, default: Date.now },
   dueDay: { type: Number, required: true, min: 1, max: 31 },
   deposit: { type: Boolean, default: false },

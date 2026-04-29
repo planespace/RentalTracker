@@ -30,13 +30,22 @@ import {
   manualSync,
   bulkChangeDueDay,
   bulkChangeRent,
+  sendManualSms,
+  triggerAutomaticReminders,
+  getOverdueCount,
+  getSmsBalance,
+  handleSmsWebhook,
+  getSmsLogs,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
 router.get("/", getAllTenants);
+router.get("/overdue-count", getOverdueCount);
 router.get("/current-date", getCurrentDate);
 router.get("/settings", getGlobalSettingsEndpoint);
 router.get("/export/statement", getExportStatement);
+router.get("/sms-balance", getSmsBalance);
+router.get("/sms-logs", getSmsLogs);
 router.patch("/:id/restore", restoreTenant);
 router.delete("/:id/permanent", permanentlyDeleteTenant);
 // ----- PARAMETERIZED ROUTES (specific patterns) -----
@@ -46,8 +55,19 @@ router.get("/:id/statement", getTenantStatement);
 // ----- DYNAMIC ID ROUTES (must come last) -----
 router.get("/:id", getTenantById);
 router.get("/archived/count", getArchivedCount);
-
+router.post(
+  "/sms-webhook",
+  express.raw({ type: "application/json" }),
+  handleSmsWebhook
+);
 // POST, PUT, DELETE, PATCH (order less critical but keep similar pattern)
+router.post(
+  "/sms-webhook",
+  express.raw({ type: "application/json" }),
+  handleSmsWebhook
+);
+router.post("/send-sms", sendManualSms);
+router.post("/trigger-reminders", triggerAutomaticReminders);
 router.post("/import", importTenants);
 router.post("/", createTenant);
 router.post("/sync", manualSync);

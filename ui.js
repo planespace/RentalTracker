@@ -1,37 +1,61 @@
 // ui.js – Handles UI rendering & display (updated toasts)
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderTenant(tenant, index) {
   const today = getAppToday();
-  const overdue = window.getTenantPastDueAmount ? window.getTenantPastDueAmount(tenant, today) : 0;
+  const overdue = window.getTenantPastDueAmount
+    ? window.getTenantPastDueAmount(tenant, today)
+    : 0;
+
+  console.log(
+    `[renderTenant] tenant=${
+      tenant.name
+    }, today=${today.toISOString()}, overdue=${overdue}`
+  );
 
   let statusText = "";
   let statusClass = "status-badge due-status";
   let daysOverdue = 0;
 
-  if (overdue === 0) {
+  if (overdue <= 0) {
     statusText = "✅ On time";
   } else {
     statusText = "⚠️ Past due";
     statusClass += " overdue";
-    // Find the earliest due date among months with remainingBalance > 0
-    let earliestDue = null;
-    const latestByMonth = new Map();
-    for (let entry of tenant.paymentHistory) {
-      const existing = latestByMonth.get(entry.month);
-      if (!existing || (entry.datePaid && (!existing.datePaid || entry.datePaid > existing.datePaid))) {
-        latestByMonth.set(entry.month, entry);
-      }
-    }
-    for (let entry of latestByMonth.values()) {
-      if (entry.remainingBalance > 0 && entry.dueDate) {
-        const due = new Date(entry.dueDate);
-        if (due < today && (!earliestDue || due < earliestDue)) {
-          earliestDue = due;
+
+    // Find the EARLIEST past‑due month's due date
+    const today = getAppToday();
+    const months = [
+      ...new Set(tenant.paymentHistory.map((e) => e.month)),
+    ].sort();
+    let earliestPastDueDate = null;
+
+    for (const month of months) {
+      const entry = tenant.paymentHistory.find((e) => e.month === month);
+      if (!entry || !entry.dueDate) continue;
+      const due = new Date(entry.dueDate);
+
+      // Only consider months that are past due
+      if (due < today && entry.remainingBalance > 0) {
+        if (!earliestPastDueDate || due < earliestPastDueDate) {
+          earliestPastDueDate = due;
         }
       }
     }
-    if (earliestDue) {
-      daysOverdue = Math.floor((today - earliestDue) / (1000 * 60 * 60 * 24));
+
+    if (earliestPastDueDate) {
+      daysOverdue = Math.floor(
+        (today - earliestPastDueDate) / (1000 * 60 * 60 * 24)
+      );
     }
   }
 
@@ -90,7 +114,7 @@ function renderTenant(tenant, index) {
   let newDiv = document.createElement("div");
   newDiv.className = "tenant-info";
   newDiv.innerHTML = `
-  <p class="tenant-name-cell">${tenant.name}</p>
+  <p class="tenant-name-cell">${escapeHtml(tenant.name)}</p>
   <div class="rent-cell">
     <span class="rent-value">${formatCurrency(tenant.rent)}</span>
     ${hasDeposit ? `<span class="deposit-badge">+ Deposit</span>` : ""}
@@ -100,7 +124,13 @@ function renderTenant(tenant, index) {
   <div class="due-date-cell">
     <span class="due-date-value">${formatDate(displayDueDate) || "—"}</span>
     <span class="${statusClass}">${statusText}</span>
-    ${overdue > 0 && daysOverdue > 0 ? `<span class="overdue-days">${daysOverdue} day${daysOverdue !== 1 ? "s" : ""}</span>` : ""}
+    ${
+      overdue > 0 && daysOverdue > 0
+        ? `<span class="overdue-days">${daysOverdue} day${
+            daysOverdue !== 1 ? "s" : ""
+          }</span>`
+        : ""
+    }
   </div>
   <div class="actions-cell">
   ${
@@ -225,7 +255,7 @@ function renderPastMonthTable(paymentData, month) {
 
     html += `
       <div class="tenant-info">
-        <p>${tenant.name}</p>
+    <p>${escapeHtml(tenant.name)}</p>
         <div class="rent-cell">
           <span class="rent-value">${formatCurrency(tenant.rent)}</span>
           ${hasDeposit ? `<span class="deposit-badge">+ Deposit</span>` : ""}
@@ -254,9 +284,9 @@ document.querySelector("#modal-profile").addEventListener("click", () => {
 
   let html = `
   <div class="profile-display-mode" id="profile-display">
-    <div class="profile-field"><label>Name:</label> <span>${
-      tenant.name
-    }</span></div>
+  <div class="profile-field"><label>Name:</label> <span>${escapeHtml(
+    tenant.name
+  )}</span></div>
     <div class="profile-field"><label>Rent:</label> <span>${formatCurrency(
       tenant.rent
     )}</span></div>

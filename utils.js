@@ -13,11 +13,23 @@ function formatCurrency(amount) {
 }
 
 function getCurrentMonth() {
-  if (!currentAppDate) return "";
+  if (devModeActive && currentDevDate) {
+    // currentDevDate is YYYY-MM-DD, e.g. "2026-05-06"
+    return currentDevDate.slice(0, 7); // "2026-05"
+  }
+  // fallback to real month via the server's currentDate
+  if (!currentAppDate) {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(
+      2,
+      "0"
+    )}`;
+  }
   const d = new Date(currentAppDate);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}`;
 }
 
 function getPreviousMonthString(monthString) {

@@ -21,8 +21,7 @@ function getCorrectMonthFormat() {
   return `${year}-${month}`;
 }
 
-async function syncAllTenantsToCurrentMonth(todayOverride) {
-  // todayOverride is expected to be a Date object set to UTC midnight
+async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
   const today =
     todayOverride ||
     (() => {
@@ -32,12 +31,15 @@ async function syncAllTenantsToCurrentMonth(todayOverride) {
       );
     })();
 
-  const todayTime = today.getTime(); // UTC midnight timestamp
+  const todayTime = today.getTime();
   const currentMonthStr = `${today.getUTCFullYear()}-${String(
     today.getUTCMonth() + 1
   ).padStart(2, "0")}`;
 
-  const allTenants = await Tenant.find({ active: true });
+  // Only fetch tenants belonging to the given userId (if provided)
+  const filter = { active: true };
+  if (userId) filter.userId = userId;
+  const allTenants = await Tenant.find(filter);
 
   for (let tenant of allTenants) {
     const settings = await getGlobalSettings(tenant.userId);
@@ -78,17 +80,13 @@ async function syncAllTenantsToCurrentMonth(todayOverride) {
     let lastDueDate = lastEntry.dueDate
       ? new Date(lastEntry.dueDate)
       : getDueDateForMonth(tenant, lastMonth);
-    // Ensure lastDueDate is compared as UTC midnight (it should already be UTC)
     const lastDueTime = lastDueDate.getTime();
 
-    // Only create next month if the last due date is strictly before today (in UTC)
     if (lastDueTime < todayTime) {
-      // Use the reference-date rule to get the correct due date AND month
       const { dueDate: nextDueDate, month: newMonth } = getNextDueDateAndMonth(
         tenant,
         today
       );
-      // Only add if that exact month doesn't already exist
       if (!tenant.paymentHistory.some((e) => e.month === newMonth)) {
         tenant.paymentHistory.push({
           month: newMonth,
@@ -110,7 +108,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride) {
   }
   console.log(`✅ Sync finished up to ${currentMonthStr} (UTC)`);
 }
-
 function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
   let dueDay;
   if (typeof tenantOrDueDay === "object") {

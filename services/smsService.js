@@ -105,13 +105,26 @@ export async function sendSms(
     console.log("[SMS DEBUG] Full API response:");
     console.log(JSON.stringify(result, null, 2));
 
-    const messageId = result?.SMSMessageData?.Recipients?.[0]?.messageId;
-    if (messageId) {
+    const recipient = result?.SMSMessageData?.Recipients?.[0];
+    const messageId = recipient?.messageId;
+    const deliveryStatus = recipient?.status; // "Success" or "UserInBlacklist" etc.
+
+    if (messageId && messageId !== "None") {
       logEntry.messageId = messageId;
     }
-    logEntry.status = "sent";
+
+    if (deliveryStatus === "Success") {
+      logEntry.status = "sent";
+    } else {
+      logEntry.status = "failed";
+      logEntry.error = deliveryStatus || "Unknown error";
+      logEntry.failedAt = new Date();
+    }
+
     await logEntry.save();
-    console.log(`[SMS DEBUG] SMS sent successfully, messageId = ${messageId}`);
+    console.log(
+      `[SMS DEBUG] SMS result: ${deliveryStatus}, messageId: ${messageId}`
+    );
     return result;
   } catch (error) {
     console.error(`[SMS DEBUG] SMS send error:`, error);

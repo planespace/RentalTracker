@@ -16,12 +16,6 @@ function renderTenant(tenant, index) {
     ? window.getTenantPastDueAmount(tenant, today)
     : 0;
 
-  console.log(
-    `[renderTenant] tenant=${
-      tenant.name
-    }, today=${today.toISOString()}, overdue=${overdue}`
-  );
-
   let statusText = "";
   let statusClass = "status-badge due-status";
   let daysOverdue = 0;

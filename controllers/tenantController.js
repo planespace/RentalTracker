@@ -11,6 +11,7 @@ import {
 } from "../services/smsService.js";
 import africastalking from "africastalking";
 import SmsLog from "../models/SmsLog.js";
+import https from "https"; // add this at the top of the file
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -108,6 +109,17 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
   }
   console.log(`✅ Sync finished up to ${currentMonthStr} (UTC)`);
 }
+
+async function clearSmsLogs(req, res) {
+  try {
+    await SmsLog.deleteMany({ userId: req.userId });
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error clearing SMS logs:", error);
+    res.status(500).json({ message: error.message });
+  }
+}
+
 function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
   let dueDay;
   if (typeof tenantOrDueDay === "object") {
@@ -991,65 +1003,39 @@ async function bulkMarkPaid(req, res) {
     const tenants = await Tenant.find(query);
 
     for (let tenant of tenants) {
-      // Calculate total debt (same logic as distributePayment)
-      const latestByMonth = new Map();
-      for (let entry of tenant.paymentHistory) {
-        const existing = latestByMonth.get(entry.month);
-        if (!existing) {
-          latestByMonth.set(entry.month, entry);
-        } else {
-          const aDate = entry.datePaid ? new Date(entry.datePaid).getTime() : 0;
-          const bDate = existing.datePaid
-            ? new Date(existing.datePaid).getTime()
-            : 0;
-          if (
-            aDate > bDate ||
-            (aDate === bDate && entry._id.toString() > existing._id.toString())
-          ) {
-            latestByMonth.set(entry.month, entry);
-          }
-        }
-      }
-
+      // ----- Correct total debt (cumulative balance of the last month) -----
       let totalDebt = 0;
-      for (let entry of latestByMonth.values()) {
-        if (entry.remainingBalance > 0) totalDebt += entry.remainingBalance;
+      if (tenant.paymentHistory.length > 0) {
+        const sorted = [...tenant.paymentHistory].sort((a, b) => {
+          if (a.month !== b.month) return a.month.localeCompare(b.month);
+          const aTime = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+          const bTime = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+          return aTime - bTime;
+        });
+        totalDebt = sorted[sorted.length - 1].remainingBalance;
+      } else {
+        totalDebt = tenant.rent;
       }
 
+      // Only do something if the tenant actually owes money
       if (totalDebt > 0) {
-        // Use the same distribution logic as a single payment
-        let remaining = totalDebt;
-        const sortedMonths = [...latestByMonth.keys()].sort((a, b) =>
-          a.localeCompare(b)
+        // Pay the full amount on the earliest month – recalc will distribute it correctly
+        const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
+        const firstEntry = tenant.paymentHistory.find(
+          (e) => e.month === firstMonth
         );
-        let earliestChanged = null;
 
-        for (let month of sortedMonths) {
-          if (remaining <= 0) break;
-          const latestEntry = latestByMonth.get(month);
-          if (latestEntry.remainingBalance > 0) {
-            const pay = Math.min(latestEntry.remainingBalance, remaining);
-            remaining -= pay;
+        tenant.paymentHistory.push({
+          month: firstMonth,
+          amountPaid: totalDebt,
+          remainingBalance: 0, // placeholder, recalc fixes it
+          paid: false,
+          datePaid: new Date().toISOString(),
+          dueDate: firstEntry?.dueDate || new Date(),
+          mpesaRef: "",
+        });
 
-            tenant.paymentHistory.push({
-              month: latestEntry.month,
-              amountPaid: pay,
-              remainingBalance: 0,
-              paid: false,
-              datePaid: new Date().toISOString(),
-              dueDate: latestEntry.dueDate,
-              mpesaRef: "",
-            });
-
-            if (!earliestChanged || month < earliestChanged) {
-              earliestChanged = month;
-            }
-          }
-        }
-
-        if (earliestChanged) {
-          await recalcFutureMonths(tenant, earliestChanged);
-        }
+        await recalcFutureMonths(tenant, firstMonth);
         await tenant.save();
       }
     }
@@ -1381,8 +1367,7 @@ async function updateGlobalSettings(req, res) {
   try {
     const { garbageFee, waterRatePerUnit, defaultDueDay } = req.body;
     let settings = await Settings.findById("global_" + req.userId); // ✅ FIXED
-    if (req.body.reminderTemplate !== undefined)
-      settings.reminderTemplate = req.body.reminderTemplate;
+
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
     if (req.body.autoRemindersEnabled !== undefined)
       settings.autoRemindersEnabled = req.body.autoRemindersEnabled;
@@ -1979,17 +1964,57 @@ if (process.env.AFRICASTALKING_USERNAME && process.env.AFRICASTALKING_API_KEY) {
 }
 
 async function getSmsBalance(req, res) {
-  try {
-    if (!atmClient) {
-      return res.json({ balance: null, error: "SMS not configured" });
-    }
-    const response = await atmClient.application.fetchApplicationData();
-    const balance = response.UserData?.creditBalance || 0;
-    res.json({ balance });
-  } catch (error) {
+  const username = process.env.AFRICASTALKING_USERNAME;
+  const apiKey = process.env.AFRICASTALKING_API_KEY;
+
+  if (!username || !apiKey) {
+    return res.json({
+      balance: null,
+      error: "Missing Africa's Talking credentials",
+    });
+  }
+
+  const options = {
+    hostname: "api.africastalking.com",
+    path: `/version1/user?username=${username}`,
+    method: "GET",
+    headers: {
+      apikey: apiKey,
+      Accept: "application/json",
+    },
+  };
+
+  const request = https.request(options, (response) => {
+    let data = "";
+    response.on("data", (chunk) => {
+      data += chunk;
+    });
+    response.on("end", () => {
+      try {
+        const parsed = JSON.parse(data);
+        console.log(
+          "Africa's Talking raw balance response:",
+          JSON.stringify(parsed, null, 2)
+        );
+        let balance = null;
+        if (parsed?.UserData?.balance) {
+          // Remove the "KES " prefix and parse the number
+          const balanceStr = parsed.UserData.balance.replace("KES ", "").trim();
+          balance = parseFloat(balanceStr) || null;
+        }
+        res.json({ balance });
+      } catch (err) {
+        res.json({ balance: null, error: "Could not parse balance" });
+      }
+    });
+  });
+
+  request.on("error", (error) => {
     console.error("Balance fetch error:", error);
     res.json({ balance: null, error: error.message });
-  }
+  });
+
+  request.end();
 }
 
 async function handleSmsWebhook(req, res) {
@@ -2076,4 +2101,5 @@ export {
   getSmsBalance,
   handleSmsWebhook,
   getSmsLogs,
+  clearSmsLogs,
 };

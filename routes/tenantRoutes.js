@@ -36,6 +36,7 @@ import {
   getSmsBalance,
   handleSmsWebhook,
   getSmsLogs,
+  clearSmsLogs,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -46,6 +47,7 @@ router.get("/settings", getGlobalSettingsEndpoint);
 router.get("/export/statement", getExportStatement);
 router.get("/sms-balance", getSmsBalance);
 router.get("/sms-logs", getSmsLogs);
+router.delete("/sms-logs", clearSmsLogs);
 router.patch("/:id/restore", restoreTenant);
 router.delete("/:id/permanent", permanentlyDeleteTenant);
 // ----- PARAMETERIZED ROUTES (specific patterns) -----

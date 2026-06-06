@@ -1,6 +1,5 @@
 // ========================
-//   main.js – TOASTS, VERTICAL SETTINGS, CLEAN
-//   + FETCH TIMEOUT (10s) ON ALL CRITICAL REQUESTS
+//   main.js – STABLE VERSION (all features, no perf hacks)
 // ========================
 
 // ----- AUTH CHECK -----
@@ -38,9 +37,6 @@ function getAppToday() {
   if (devModeActive && currentDevDate) {
     const [y, m, d] = currentDevDate.split("-").map(Number);
     result = new Date(Date.UTC(y, m - 1, d));
-    console.log(
-      `[getAppToday] DEV active → using dev date ${currentDevDate} → ${result.toISOString()}`
-    );
     return result;
   }
 
@@ -50,9 +46,6 @@ function getAppToday() {
     result = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
     );
-    console.log(
-      `[getAppToday] no currentAppDate → real UTC today → ${result.toISOString()}`
-    );
     return result;
   }
 
@@ -61,11 +54,9 @@ function getAppToday() {
   result = new Date(
     Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
   );
-  console.log(
-    `[getAppToday] using server currentAppDate (${currentAppDate}) → ${result.toISOString()}`
-  );
   return result;
 }
+
 async function fetchAndDisplaySmsBalance() {
   try {
     const res = await fetchWithTimeout(
@@ -76,21 +67,32 @@ async function fetchAndDisplaySmsBalance() {
     );
     const data = await res.json();
     if (data.balance !== undefined && data.balance !== null) {
+      const balance = Number(data.balance);
+      const costPerMsg = 0.8;
+      const estimatedMessages = Math.floor(balance / costPerMsg);
+
       let badge = document.getElementById("sms-balance-badge");
       if (!badge) {
-        badge = document.createElement("span");
+        badge = document.createElement("div");
         badge.id = "sms-balance-badge";
-        badge.style.marginLeft = "12px";
-        badge.style.fontSize = "0.75rem";
-        badge.style.background = "#10b98120";
-        badge.style.padding = "4px 10px";
-        badge.style.borderRadius = "40px";
-        badge.style.fontWeight = "500";
-        const bulkBtn = document.getElementById("bulk-sms-btn");
-        if (bulkBtn)
-          bulkBtn.parentNode.insertBefore(badge, bulkBtn.nextSibling);
+        badge.style.cssText = `
+          padding: 8px 12px;
+          margin-bottom: 8px;
+          background: rgba(16, 185, 129, 0.15);
+          border-left: 3px solid var(--success);
+          border-radius: 0px;
+          color: var(--success);
+          font-weight: 600;
+          font-size: 0.85rem;
+          text-align: center;
+          user-select: none;
+        `;
+        const dropdown = document.getElementById("topbar-menu-dropdown");
+        if (dropdown) {
+          dropdown.insertBefore(badge, dropdown.firstChild);
+        }
       }
-      badge.textContent = `💰 ${data.balance.toLocaleString()} KES credit`;
+      badge.textContent = `💰 ${balance.toLocaleString()} KES credit (≈ ${estimatedMessages} messages)`;
     }
   } catch (err) {
     console.warn("Cannot fetch SMS balance");
@@ -112,16 +114,11 @@ function scheduleChartUpdate() {
 
 function getAppTodayStr() {
   if (!currentAppDate) return new Date().toISOString().slice(0, 10);
-  // currentAppDate comes from server as ISO string; extract date part
-  // OR it’s already a YYYY-MM-DD string if set from dev picker
   const d = new Date(currentAppDate);
   if (isNaN(d.getTime())) {
-    // already a plain YYYY-MM-DD string?
     if (/^\d{4}-\d{2}-\d{2}$/.test(currentAppDate)) return currentAppDate;
-    // fallback to real today
     return new Date().toISOString().slice(0, 10);
   }
-  // Use local date parts to avoid time zone madness
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -196,11 +193,9 @@ const urlParams = new URLSearchParams(window.location.search);
 const devModeActive = urlParams.get("dev") === "true";
 
 if (devModeActive) {
-  // Read from URL param, default to today
   const paramDate = urlParams.get("devDate");
   currentDevDate = paramDate || new Date().toISOString().split("T")[0];
 
-  // Override fetchWithTimeout to include X-Dev-Date header
   const originalFetchWithTimeout = fetchWithTimeout;
   fetchWithTimeout = async function (url, options = {}, timeout = 10000) {
     if (currentDevDate) {
@@ -210,7 +205,6 @@ if (devModeActive) {
     return originalFetchWithTimeout(url, options, timeout);
   };
 
-  // Update URL when picker changes
   function updateDevUrl(newDate) {
     const newParams = new URLSearchParams(window.location.search);
     newParams.set("dev", "true");
@@ -218,7 +212,6 @@ if (devModeActive) {
     window.history.replaceState({}, "", `?${newParams.toString()}`);
   }
 
-  // Show the dev date picker and set listeners
   document.addEventListener("DOMContentLoaded", () => {
     const devWrapper = document.getElementById("dev-date-picker-wrapper");
     const devDatePicker = document.getElementById("dev-date-picker");
@@ -230,11 +223,7 @@ if (devModeActive) {
         devDatePicker.addEventListener("change", async (e) => {
           currentDevDate = e.target.value;
           updateDevUrl(currentDevDate);
-
-          // Reload tenants with the new dev date
           await loadTenants();
-
-          // Trigger the backend sync to create the new month's payment record
           try {
             await fetchWithTimeout(window.location.origin + "/tenants/sync", {
               method: "POST",
@@ -242,12 +231,10 @@ if (devModeActive) {
                 Authorization: `Bearer ${localStorage.getItem("token")}`,
               },
             });
-            // Reload again to get the newly created month's data
             await loadTenants();
           } catch (err) {
             console.warn("Sync after dev-date change failed:", err);
           }
-
           Toast.fire({
             icon: "info",
             title: `Date changed to ${currentDevDate}`,
@@ -258,7 +245,6 @@ if (devModeActive) {
         resetBtn.addEventListener("click", async () => {
           currentDevDate = null;
           if (devDatePicker) devDatePicker.value = "";
-          // Remove devDate param but keep dev=true
           const newParams = new URLSearchParams();
           newParams.set("dev", "true");
           window.history.replaceState({}, "", `?${newParams.toString()}`);
@@ -267,7 +253,6 @@ if (devModeActive) {
         });
       }
     }
-    // Also show the month‑picker row for manual month change
     const setMonthRow = document.querySelector(".set-month-row");
     if (setMonthRow) setMonthRow.style.display = "flex";
   });
@@ -497,8 +482,7 @@ async function updateGlobalSettingsOnServer(
   waterRatePerUnit,
   defaultDueDay,
   totalHouses,
-  autoRemindersEnabled,
-  reminderTemplate
+  autoRemindersEnabled
 ) {
   const response = await fetchWithTimeout(
     window.location.origin + "/tenants/settings",
@@ -514,7 +498,6 @@ async function updateGlobalSettingsOnServer(
         defaultDueDay,
         totalHouses,
         autoRemindersEnabled,
-        reminderTemplate,
       }),
     }
   );
@@ -534,7 +517,7 @@ async function fetchCurrentDate() {
     }
   );
   const data = await response.json();
-  currentAppDate = data.currentDate; // store full ISO string
+  currentAppDate = data.currentDate;
 }
 
 let showArchived = false;
@@ -546,7 +529,6 @@ async function loadTenants() {
     });
     if (resp.ok) {
       const tenants = await resp.json();
-      // Only run the safety sync if we are NOT in dev mode
       if (!devModeActive) {
         const currentMonth = new Date().toISOString().slice(0, 7);
         const needsSync = tenants.some(
@@ -589,7 +571,7 @@ async function loadTenants() {
     populateMonthSelector();
     applyFiltersAndSort();
     updateCharts();
-    populateMonthSelector();
+
     setMonthPickerDefault();
     updateAllTimeStats(tenantArray);
     updateArchivedBadge();
@@ -616,16 +598,12 @@ function getLast6Months() {
 function getOutstandingBalanceForMonths(months) {
   const today = getAppToday();
   return months.map((targetMonth) => {
-    // For each target month, we want the total overdue that existed at the end of that month.
-    // Overdue = sum of remainingBalance for months whose due date < last day of targetMonth.
-    // Use the end of targetMonth as the "today" for that historical date.
     const [year, mon] = targetMonth.split("-").map(Number);
-    const endOfMonth = new Date(year, mon, 0); // last day of targetMonth, local midnight
+    const endOfMonth = new Date(year, mon, 0);
     endOfMonth.setHours(0, 0, 0, 0);
 
     let totalOverdue = 0;
     for (let tenant of tenantArray) {
-      // Use the same overdue logic as getTenantPastDueAmount, but with endOfMonth as the snapshot date.
       const overdue = getTenantPastDueAmount(tenant, endOfMonth);
       totalOverdue += overdue;
     }
@@ -633,7 +611,6 @@ function getOutstandingBalanceForMonths(months) {
   });
 }
 function updateCharts() {
-  // ---------- Donut chart (paid = no overdue balance) ----------
   let paid = 0,
     unpaid = 0;
   const today = getAppToday();
@@ -679,7 +656,6 @@ function updateCharts() {
     "donutLabel"
   ).innerText = `Paid: ${paid} / ${tenantArray.length} (${percentage}%)`;
 
-  // ---------- Line chart (last 6 months: expected vs collected) ----------
   const months = getLast6Months();
   let expectedData = [];
   let collectedData = [];
@@ -688,17 +664,14 @@ function updateCharts() {
     let expectedSum = 0;
     let collectedSum = 0;
     tenantArray.forEach((tenant) => {
-      // Expected: totalDue from the charge entry (if exists)
       const chargeEntry = tenant.paymentHistory.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
       if (chargeEntry) {
         expectedSum += chargeEntry.totalDue || 0;
       } else {
-        // Fallback only if no charge entry (should rarely happen)
         expectedSum += tenant.rent + (globalSettings.garbageFee || 0);
       }
-      // Collected: sum of all payment entries for that month
       const paidEntries = tenant.paymentHistory.filter(
         (e) => e.month === month && e.amountPaid > 0
       );
@@ -758,7 +731,6 @@ function updateCharts() {
     });
   }
 
-  // ---------- Outstanding Balance Line Chart (Last 6 Months) ----------
   const debtMonths = getLast6Months();
   const debtData = getOutstandingBalanceForMonths(debtMonths);
   const debtCtx = document.getElementById("debtLineChart").getContext("2d");
@@ -837,7 +809,7 @@ function getDueDateForMonthLocal(tenant, yearMonth) {
 }
 function getTenantNextDueDate(tenant) {
   const today = getAppToday();
-  const todayStr = today.toISOString().slice(0, 10); // UTC YYYY-MM-DD
+  const todayStr = today.toISOString().slice(0, 10);
 
   const months = [...new Set(tenant.paymentHistory.map((e) => e.month))].sort();
   for (let month of months) {
@@ -850,18 +822,17 @@ function getTenantNextDueDate(tenant) {
     const latest = entries[entries.length - 1];
     if (!latest.dueDate) continue;
     const dueDate = new Date(latest.dueDate);
-    const dueStr = dueDate.toISOString().slice(0, 10); // UTC YYYY-MM-DD
+    const dueStr = dueDate.toISOString().slice(0, 10);
     if (dueStr >= todayStr) return dueStr;
   }
 
-  // Fallback – use current billing month's due date
   const currentMonth = getCurrentMonth();
   return getDueDateForMonthLocal(tenant, currentMonth);
 }
 
 function isLate(dueDate, paid, tenant) {
-  const today = getAppToday(); // UTC midnight Date
-  const todayStr = today.toISOString().slice(0, 10); // "2026-05-06"
+  const today = getAppToday();
+  const todayStr = today.toISOString().slice(0, 10);
 
   const latestByMonth = new Map();
   for (let entry of tenant.paymentHistory || []) {
@@ -884,8 +855,8 @@ function isLate(dueDate, paid, tenant) {
 
   for (let entry of latestByMonth.values()) {
     if (entry.remainingBalance > 0 && entry.dueDate) {
-      const dueDate = new Date(entry.dueDate); // UTC
-      const dueStr = dueDate.toISOString().slice(0, 10); // "2026-05-05"
+      const dueDate = new Date(entry.dueDate);
+      const dueStr = dueDate.toISOString().slice(0, 10);
       if (dueStr < todayStr) return true;
     }
   }
@@ -911,56 +882,12 @@ function getTenantFirstMonth(tenant) {
   return null;
 }
 
-function getTenantBalance(tenant) {
-  // Mirrors the logic in renderTenant (ui.js) – active month, sum charges - paid
-  const today = getAppToday();
-  let activeMonth = null;
-  for (let entry of tenant.paymentHistory || []) {
-    const due = normalizeDueDate(entry.dueDate);
-    if (due && due > today) {
-      activeMonth = entry.month;
-      break;
-    }
-  }
-  if (!activeMonth) activeMonth = getCurrentMonth();
-
-  let totalCharges = 0;
-  let totalPaid = 0;
-  const seenMonths = new Set();
-
-  for (let entry of tenant.paymentHistory || []) {
-    totalPaid += entry.amountPaid || 0;
-    if (seenMonths.has(entry.month) || entry.month > activeMonth) continue;
-
-    const charges =
-      (entry.baseRent || tenant.rent) +
-      (entry.waterCharge || 0) +
-      (entry.garbageCharge || 0);
-    totalCharges += charges;
-    seenMonths.add(entry.month);
-  }
-
-  if (!seenMonths.has(activeMonth)) {
-    totalCharges += tenant.rent;
-    const settings = globalSettings || { garbageFee: 0 };
-    totalCharges += settings.garbageFee || 0;
-  }
-
-  let balance = totalCharges - totalPaid;
-  if (balance === 0 && tenant.paymentHistory.length === 0) {
-    balance = tenant.rent;
-  }
-  return balance;
-}
 function getTenantPastDueAmount(tenant, todayDate) {
   const today = new Date(todayDate);
   const todayUTC = new Date(
     Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
   );
   const todayStr = todayUTC.toISOString().slice(0, 10);
-
-  console.log(`🔍 OVERDUE DEBUG for ${tenant.name}`);
-  console.log(`   today (UTC): ${todayStr}`);
 
   const months = [...new Set(tenant.paymentHistory.map((e) => e.month))].sort();
   let lastPastBalance = 0;
@@ -975,47 +902,29 @@ function getTenantPastDueAmount(tenant, todayDate) {
     });
     const latest = entries[entries.length - 1];
     if (!latest || !latest.dueDate) {
-      console.log(`   Month ${month}: no due date, skipping`);
       continue;
     }
 
     const due = new Date(latest.dueDate);
     const dueStr = due.toISOString().slice(0, 10);
-    console.log(
-      `   Month ${month}: due=${dueStr}, remainingBalance=${latest.remainingBalance}, totalDue=${latest.totalDue}`
-    );
 
-    // STOP at the current billing month
     if (dueStr >= todayStr) {
-      console.log(
-        `   ⛔ STOP at ${month} (due ${dueStr} >= today ${todayStr})`
-      );
       break;
     }
 
-    // This month is past due
     lastPastBalance = latest.remainingBalance;
     foundPast = true;
-    console.log(`   ✅ Past due: using balance ${lastPastBalance}`);
   }
 
-  const result = foundPast ? Math.max(0, lastPastBalance) : 0;
-  console.log(`   🏁 FINAL overdue = ${result}`);
-  return result;
+  return foundPast ? Math.max(0, lastPastBalance) : 0;
 }
 window.getTenantPastDueAmount = getTenantPastDueAmount;
 
-// ========================
-//   EXPECTED & COLLECTED FOR A GIVEN MONTH
-// ========================
-
 function getExpectedForMonth(tenant, monthStr, settings) {
-  // Try to get the charge entry (amountPaid === 0 and no datePaid)
   const chargeEntry = tenant.paymentHistory.find(
     (e) => e.month === monthStr && (e.amountPaid || 0) === 0 && !e.datePaid
   );
   if (chargeEntry) return chargeEntry.totalDue || 0;
-  // Fallback compute (should rarely happen)
   let depositExtra = 0;
   if (tenant.deposit && tenant.depositPeriod) {
     const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
@@ -1084,7 +993,6 @@ function updateTenantList(filteredList) {
       <h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2>
     </div>
   `;
-      // Only focus the name input when there are truly zero tenants in the system
       if (tenantArray.length === 0) {
         const nameInput = document.querySelector(".tenant-name");
       }
@@ -1169,7 +1077,6 @@ function updateStats(tenantArray) {
     tenantArray.length - paidTenantsCount
   }`;
 
-  // Clear unwanted stats
   const totalTenantsEl = document.querySelector(".total-tenants");
   const totalUnpaidEl = document.querySelector(".total-unpaid-tenants");
   const highestDebtorEl = document.querySelector(".highest-debtor");
@@ -1224,92 +1131,279 @@ async function showHistoryModal(id) {
   document.getElementById("profile-modal").style.display = "none";
 }
 
+// ─────────────────────────────────────────────────────
+//   FULL PAYMENT MODAL (compact table with credit tags)
+// ─────────────────────────────────────────────────────
 function renderPaymentModal(tenantId) {
   let tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
+
+  // Safety guard
+  if (!tenant.paymentHistory || !Array.isArray(tenant.paymentHistory)) {
+    tenant.paymentHistory = [];
+  }
+
   let currentMonth = getCurrentMonth();
-  // If the tenant has no payment record for the current month, default to the first month they have a record for
   if (!tenant.paymentHistory.some((e) => e.month === currentMonth)) {
     if (tenant.paymentHistory.length > 0) {
-      currentMonth = tenant.paymentHistory[0].month; // e.g., "2026-05"
+      currentMonth = tenant.paymentHistory[0].month;
     }
   }
 
-  // --- Check if water reading exists for the current month ---
   const hasWaterReading = (tenant.waterMeterReadings || []).some(
     (r) => r.month === currentMonth
   );
 
-  // Build warning banner HTML if missing
   const warningBanner = !hasWaterReading
     ? `
     <div id="water-reading-warning" style="
-      background: rgba(245, 158, 11, 0.15);
-      border-left: 4px solid var(--warning);
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin-bottom: 16px;
+      background: #fbbf2420;
+      border-left: 5px solid #fbbf24;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      font-weight: 500;
+      color: #fbbf24;
     ">
-      <span style="color: var(--warning); font-weight: 500;">
-        ⚠️ No water reading recorded for ${currentMonth}. Water charges will be 0.
-      </span>
+      <span>⚠️ No water reading for ${currentMonth}. Water charges = 0.</span>
       <button id="dismiss-water-warning" style="
         background: transparent;
         border: none;
-        color: var(--text-muted);
-        font-size: 1.2rem;
+        color: #fbbf24;
+        font-size: 1.4rem;
         cursor: pointer;
-        padding: 0 4px;
+        padding: 0 8px;
+        line-height: 1;
       ">✕</button>
     </div>
   `
     : "";
 
-  // --- Info message about auto charges ---
-  const infoMessage = `
-    <div style="
-      background: rgba(59, 130, 246, 0.1);
-      border-left: 4px solid var(--accent-blue);
-      border-radius: 8px;
-      padding: 8px 14px;
-      margin-bottom: 12px;
-      font-size: 0.8rem;
-      color: var(--text-secondary);
-    ">
-      ℹ️ Water and garbage charges are added automatically to the total due.
-    </div>
-  `;
+  const html = `
+    <style>
+      .payment-compact-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0 6px;
+        background: transparent;
+        word-break: break-word;
+      }
+      .payment-compact-table thead th {
+        text-align: center;
+        padding: 12px 8px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        color: #94a3b8;
+        border-bottom: 2px solid #334155;
+        text-transform: uppercase;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .payment-row-main {
+        cursor: pointer;
+        transition: background 0.15s;
+        background: #1e293b;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+      }
+      .payment-row-main:hover {
+        background: #273548;
+      }
+      .payment-row-main td {
+        padding: 14px 8px;
+        text-align: center;
+        font-size: 1rem;
+        font-weight: 500;
+        vertical-align: middle;
+        border: none;
+        overflow-wrap: break-word;
+      }
+      .payment-row-main td:first-child {
+        border-radius: 12px 0 0 12px;
+        font-weight: 700;
+      }
+      .payment-row-main td:last-child {
+        border-radius: 0 12px 12px 0;
+      }
+      .amount-paid { color: #4ade80; font-weight: 700; }
+      .amount-zero { color: #64748b; }
+      .status-fully-paid { color: #4ade80; font-weight: 700; }
+      .status-unpaid { color: #f87171; font-weight: 700; }
+      .status-overpaid { color: #60a5fa; font-weight: 700; }
+      .balance-positive { color: #f87171; font-weight: 700; }
+      .balance-zero { color: #4ade80; font-weight: 700; }
+      .balance-negative { color: #c084fc; font-weight: 700; }
+      .left-net {
+        font-weight: 700;
+        display: block;
+      }
+      .left-credit-tag {
+        font-size: 0.7rem;
+        color: #38bdf8;
+        margin-top: 2px;
+        display: block;
+      }
+      .expand-arrow {
+        display: inline-block;
+        transition: transform 0.2s;
+        font-size: 1.3rem;
+        color: #94a3b8;
+      }
+      .credit-transfer-row td {
+        padding: 4px 0;
+        text-align: center;
+        font-size: 0.75rem;
+        color: #38bdf8;
+        background: transparent;
+        font-weight: 500;
+        border: none;
+        opacity: 0.85;
+      }
+      .payment-row-detail td {
+        padding: 0;
+        background: #0f172a;
+        border-radius: 0 0 12px 12px;
+        border-bottom: 2px solid #334155;
+        word-break: break-word;
+        overflow-x: hidden;
+      }
+      .detail-content {
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        color: #cbd5e1;
+        font-size: 0.9rem;
+      }
+      .charge-line {
+        color: #f1f5f9;
+        font-weight: 600;
+        font-size: 0.95rem;
+        background: #1e293b;
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      .credit-note {
+        color: #38bdf8;
+        font-weight: 500;
+        font-size: 0.85rem;
+        background: #38bdf815;
+        padding: 4px 10px;
+        border-radius: 20px;
+        display: inline-block;
+      }
+      .payment-detail-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        background: #1e293b;
+        border-radius: 8px;
+        font-size: 0.85rem;
+      }
+      .payment-detail-line span:first-child {
+        font-weight: 600;
+        color: #f1f5f9;
+      }
+      .payment-detail-line span.mp {
+        color: #38bdf8;
+        font-weight: 500;
+      }
+      .payment-detail-line span.balance {
+        font-weight: 600;
+      }
 
-  let html = `
+      /* prevent inner scroll */
+      .payment-history-wrapper,
+      .payment-history-scroll,
+      #payment-history-list {
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+
+      @media (max-width: 500px) {
+        .payment-row-main td {
+          font-size: 0.85rem;
+          padding: 12px 4px;
+        }
+        .detail-content {
+          padding: 12px 10px;
+        }
+      }
+    </style>
+
     ${warningBanner}
-    ${infoMessage}
+    <div style="
+      background: rgba(59,130,246,0.12);
+      border-left: 5px solid #3b82f6;
+      border-radius: 12px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 0.85rem;
+      color: #93c5fd;
+    ">
+      ℹ️ Tap a month row to see the breakdown.
+    </div>
+
     <div class="payment-add-section">
-      <h4>Add Payment</h4>
+      <h4 style="color:#f1f5f9; margin-bottom:12px;">Add Payment</h4>
       <div class="payment-add-row">
-        <label>Amount(KSH):</label>
-        <input type="number" id="pay-amount" step="any" placeholder="0.00">
+        <label style="color:#cbd5e1;">Amount(KSH):</label>
+        <input type="number" id="pay-amount" step="any" placeholder="0.00"
+          style="padding:10px; border-radius:8px; border:1px solid #334155; background:#1e293b; color:#f1f5f9; width:100%;">
       </div>
-      <div class="payment-add-row">
-        <label>Date Paid:</label>
+      <div class="payment-add-row" style="margin-top:10px;">
+        <label style="color:#cbd5e1;">Date Paid:</label>
         <input type="date" id="pay-date" value="${new Date()
           .toISOString()
-          .slice(0, 10)}">
+          .slice(0, 10)}"
+          style="padding:10px; border-radius:8px; border:1px solid #334155; background:#1e293b; color:#f1f5f9; width:100%;">
       </div>
-      <div class="payment-add-row">
-        <label>M‑Pesa Ref:</label>
-        <input type="text" id="pay-mpesa" placeholder="Optional">
+      <div class="payment-add-row" style="margin-top:10px;">
+        <label style="color:#cbd5e1;">M‑Pesa Ref:</label>
+        <input type="text" id="pay-mpesa" placeholder="Optional"
+          style="padding:10px; border-radius:8px; border:1px solid #334155; background:#1e293b; color:#f1f5f9; width:100%;">
       </div>
-      <button id="add-payment-btn" class="modal-action-btn">➕ Add Payment</button>
+      <button id="add-payment-btn" class="modal-action-btn"
+        style="margin-top:16px; width:100%; background:#3b82f6; color:white; font-weight:bold; padding:12px; border-radius:12px;">
+        ➕ Add Payment
+      </button>
     </div>
-    <hr>
+
+    <hr style="border-color:#334155; margin:20px 0;">
+
+    <!-- Legend -->
+    <div style="
+      background: rgba(255,255,255,0.03);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    ">
+      <span><strong style="color:#f1f5f9;">Left</strong> = amount owed for this month (credit already applied).</span>
+      <span><strong style="color:#f1f5f9;">Balance</strong> = total owed across all months (negative = credit).</span>
+    </div>
+
     <div id="payment-history-list" class="payment-history-list"></div>
   `;
+
   document.getElementById("payment-content").innerHTML = html;
 
-  // --- Dismiss warning banner ---
+  // Dismiss warning
   const dismissBtn = document.getElementById("dismiss-water-warning");
   if (dismissBtn) {
     dismissBtn.addEventListener("click", () => {
@@ -1330,7 +1424,6 @@ function renderPaymentModal(tenantId) {
     return 0;
   });
 
-  // Identify the first month (earliest month ever)
   let firstMonth = null;
   if (sortedHistory.length > 0) {
     const byMonth = [...sortedHistory].sort((a, b) =>
@@ -1339,10 +1432,9 @@ function renderPaymentModal(tenantId) {
     firstMonth = byMonth[0].month;
   }
 
-  const today = getAppToday(); // UTC midnight Date
-  const todayStr = today.toISOString().slice(0, 10); // "2026-05-06"
+  const today = getAppToday();
+  const todayStr = today.toISOString().slice(0, 10);
 
-  // Determine the active billing month (first month whose due date is ≥ today)
   let activeMonth = null;
   for (let entry of sortedHistory) {
     if (!entry.dueDate) continue;
@@ -1354,86 +1446,260 @@ function renderPaymentModal(tenantId) {
     }
   }
   if (!activeMonth) {
-    // all due dates are past – active is the current calendar month
     activeMonth = getCurrentMonth();
   }
-  // Filter: always keep the first month, plus any month ≤ active month
+
   sortedHistory = sortedHistory.filter((entry) => {
     if (entry.month === firstMonth) return true;
     return entry.month <= activeMonth;
   });
 
-  // ---- Render the filtered list ----
-  let container = document.getElementById("payment-history-list");
-  container.innerHTML = `
-  <div class="payment-header">
-    <span>Month</span><span>Amount Paid</span><span>Balance</span><span>Date Paid</span><span></span><span></span>
-  </div>`;
-  sortedHistory.forEach((entry) => {
-    const isChargeEntry = (entry.amountPaid || 0) === 0 && !entry.datePaid;
+  // Group entries by month
+  const uniqueMonths = [...new Set(sortedHistory.map((e) => e.month))]
+    .sort()
+    .reverse();
 
-    // For charge entries, show the **original total due** (never changes)
-    // For payment entries, show the running remaining balance after the payment
-    let displayBalance;
-    if (isChargeEntry) {
-      displayBalance =
-        entry.totalDue ||
-        entry.baseRent +
-          (entry.waterCharge || 0) +
-          (entry.garbageCharge || 0) ||
-        0;
-    } else {
-      displayBalance = entry.remainingBalance;
-      // Overpayment visual: if negative, show "+" and absolute value
-      if (displayBalance < 0) {
-        const hasLaterPositive = sortedHistory.some(
-          (e) => e.month > entry.month && e.remainingBalance > 0
+  // monthsOrder must be oldest-first (chronological) so that
+  // the credit transfer row correctly identifies the older month
+  const monthsOrder = [...uniqueMonths].reverse();
+
+  const leftByMonth = new Map();
+  let previousCumulative = 0;
+  for (const month of monthsOrder) {
+    const chargeEntry = sortedHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (!chargeEntry) continue;
+    const cumulative = chargeEntry.remainingBalance;
+    const monthLeft = Math.max(0, cumulative) - Math.max(0, previousCumulative);
+    leftByMonth.set(month, monthLeft);
+    previousCumulative = cumulative;
+  }
+
+  // Helper: charge breakdown
+  function getChargeBreakdown(month) {
+    const chargeEntry = sortedHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (!chargeEntry) return "";
+    let deposit = 0;
+    if (tenant.deposit && tenant.depositPeriod) {
+      const first = getTenantFirstMonth(tenant);
+      if (first) {
+        const [fy, fm] = first.split("-").map(Number);
+        const firstDate = new Date(Date.UTC(fy, fm - 1, 1));
+        const lastDepDate = new Date(
+          Date.UTC(fy, fm - 1 + tenant.depositPeriod, 0)
         );
-        if (hasLaterPositive) displayBalance = 0; // hide overpayment if later months still unpaid
+        const [cy, cm] = month.split("-").map(Number);
+        const checkDate = new Date(Date.UTC(cy, cm - 1, 1));
+        if (checkDate >= firstDate && checkDate <= lastDepDate) {
+          deposit = Math.round(tenant.rent / tenant.depositPeriod);
+        }
+      }
+    }
+    const trueRent = (chargeEntry.baseRent || tenant.rent) - deposit;
+    const water = chargeEntry.waterCharge || 0;
+    const garbage = chargeEntry.garbageCharge || 0;
+    const parts = [];
+    if (trueRent > 0) parts.push(`Rent ${trueRent.toLocaleString()}`);
+    if (deposit > 0) parts.push(`Deposit ${deposit.toLocaleString()}`);
+    if (garbage > 0) parts.push(`Garbage ${garbage.toLocaleString()}`);
+    if (water > 0) parts.push(`Water ${water.toLocaleString()}`);
+    return parts.join(" · ");
+  }
+
+  // ---- Build the table ----
+  let container = document.getElementById("payment-history-list");
+  let tableHtml = `
+    <table class="payment-compact-table">
+      <thead>
+        <tr><th>Month</th><th>Total</th><th>Paid</th><th>Left</th><th>Balance</th><th></th></tr>
+      </thead>
+      <tbody>
+  `;
+
+  for (const month of uniqueMonths) {
+    const chargeEntry = sortedHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (!chargeEntry) continue;
+
+    const totalDue =
+      chargeEntry.totalDue ||
+      (chargeEntry.baseRent || 0) +
+        (chargeEntry.waterCharge || 0) +
+        (chargeEntry.garbageCharge || 0) ||
+      0;
+
+    const paymentsThisMonth = sortedHistory.filter(
+      (e) => e.month === month && e.amountPaid > 0
+    );
+    const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
+
+    const cumulative = chargeEntry.remainingBalance;
+    const monthLeft = leftByMonth.get(month) || 0;
+    const expectedLeft = totalDue - paid;
+
+    const creditUsedAmount =
+      paid < totalDue ? Math.max(0, expectedLeft - Math.max(0, monthLeft)) : 0;
+
+    // ---- Left cell ----
+    let leftDisplay = "";
+    let leftClass = "";
+    if (paid >= totalDue) {
+      if (cumulative < 0) {
+        leftDisplay = `Over +${Math.abs(cumulative).toLocaleString()}`;
+        leftClass = "status-overpaid";
+      } else {
+        leftDisplay = "Fully paid";
+        leftClass = "status-fully-paid";
+      }
+    } else {
+      if (monthLeft === 0 && expectedLeft > 0) {
+        leftDisplay = `<span class="left-net" style="color:#4ade80;">0</span><span class="left-credit-tag">${creditUsedAmount.toLocaleString()} credit</span>`;
+        leftClass = "status-fully-paid";
+      } else if (monthLeft > 0) {
+        leftDisplay = `<span class="left-net" style="color:#f87171;">${monthLeft.toLocaleString()}</span>`;
+        if (creditUsedAmount > 0) {
+          leftDisplay += `<span class="left-credit-tag">${creditUsedAmount.toLocaleString()} credit</span>`;
+        }
+        leftClass = "status-unpaid";
       }
     }
 
+    // ---- Balance column ----
     let balanceClass = "";
-    if (displayBalance < 0) {
-      balanceClass = "overpaid";
-    } else if (displayBalance === 0) {
-      balanceClass = "zero";
+    let balanceText = "";
+    if (cumulative > 0) {
+      balanceText = cumulative.toLocaleString();
+      balanceClass = "balance-positive";
+    } else if (cumulative < 0) {
+      balanceText = `+${Math.abs(cumulative).toLocaleString()}`;
+      balanceClass = "balance-negative";
+    } else {
+      balanceText = "0";
+      balanceClass = "balance-zero";
     }
 
-    let div = document.createElement("div");
-    div.className = "payment-record";
-    div.innerHTML = `
-    <span class="record-month">${entry.month}${
-      isChargeEntry ? " ⚡Charge" : ""
-    }</span>
-    <span class="record-amount-paid">${
-      isChargeEntry ? "—" : entry.amountPaid.toLocaleString()
-    }</span>
-    <span class="record-remaining-balance ${balanceClass}">
-      ${
-        displayBalance < 0
-          ? "+" + Math.abs(displayBalance).toLocaleString()
-          : displayBalance.toLocaleString()
+    const paidDisplay = paid > 0 ? paid.toLocaleString() : "—";
+
+    const rowId = `row-${month.replace(/[^a-zA-Z0-9]/g, "")}`;
+    const detailId = `detail-${month.replace(/[^a-zA-Z0-9]/g, "")}`;
+
+    // Main row
+    tableHtml += `
+      <tr class="payment-row-main" data-month="${month}" id="${rowId}">
+        <td>${month}</td>
+        <td>${totalDue.toLocaleString()}</td>
+        <td class="${
+          paid > 0 ? "amount-paid" : "amount-zero"
+        }">${paidDisplay}</td>
+        <td class="${leftClass}">${leftDisplay}</td>
+        <td class="${balanceClass}">${balanceText}</td>
+        <td><span class="expand-arrow">▸</span></td>
+      </tr>`;
+
+    // Detail row
+    tableHtml += `
+      <tr class="payment-row-detail" id="${detailId}" style="display:none;">
+        <td colspan="6">
+          <div class="detail-content">
+            <div class="charge-line"><strong>Charges:</strong> ${getChargeBreakdown(
+              month
+            )}</div>
+            ${paymentsThisMonth
+              .map((p) => {
+                const pBalance = p.remainingBalance;
+                const balClass =
+                  pBalance > 0
+                    ? "balance-positive"
+                    : pBalance < 0
+                    ? "balance-negative"
+                    : "balance-zero";
+                const balText =
+                  pBalance < 0
+                    ? `+${Math.abs(pBalance).toLocaleString()}`
+                    : pBalance.toLocaleString();
+                return `<div class="payment-detail-line">
+                <span>↳ ${p.amountPaid.toLocaleString()} on ${
+                  p.datePaid ? formatDate(p.datePaid) : "—"
+                }</span>
+                ${
+                  p.mpesaRef
+                    ? `<span class="mp">M-Pesa: ${p.mpesaRef}</span>`
+                    : ""
+                }
+                <span class="balance ${balClass}">bal: ${balText}</span>
+                <button class="actions-btn" data-id="${p._id}" data-month="${
+                  p.month
+                }" data-amount="${p.amountPaid}" data-date="${
+                  p.datePaid || ""
+                }" data-mpesa="${
+                  p.mpesaRef || ""
+                }" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94a3b8;padding:4px 6px;min-width:30px;">⚙️</button>
+              </div>`;
+              })
+              .join("")}
+            ${
+              creditUsedAmount > 0
+                ? `<div class="credit-note">${creditUsedAmount.toLocaleString()} credit from previous month</div>`
+                : ""
+            }
+          </div>
+        </td>
+      </tr>`;
+
+    // Credit transfer row
+    if (creditUsedAmount > 0) {
+      const idx = monthsOrder.indexOf(month);
+      const olderMonth = idx > 0 ? monthsOrder[idx - 1] : null;
+      if (olderMonth) {
+        tableHtml += `
+          <tr class="credit-transfer-row">
+            <td colspan="6">
+              ← KES ${creditUsedAmount.toLocaleString()} credit from ${olderMonth}
+            </td>
+          </tr>
+        `;
       }
-    </span>
-    <span class="record-date-paid">${
-      entry.datePaid ? formatDate(entry.datePaid) : "—"
-    }</span>
-    ${
-      isChargeEntry
-        ? `<span class="charge-lock" title="System charge – not editable">🔒</span>`
-        : `<button class="actions-btn" data-id="${entry._id}" data-month="${
-            entry.month
-          }" data-amount="${entry.amountPaid}" data-date="${
-            entry.datePaid || ""
-          }" data-mpesa="${entry.mpesaRef || ""}">⚙️</button>`
     }
-    `;
-    container.appendChild(div);
+  }
+
+  tableHtml += `</tbody></table>`;
+  container.innerHTML = tableHtml;
+
+  // Expand/collapse logic
+  const mainRows = container.querySelectorAll(".payment-row-main");
+  mainRows.forEach((row) => {
+    row.addEventListener("click", function () {
+      const month = this.dataset.month;
+      const detailRow = document.getElementById(
+        `detail-${month.replace(/[^a-zA-Z0-9]/g, "")}`
+      );
+      const arrow = this.querySelector(".expand-arrow");
+      if (!detailRow) return;
+      if (
+        detailRow.style.display === "none" ||
+        detailRow.style.display === ""
+      ) {
+        container
+          .querySelectorAll(".payment-row-detail")
+          .forEach((r) => (r.style.display = "none"));
+        container
+          .querySelectorAll(".expand-arrow")
+          .forEach((a) => (a.style.transform = "rotate(0deg)"));
+        detailRow.style.display = "table-row";
+        arrow.style.transform = "rotate(90deg)";
+      } else {
+        detailRow.style.display = "none";
+        arrow.style.transform = "rotate(0deg)";
+      }
+    });
   });
 }
+// ─────────────────────────────────────────────────────
 
-// ----- UTILITIES MODAL (Meter Reading) -----
 // ----- UTILITIES MODAL (Meter Reading) -----
 async function showUtilitiesModal(tenantId) {
   const tenant = tenantArray.find((t) => t._id === tenantId);
@@ -1445,7 +1711,6 @@ async function showUtilitiesModal(tenantId) {
     a.month.localeCompare(b.month)
   );
 
-  // Previous reading for the "Add New" form (uses the last reading overall as initial)
   const prevReading =
     readings.length > 0 ? readings[readings.length - 1].reading : 0;
 
@@ -1456,7 +1721,7 @@ async function showUtilitiesModal(tenantId) {
         <span>${formatCurrency(waterRate)} / unit</span>
       </div>
 
-           <h4>📝 Add New Reading</h4>
+      <h4>📝 Add New Reading</h4>
       <div class="add-reading-form">
         <div class="utility-row"><label>Month:</label><input type="month" id="reading-month" value="${currentMonth}"></div>
         <div class="utility-row"><label>Previous Reading:</label><span id="prev-reading-display">${prevReading}</span></div>
@@ -1470,7 +1735,6 @@ async function showUtilitiesModal(tenantId) {
       </div>
   `;
 
-  // History table (only if readings exist)
   if (readings.length > 0) {
     html += `<h4>📜 Reading History</h4>
       <div style="overflow-x: auto;">
@@ -1510,9 +1774,6 @@ async function showUtilitiesModal(tenantId) {
   document.getElementById("modal-overlay").style.display = "block";
   document.body.classList.add("modal-open");
 
-  // ──────────────────────────────────────────────
-  // Live calculation – uses the selected month's previous reading
-  // ──────────────────────────────────────────────
   const readingInput = document.getElementById("meter-reading");
   const readingMonthInput = document.getElementById("reading-month");
   const unitsSpan = document.getElementById("units-used");
@@ -1543,122 +1804,135 @@ async function showUtilitiesModal(tenantId) {
     prevDisplay.textContent = prevRead;
   }
 
-  if (readingInput) {
-    readingInput.addEventListener("input", updateCalc);
-  }
-  if (readingMonthInput) {
+  if (readingInput) readingInput.addEventListener("input", updateCalc);
+  if (readingMonthInput)
     readingMonthInput.addEventListener("change", updateCalc);
-  }
-  // Set initial previous reading display
   if (prevDisplay) prevDisplay.textContent = prevReading;
 
-  // Event delegation for gear buttons (no duplicate listeners)
-  document
-    .getElementById("utilities-content")
-    .addEventListener("click", async (e) => {
-      const btn = e.target.closest(".reading-actions-btn");
-      if (!btn) return;
+  const handleReadingActions = async (e) => {
+    const btn = e.target.closest(".reading-actions-btn");
+    if (!btn) return;
 
-      const id = btn.dataset.id;
-      const month = btn.dataset.month;
-      const currentReading = parseFloat(btn.dataset.reading);
-      const tenantId = tenant._id; // tenant is from outer scope
+    const id = btn.dataset.id;
+    const month = btn.dataset.month;
+    const currentReading = parseFloat(btn.dataset.reading);
+    const tid = tenant._id;
 
-      const result = await Swal.fire({
-        title: `Reading for ${month}`,
-        text: "Choose an action:",
-        icon: "question",
+    const result = await Swal.fire({
+      title: `Reading for ${month}`,
+      text: "Choose an action:",
+      icon: "question",
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: "✏️ Edit",
+      denyButtonText: "🗑️ Delete",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#3b82f6",
+      denyButtonColor: "#ef4444",
+      background: "#1e293b",
+      color: "#f1f5f9",
+    });
+
+    if (result.isConfirmed) {
+      const { value: newReading } = await Swal.fire({
+        title: `Edit Reading for ${month}`,
+        input: "number",
+        inputValue: currentReading,
+        inputAttributes: { step: "0.1", min: "0" },
         showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText: "✏️ Edit",
-        denyButtonText: "🗑️ Delete",
-        cancelButtonText: "Cancel",
-        confirmButtonColor: "#3b82f6",
-        denyButtonColor: "#ef4444",
+        confirmButtonText: "Update",
         background: "#1e293b",
         color: "#f1f5f9",
       });
-
-      if (result.isConfirmed) {
-        // Edit
-        const { value: newReading } = await Swal.fire({
-          title: `Edit Reading for ${month}`,
-          input: "number",
-          inputValue: currentReading,
-          inputAttributes: { step: "0.1", min: "0" },
-          showCancelButton: true,
-          confirmButtonText: "Update",
-          background: "#1e293b",
-          color: "#f1f5f9",
-        });
-        if (newReading !== undefined && !isNaN(newReading) && newReading >= 0) {
-          setButtonLoading(btn, true);
-          try {
-            const response = await fetchWithTimeout(
-              window.location.origin +
-                `/tenants/${tenantId}/meter-reading/${id}`,
-              {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({ reading: Number(newReading) }),
-              }
-            );
-            if (response.ok) {
-              await loadTenants();
-              showUtilitiesModal(tenantId);
-              Toast.fire({ icon: "success", title: "Reading updated" });
-            } else {
-              Toast.fire({ icon: "error", title: "Update failed" });
+      if (newReading !== undefined && !isNaN(newReading) && newReading >= 0) {
+        setButtonLoading(btn, true);
+        try {
+          const response = await fetchWithTimeout(
+            window.location.origin + `/tenants/${tid}/meter-reading/${id}`,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+              body: JSON.stringify({ reading: Number(newReading) }),
             }
-          } catch (err) {
-            Toast.fire({ icon: "error", title: err.message });
-          } finally {
-            setButtonLoading(btn, false);
-          }
-        }
-      } else if (result.isDenied) {
-        // Delete
-        const confirm = await Swal.fire({
-          title: "Delete Reading?",
-          text: `Delete meter reading for ${month}? This will affect water charges.`,
-          icon: "warning",
-          showCancelButton: true,
-          confirmButtonColor: "#ef4444",
-          confirmButtonText: "Yes, delete",
-          background: "#1e293b",
-          color: "#f1f5f9",
-        });
-        if (confirm.isConfirmed) {
-          setButtonLoading(btn, true);
-          try {
-            const response = await fetchWithTimeout(
-              window.location.origin +
-                `/tenants/${tenantId}/meter-reading/${id}`,
+          );
+          if (response.ok) {
+            const resp = await fetchWithTimeout(
+              window.location.origin + "/tenants",
               {
-                method: "DELETE",
                 headers: {
                   Authorization: `Bearer ${localStorage.getItem("token")}`,
                 },
               }
             );
-            if (response.ok) {
-              await loadTenants();
-              showUtilitiesModal(tenantId);
-              Toast.fire({ icon: "success", title: "Reading deleted" });
-            } else {
-              Toast.fire({ icon: "error", title: "Delete failed" });
+            if (resp.ok) {
+              tenantArray = await resp.json();
+              updateTenantList(tenantArray);
+              updateStats(tenantArray);
+              const paymentModal = document.getElementById("payment-modal");
+              if (paymentModal && paymentModal.style.display === "block") {
+                renderPaymentModal(window.currentActionsTenantId);
+              }
+              showUtilitiesModal(tid);
             }
-          } catch (err) {
-            Toast.fire({ icon: "error", title: err.message });
-          } finally {
-            setButtonLoading(btn, false);
+            Toast.fire({ icon: "success", title: "Reading updated" });
+          } else {
+            Toast.fire({ icon: "error", title: "Update failed" });
           }
+        } catch (err) {
+          Toast.fire({ icon: "error", title: err.message });
+        } finally {
+          setButtonLoading(btn, false);
         }
       }
-    });
+    } else if (result.isDenied) {
+      const confirm = await Swal.fire({
+        title: "Delete Reading?",
+        text: `Delete meter reading for ${month}? This will affect water charges.`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#ef4444",
+        confirmButtonText: "Yes, delete",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+      if (confirm.isConfirmed) {
+        setButtonLoading(btn, true);
+        try {
+          const response = await fetchWithTimeout(
+            window.location.origin + `/tenants/${tid}/meter-reading/${id}`,
+            {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+            }
+          );
+          if (response.ok) {
+            await loadTenants();
+            const paymentModal = document.getElementById("payment-modal");
+            if (paymentModal && paymentModal.style.display === "block") {
+              renderPaymentModal(window.currentActionsTenantId);
+            }
+            showUtilitiesModal(tid);
+            Toast.fire({ icon: "success", title: "Reading deleted" });
+          } else {
+            Toast.fire({ icon: "error", title: "Delete failed" });
+          }
+        } catch (err) {
+          Toast.fire({ icon: "error", title: err.message });
+        } finally {
+          setButtonLoading(btn, false);
+        }
+      }
+    }
+  };
+
+  const utilitiesContent = document.getElementById("utilities-content");
+  utilitiesContent.removeEventListener("click", handleReadingActions);
+  utilitiesContent.addEventListener("click", handleReadingActions);
 }
 function getPreviousMeterReading(tenant, targetMonth) {
   const sorted = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
@@ -1717,21 +1991,6 @@ function showGlobalSettingsModal() {
 </div>
 
 
- 
-
-
- <div style="display: flex; flex-direction: column; gap: 6px;">
-  <label style="color: var(--text-secondary); font-size: 0.9rem;">✏️ Auto‑reminder SMS Template</label>
-  <textarea id="global-reminder-template" rows="3" style="padding: 10px; border-radius: 16px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">${
-    globalSettings.reminderTemplate || ""
-  }</textarea>
-  <small style="color: var(--text-muted);">Use {name}, {amount}, {dueDate}, {monthsCount}</small>
-</div>
-
-
-
-
-
 
 <div style="display: flex; flex-direction: column; gap: 6px;">
   <button id="resend-overdue-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📢 Resend Overdue Reminders Now</button>
@@ -1763,13 +2022,10 @@ function showGlobalSettingsModal() {
   overlay.style.display = "block";
   document.body.classList.add("modal-open");
 
-  // After setting innerHTML
-  // After setting innerHTML, find the auto reminders checkbox
   const autoRemindersCheckbox = document.getElementById(
     "global-auto-reminders"
   );
   if (autoRemindersCheckbox) {
-    // Remove any existing listener to avoid duplicates
     const oldListener = autoRemindersCheckbox._listener;
     if (oldListener)
       autoRemindersCheckbox.removeEventListener("change", oldListener);
@@ -1777,7 +2033,6 @@ function showGlobalSettingsModal() {
     const handleAutoReminderChange = async (e) => {
       const isChecked = e.target.checked;
 
-      // If enabling, show cost estimate (just as info, no immediate send)
       if (isChecked) {
         try {
           let countUrl = window.location.origin + "/tenants/overdue-count";
@@ -1820,7 +2075,6 @@ function showGlobalSettingsModal() {
         }
       }
 
-      // Save the setting immediately (no SMS sent)
       setButtonLoading(e.target, true);
       try {
         const garbageFee =
@@ -1832,17 +2086,13 @@ function showGlobalSettingsModal() {
           1;
         const totalHouses =
           parseInt(document.getElementById("global-total-houses").value) || 0;
-        const reminderTemplate = document.getElementById(
-          "global-reminder-template"
-        ).value;
 
         const ok = await updateGlobalSettingsOnServer(
           garbageFee,
           waterRatePerUnit,
           defaultDueDay,
           totalHouses,
-          isChecked,
-          reminderTemplate
+          isChecked
         );
 
         if (ok) {
@@ -1872,7 +2122,6 @@ function showGlobalSettingsModal() {
   }
 
   const handler = async (e) => {
-    // ----- NEW: Change Due Day for All Tenants -----
     if (e.target.id === "change-due-day-btn") {
       const { value: newDay } = await Swal.fire({
         title: "Change Due Day for All Tenants",
@@ -1906,7 +2155,7 @@ function showGlobalSettingsModal() {
             }
           );
           if (res.ok) {
-            await fetchGlobalSettings(); // refresh default due day
+            await fetchGlobalSettings();
             await loadTenants();
             Toast.fire({
               icon: "success",
@@ -1927,14 +2176,13 @@ function showGlobalSettingsModal() {
       }
     }
 
-    // ----- NEW: Change Rent for All Tenants -----
     if (e.target.id === "change-rent-btn") {
       const { value: newRent } = await Swal.fire({
         title: "Change Rent for All Tenants",
         input: "number",
         inputLabel: "New Rent Amount (KSH)",
         inputAttributes: { min: "1", step: "any" },
-        inputValue: globalSettings.defaultDueDay || 1, // placeholder
+        inputValue: globalSettings.defaultDueDay || 1,
         showCancelButton: true,
         confirmButtonText: "Update All",
         confirmButtonColor: "#3b82f6",
@@ -1983,7 +2231,6 @@ function showGlobalSettingsModal() {
       const btn = e.target;
       setButtonLoading(btn, true);
       try {
-        // Fetch overdue count first
         let url = window.location.origin + "/tenants/overdue-count";
         if (currentDevDate) url += `?devDate=${currentDevDate}`;
         const countRes = await fetchWithTimeout(url, {
@@ -2030,7 +2277,6 @@ function showGlobalSettingsModal() {
           return;
         }
 
-        // Now trigger the reminders
         let triggerUrl = window.location.origin + "/tenants/trigger-reminders";
         const params = new URLSearchParams();
         if (currentDevDate) params.append("devDate", currentDevDate);
@@ -2061,7 +2307,6 @@ function showGlobalSettingsModal() {
         setButtonLoading(btn, false);
       }
     }
-    // ----- Existing save / cancel logic -----
     if (e.target.id === "save-global-settings") {
       const garbageFee =
         parseFloat(document.getElementById("global-garbage").value) || 0;
@@ -2072,9 +2317,6 @@ function showGlobalSettingsModal() {
       const totalHouses =
         parseInt(document.getElementById("global-total-houses").value) || 0;
       setButtonLoading(e.target, true);
-      const reminderTemplate = document.getElementById(
-        "global-reminder-template"
-      ).value;
 
       const autoRemindersEnabled = document.getElementById(
         "global-auto-reminders"
@@ -2086,15 +2328,11 @@ function showGlobalSettingsModal() {
           waterRatePerUnit,
           defaultDueDay,
           totalHouses,
-          autoRemindersEnabled,
-          reminderTemplate
+          autoRemindersEnabled
         );
         if (ok) {
           await fetchGlobalSettings();
           await loadTenants();
-          updateTenantList(tenantArray); // extra safety
-          updateStatusBar();
-          updateOccupancy();
           Toast.fire({ icon: "success", title: "Settings updated" });
           document.getElementById("global-garbage").value =
             globalSettings.garbageFee || 0;
@@ -2154,6 +2392,7 @@ document.addEventListener("click", async (e) => {
   }
 
   if (e.target.id === "modal-utilities") {
+    document.getElementById("tenant-actions-modal").style.display = "none";
     showUtilitiesModal(window.currentActionsTenantId);
   }
   if (e.target.id === "global-settings-btn") {
@@ -2166,7 +2405,6 @@ document.addEventListener("click", async (e) => {
     const selectedMonth =
       document.getElementById("reading-month")?.value || getCurrentMonth();
 
-    // --- NEW CHECK ---
     if (
       !globalSettings.waterRatePerUnit ||
       globalSettings.waterRatePerUnit <= 0
@@ -2176,10 +2414,9 @@ document.addEventListener("click", async (e) => {
         title: "Water rate not set",
         text: "Please configure the water rate in Global Settings first.",
       });
-      return; // stop execution
+      return;
     }
 
-    // ✅ Correct previous reading: the latest reading strictly before selected month
     const tenant = tenantArray.find((t) => t._id === tenantId);
     const allReadings = (tenant?.waterMeterReadings || []).sort((a, b) =>
       a.month.localeCompare(b.month)
@@ -2212,8 +2449,21 @@ document.addEventListener("click", async (e) => {
           body: JSON.stringify({ month: selectedMonth, reading }),
         }
       );
-      await loadTenants();
-      showUtilitiesModal(tenantId);
+      const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      if (resp.ok) {
+        tenantArray = await resp.json();
+        updateTenantList(tenantArray);
+        updateStats(tenantArray);
+
+        const paymentModal = document.getElementById("payment-modal");
+        if (paymentModal && paymentModal.style.display === "block") {
+          renderPaymentModal(window.currentActionsTenantId);
+        }
+
+        showUtilitiesModal(window.currentActionsTenantId);
+      }
       Toast.fire({ icon: "success", title: "Meter reading saved" });
     } catch (err) {
       Toast.fire({
@@ -2287,7 +2537,7 @@ document.addEventListener("click", async (e) => {
     }
   }
 
-  if (e.target.id === "modal-send-sms") {
+  if (e.target.closest("#modal-send-sms")) {
     showIndividualSmsModal(window.currentActionsTenantId);
   }
 
@@ -2298,13 +2548,11 @@ document.addEventListener("click", async (e) => {
     const date = document.getElementById("pay-date").value;
     const mpesaRef = document.getElementById("pay-mpesa").value;
 
-    // Validate amount
     if (isNaN(amount) || amount < 0) {
       Toast.fire({ icon: "warning", title: "Invalid Amount" });
       return;
     }
 
-    // Confirmation dialog
     const confirm = await Swal.fire({
       title: "Confirm Payment",
       html: `
@@ -2345,11 +2593,8 @@ document.addEventListener("click", async (e) => {
       );
       if (response.ok) {
         await loadTenants();
-        updateTenantList(tenantArray); // ← force re‑render of table
-
         scheduleChartUpdate();
         renderPaymentModal(tenantId);
-        updateCharts();
         Toast.fire({ icon: "success", title: "Payment Recorded" });
       } else {
         const error = await response.json();
@@ -2383,7 +2628,6 @@ document.addEventListener("click", async (e) => {
     const mpesa = btn.dataset.mpesa;
     const tenantId = window.currentActionsTenantId;
 
-    // "View M‑Pesa Ref" button (only if a ref exists)
     const mpesaButton = mpesa
       ? `<button id="swal-mpesa-btn" style="background:#10b981; color:white; border:none; padding:12px 24px; border-radius:40px; font-size:1rem; font-weight:600; cursor:pointer; margin-top:12px;">
            📱 View M‑Pesa Ref
@@ -2431,7 +2675,6 @@ document.addEventListener("click", async (e) => {
     });
 
     if (action.isConfirmed) {
-      // ---- Edit payment ----
       const { value: formValues } = await Swal.fire({
         title: "✏️ Edit Payment",
         html: `
@@ -2498,7 +2741,6 @@ document.addEventListener("click", async (e) => {
         }
       }
     } else if (action.isDenied) {
-      // ---- Delete payment ----
       const confirmDelete = await Swal.fire({
         title: "🗑️ Delete Payment?",
         text: `Delete the payment record for ${month}?`,
@@ -2738,7 +2980,6 @@ tenantsInputs.addEventListener("click", async (event) => {
       return;
     }
 
-    // If due day is empty, check global default
     let finalDueDay = dueDayValue ? parseInt(dueDayValue) : null;
     if (!finalDueDay || finalDueDay < 1 || finalDueDay > 31) {
       const defaultDay = globalSettings.defaultDueDay;
@@ -2790,10 +3031,15 @@ tenantsInputs.addEventListener("click", async (event) => {
         throw new Error(error.message);
       }
       const newTenant = await response.json();
-
+      console.log(
+        "NEW TENANT FROM SERVER:",
+        JSON.stringify(newTenant, null, 2)
+      ); // 👈 ADD THIS
       await loadTenants();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      updateTenantList(tenantArray);
+      console.log(
+        "TENANT ARRAY AFTER RELOAD:",
+        tenantArray.map((t) => t.name)
+      ); // 👈 ADD THIS
       Toast.fire({ icon: "success", title: "Tenant Added" });
       tenantName.value = "";
       houseNumber.value = "";
@@ -2854,7 +3100,6 @@ function applyFiltersAndSort() {
       return balA - balB;
     });
   } else {
-    // Default: natural alphanumeric sort by house number
     result.sort((a, b) => {
       const ha = String(a.houseNumber || "").trim();
       const hb = String(b.houseNumber || "").trim();
@@ -2865,13 +3110,29 @@ function applyFiltersAndSort() {
     });
   }
 
+  const searchType =
+    document.getElementById("search-type-select")?.value || "all";
+
   if (searchTerm) {
-    result = result.filter(
-      (t) =>
-        t.name.toLowerCase().includes(searchTerm) ||
-        (t.phoneNumber && t.phoneNumber.toLowerCase().includes(searchTerm)) ||
-        (t.houseNumber && t.houseNumber.toLowerCase().includes(searchTerm))
-    );
+    result = result.filter((t) => {
+      const matchName = t.name.toLowerCase().includes(searchTerm);
+      const matchPhone =
+        t.phoneNumber && t.phoneNumber.toLowerCase().includes(searchTerm);
+      const matchHouse =
+        t.houseNumber &&
+        t.houseNumber.trim().toLowerCase() === searchTerm.trim().toLowerCase();
+
+      switch (searchType) {
+        case "name":
+          return matchName;
+        case "phone":
+          return matchPhone;
+        case "house":
+          return matchHouse;
+        default:
+          return matchName || matchPhone || matchHouse;
+      }
+    });
   }
 
   updateTenantList(result);
@@ -2887,6 +3148,9 @@ searchInput.addEventListener("input", () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(applyFiltersAndSort, 200);
 });
+document
+  .getElementById("search-type-select")
+  .addEventListener("change", applyFiltersAndSort);
 // ----- MONTH PICKER & SET MONTH -----
 document
   .querySelector(".tenants-div")
@@ -3215,7 +3479,6 @@ document.addEventListener("click", async (e) => {
   });
 
   if (isConfirmed) {
-    // Restore
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
@@ -3237,7 +3500,6 @@ document.addEventListener("click", async (e) => {
       setButtonLoading(btn, false);
     }
   } else if (isDenied) {
-    // Delete permanently
     const confirm = await Swal.fire({
       title: "Permanently Delete?",
       text: "This action cannot be undone. All payment history will be lost.",
@@ -3276,11 +3538,6 @@ document.addEventListener("click", async (e) => {
 });
 // ----- IMPORT/EXPORT MODAL (direct, robust) -----
 document.addEventListener("DOMContentLoaded", () => {
-  document.addEventListener("DOMContentLoaded", () => {
-    const indicator = document.getElementById("archive-indicator");
-    if (indicator) indicator.style.display = "none";
-  });
-
   const importExportModal = document.getElementById("import-export-modal");
   const overlay = document.getElementById("modal-overlay");
   const openBtn = document.getElementById("data-import-export-btn");
@@ -3306,14 +3563,12 @@ document.addEventListener("DOMContentLoaded", () => {
     console.error("Button #data-import-export-btn not found!");
   }
 
-  // Close buttons
   const closeBtns = ["close-import-export-modal", "close-import-export-footer"];
   closeBtns.forEach((id) => {
     const btn = document.getElementById(id);
     if (btn) btn.addEventListener("click", closeModal);
   });
 
-  // Export All Tenants (as styled HTML in new tab)
   const exportAllBtn = document.getElementById("export-all-data-btn");
   if (exportAllBtn) {
     exportAllBtn.addEventListener("click", () => {
@@ -3327,7 +3582,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Export Late Tenants (as styled HTML in new tab)
   const exportLateBtn = document.getElementById("export-late-data-btn");
   if (exportLateBtn) {
     exportLateBtn.addEventListener("click", () => {
@@ -3343,7 +3597,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Import
   const importBtn = document.getElementById("import-data-btn");
   if (importBtn) {
     importBtn.addEventListener("click", () => {
@@ -3359,7 +3612,6 @@ function updateStatusBar() {
 
   const currentMonth = getCurrentMonth();
 
-  // Count tenants missing water reading for current month
   const tenantsMissingWater = tenantArray.filter((tenant) => {
     return !(tenant.waterMeterReadings || []).some(
       (r) => r.month === currentMonth
@@ -3367,7 +3619,6 @@ function updateStatusBar() {
   });
   const missingCount = tenantsMissingWater.length;
 
-  // Check garbage fee
   const garbageFeeSet = globalSettings.garbageFee > 0;
 
   let html = "";
@@ -3396,14 +3647,11 @@ function updateStatusBar() {
     statusBar.innerHTML = html;
     statusBar.style.display = "flex";
 
-    // Attach event listeners
     const waterBtn = document.getElementById("status-bar-water-action");
     if (waterBtn) {
       waterBtn.addEventListener("click", () => {
-        // Apply filter: show only tenants missing water reading
         const filterSelect = document.getElementById("filter-select");
         if (filterSelect) {
-          // Add a temporary filter option if not present
           let option = Array.from(filterSelect.options).find(
             (opt) => opt.value === "missing-water"
           );
@@ -3450,12 +3698,10 @@ function updateAllTimeStats(tenantArray) {
   const today = getAppToday();
 
   for (let tenant of tenantArray) {
-    // Total collected – sum all payments ever made
     tenant.paymentHistory.forEach((record) => {
       if (record.amountPaid) allTimeCollected += record.amountPaid;
     });
 
-    // Overdue balance (past billing months only)
     const overdue = getTenantPastDueAmount(tenant, today);
     if (overdue > 0) {
       allTimeOwed += overdue;
@@ -3478,23 +3724,122 @@ function updateAllTimeStats(tenantArray) {
   document.querySelector(".all-time-highest-debtor").textContent = debtorText;
 }
 
+function getTenantTotalOutstanding(tenant) {
+  if (!tenant.paymentHistory || tenant.paymentHistory.length === 0) {
+    return tenant.rent;
+  }
+  const sorted = [...tenant.paymentHistory].sort((a, b) => {
+    if (a.month !== b.month) return a.month.localeCompare(b.month);
+    const aTime = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+    const bTime = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+    return aTime - bTime;
+  });
+  return sorted[sorted.length - 1].remainingBalance;
+}
+
+// ─────────────────────────────────────────────────────
+//   SHORT BALANCE MESSAGE (single SMS, all use cases)
+// ─────────────────────────────────────────────────────
+function generateShortBalanceMessage(tenant) {
+  const today = getAppToday();
+  const overdue = getTenantPastDueAmount(tenant, today);
+  const currentMonth = getCurrentBillingMonthForTenant(tenant);
+  const dueDate = getTenantNextDueDate(tenant);
+  const currentTotal = getExpectedForMonth(
+    tenant,
+    currentMonth,
+    globalSettings
+  );
+  const totalOutstanding = getTenantTotalOutstanding(tenant);
+  const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
+
+  function formatDueDate(dateVal) {
+    if (!dateVal) return "";
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "";
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    return d.getUTCDate() + " " + months[d.getUTCMonth()];
+  }
+
+  const dueStr = formatDueDate(dueDate);
+
+  // Find charge entries for current and previous month
+  const currentCharge = (tenant.paymentHistory || []).find(
+    (e) => e.month === currentMonth && (e.amountPaid || 0) === 0 && !e.datePaid
+  );
+
+  if (!currentCharge) {
+    return `Dear ${
+      tenant.name
+    }, no payments recorded yet. Current month KES ${currentTotal.toLocaleString()} due by ${dueStr}. Thank you!`;
+  }
+
+  const cumulative = currentCharge.remainingBalance;
+  const allMonthsSorted = [
+    ...new Set((tenant.paymentHistory || []).map((e) => e.month)),
+  ].sort();
+  const currentIndex = allMonthsSorted.indexOf(currentMonth);
+  const previousMonth =
+    currentIndex > 0 ? allMonthsSorted[currentIndex - 1] : null;
+  let previousCumulative = 0;
+  if (previousMonth) {
+    const prevCharge = (tenant.paymentHistory || []).find(
+      (e) =>
+        e.month === previousMonth && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (prevCharge) {
+      previousCumulative = prevCharge.remainingBalance;
+    }
+  }
+
+  const monthLeft = Math.max(0, cumulative) - Math.max(0, previousCumulative);
+
+  // Overdue branch
+  if (overdue > 0) {
+    return `Dear ${
+      tenant.name
+    }, total overdue KES ${overdue.toLocaleString()}. Current month KES ${currentTotal.toLocaleString()} due by ${dueStr}. Please pay overdue.`;
+  }
+
+  // No overdue – fully covered (by payments or credit)
+  if (monthLeft === 0) {
+    if (credit > 0) {
+      return `Dear ${
+        tenant.name
+      }, no overdue, KES ${credit.toLocaleString()} credit on your account. Thank you!`;
+    }
+    // Fully paid – no due date needed
+    return `Dear ${tenant.name}, all payments up to date, including this month. Thank you!`;
+  }
+
+  // Still owes something for current month
+  return `Dear ${
+    tenant.name
+  }, no overdue, KES ${monthLeft.toLocaleString()} still to pay this month. Due by ${dueStr}. Thank you!`;
+}
+// ─────────────────────────────────────────────────────
+
+// ----- INDIVIDUAL SMS MODAL (with segment cost) -----
 async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
 
-  const today = getAppToday();
-  const overdue = window.getTenantPastDueAmount
-    ? window.getTenantPastDueAmount(tenant, today)
-    : 0;
-
   const templates = {
-    payment: `Dear ${
-      tenant.name
-    }, your overdue rent is KES ${overdue.toLocaleString()}. Please pay to avoid penalties. Thank you.`,
-    water: `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`,
     thanks: `Dear ${tenant.name}, thank you for your payment. Have a great day!`,
-    reminder: `Reminder: Rent of KES ${tenant.rent.toLocaleString()} is due. Please pay by the due date to avoid penalties.`,
-    moveOut: `Notice: Your tenancy at ${tenant.houseNumber} ends soon. Please ensure all dues are cleared and return keys by the agreed date.`,
+    quickBalance: generateShortBalanceMessage(tenant),
   };
 
   const { value: message } = await Swal.fire({
@@ -3503,18 +3848,13 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
       <div style="display: flex; flex-direction: column; gap: 12px;">
         <select id="individual-template" style="padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
           <option value="custom">✏️ Custom message</option>
-          <option value="payment">💰 Payment reminder (avoid penalties)</option>
-          <option value="water">💧 Water meter reading</option>
           <option value="thanks">🙏 Thank you</option>
-          <option value="reminder">⏰ Gentle rent reminder</option>
-          <option value="moveOut">🚪 Move out notice</option>
+          <option value="quickBalance">⚡ Quick Balance (short)</option>
         </select>
         <textarea id="individual-message" rows="5" placeholder="Type your message here..." style="padding: 12px; border-radius: 20px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); width: 100%;">${escapeHtml(
           prefillMessage
         )}</textarea>
-        <div style="font-size: 0.75rem; color: var(--text-muted); text-align: right;">Characters: <span id="ind-char-count">${
-          prefillMessage.length
-        }</span></div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-align: right;" id="ind-char-counter">0 chars | 0 SMS</div>
       </div>
     `,
     showCancelButton: true,
@@ -3535,10 +3875,14 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     didOpen: () => {
       const templateSelect = document.getElementById("individual-template");
       const textarea = document.getElementById("individual-message");
-      const charSpan = document.getElementById("ind-char-count");
+      const charSpan = document.getElementById("ind-char-counter");
 
       const updateCounter = () => {
-        charSpan.textContent = textarea.value.length;
+        const len = textarea.value.length;
+        const segments = Math.max(1, Math.ceil(len / 160));
+        charSpan.innerHTML = `${len} chars | ${segments} SMS <span style="color:${
+          len > 160 ? "#f87171" : "inherit"
+        };">(${segments * 0.8} KES)</span>`;
       };
       textarea.addEventListener("input", updateCounter);
       updateCounter();
@@ -3547,6 +3891,8 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
         const val = templateSelect.value;
         if (val === "custom") {
           textarea.value = "";
+        } else if (val === "quickBalance") {
+          textarea.value = templates.quickBalance;
         } else {
           textarea.value = templates[val] || "";
         }
@@ -3557,6 +3903,9 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
 
   if (!message) return;
 
+  const segments = Math.max(1, Math.ceil(message.length / 160));
+  const cost = segments * 0.8;
+
   const confirm = await Swal.fire({
     title: "📨 Confirm SMS",
     html: `
@@ -3565,8 +3914,10 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
           tenant.name
         )}</strong>.</div>
         <div style="background: linear-gradient(135deg, #10b98120, #3b82f620); padding: 16px; border-radius: 24px; margin: 16px 0;">
-          <div style="font-size: 2rem; font-weight: 800; color: #fbbf24;">KES 0.80</div>
-          <div style="font-size: 0.85rem; color: var(--text-secondary);">Estimated cost (1 message × KES 0.80)</div>
+          <div style="font-size: 2rem; font-weight: 800; color: #fbbf24;">KES ${cost.toFixed(
+            2
+          )}</div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">${segments} SMS × KES 0.80</div>
         </div>
         <div style="background: var(--bg-elevated, #1e293b); padding: 12px; border-radius: 20px; text-align: left;">
           <div style="font-weight: 600; margin-bottom: 5px;">📝 Message preview:</div>
@@ -3578,7 +3929,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     `,
     icon: "question",
     showCancelButton: true,
-    confirmButtonText: "Yes, send (KES 0.80)",
+    confirmButtonText: `Yes, send (KES ${cost.toFixed(2)})`,
     confirmButtonColor: "#10b981",
     cancelButtonText: "Cancel",
     background: "#1e293b",
@@ -3618,18 +3969,16 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     setButtonLoading(btn, false);
   }
 }
-
 // Open the bulk SMS modal
-
 document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   const btn = document.getElementById("bulk-sms-btn");
+  const currentUserId = userProfile._id || userProfile.id || null;
   let tenants = [...tenantArray];
   if (tenants.length === 0) {
     Toast.fire({ icon: "warning", title: "No tenants to message." });
     return;
   }
 
-  // Sort by house number
   tenants.sort((a, b) => {
     const ha = String(a.houseNumber || "").trim();
     const hb = String(b.houseNumber || "").trim();
@@ -3640,32 +3989,30 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   });
 
   const today = getAppToday();
-  const costPerMsg = 0.8; // KES
+  const costPerMsg = 0.8;
 
-  // Build HTML – with selection buttons
   let html = `
   <div style="display: flex; flex-direction: column; gap: 16px;">
     <div>
-  <select id="sms-template-bulk" style="width: 100%; padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); margin-bottom: 8px;">
+<select id="sms-template-bulk" style="width: 100%; padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); margin-bottom: 8px;">
   <option value="custom">✏️ Custom message</option>
-  <option value="payment">💰 Payment reminder (avoid penalties)</option>
-  <option value="water">💧 Water meter reading</option>
   <option value="thanks">🙏 Thank you (after payment)</option>
-  <option value="reminder">⏰ Gentle rent reminder</option>
-  <option value="late">⚠️ Late payment warning</option>
+  <option value="quickBalance">⚡ Quick Balance (short)</option>
 </select>
       <textarea id="sms-message" rows="4" placeholder="Type your message here..." style="width:100%; padding: 10px; font-size: 0.95rem; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); resize: vertical;"></textarea>
+      <div id="balance-note" style="display:none; background: rgba(6,182,212,0.1); border-left: 3px solid var(--accent-cyan); padding: 10px; border-radius: 8px; color: var(--text-secondary); font-size: 0.85rem;">
+  Each tenant will receive a personalised balance message.
+</div>
       <div id="sms-char-counter" style="text-align: right; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">0 characters</div>
     </div>
 
-    <!-- Selection buttons row (added) -->
     <div style="display: flex; gap: 12px; justify-content: flex-start; padding: 0 4px;">
       <button id="sms-select-all" style="background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">✓ Select All</button>
       <button id="sms-select-late" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">⚠️ Select Late</button>
     </div>
 
     <div>
-      <div style="max-height: 65vh; overflow-x: auto; overflow-y: auto; background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
+    <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
         <table style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr style="border-bottom: 1px solid var(--border); background: var(--bg-elevated);">
@@ -3731,7 +4078,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     didOpen: () => {
       const style = document.createElement("style");
       style.textContent = `
-    /* ========== MOBILE (max 768px) – message top, table scrolls ========== */
+    /* ========== MOBILE (max 768px) ========== */
     @media (max-width: 768px) {
       .fullscreen-sms-modal {
         position: fixed !important;
@@ -3754,7 +4101,6 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         padding: 8px 8px 16px 8px !important;
         margin: 0 !important;
       }
-      /* Message textarea at the very top */
       textarea#sms-message {
         width: 100%;
         font-size: 16px !important;
@@ -3765,7 +4111,6 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         border: 1px solid var(--border, #334155);
         color: var(--text-primary, #f1f5f9);
       }
-      /* Table – full width, no horizontal scroll */
       .fullscreen-sms-modal table {
         width: 100%;
         table-layout: fixed;
@@ -3796,12 +4141,11 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         font-size: 14px;
       }
     }
-
-    /* ========== DESKTOP (min 769px) – narrower modal, bigger table, no circular rings ========== */
+    /* ========== DESKTOP (min 769px) ========== */
     @media (min-width: 769px) {
       .fullscreen-sms-modal {
-        width: 85% !important;          /* narrower than before */
-        max-width: 1100px !important;   /* capped width */
+        width: 85% !important;
+        max-width: 1100px !important;
         height: auto !important;
         max-height: 90vh !important;
         padding: 20px 24px !important;
@@ -3813,7 +4157,6 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         overflow-y: auto !important;
         padding: 8px 0 !important;
       }
-      /* Bigger, premium table – no rounded corners on rows */
       .fullscreen-sms-modal table {
         width: 100%;
         border-collapse: separate;
@@ -3847,7 +4190,6 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
       .fullscreen-sms-modal tr:hover td {
         background: #1e2a3a;
       }
-      /* Remove any border-radius from cells (circular rings) */
       .fullscreen-sms-modal th,
       .fullscreen-sms-modal td {
         border-radius: 0 !important;
@@ -3877,8 +4219,6 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         text-align: center;
       }
     }
-
-    /* ========== GLOBAL / COMMON ========== */
     textarea#sms-message {
       width: 100%;
       resize: vertical;
@@ -3892,37 +4232,46 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     #sms-cost-estimate {
       font-weight: 600;
     }
-    /* Prevent overflow from container */
     .fullscreen-sms-modal .swal2-html-container > div > div {
       overflow-x: visible !important;
     }
   `;
       document.head.appendChild(style);
 
-      // New: Select All button logic
       const selectAllBtn = document.getElementById("sms-select-all");
       if (selectAllBtn) {
         selectAllBtn.addEventListener("click", () => {
           const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
-          allCheckboxes.forEach((cb) => (cb.checked = true));
-          // Trigger cost update
-          const updateCostEvent = new Event("change");
-          allCheckboxes.forEach((cb) => cb.dispatchEvent(updateCostEvent));
+          const allChecked = Array.from(allCheckboxes).every(
+            (cb) => cb.checked
+          );
+          const newState = !allChecked;
+          allCheckboxes.forEach((cb) => {
+            cb.checked = newState;
+            cb.dispatchEvent(new Event("change"));
+          });
+          selectAllBtn.textContent = newState
+            ? "✕ Deselect All"
+            : "✓ Select All";
         });
       }
 
-      // New: Select Late button logic (overdue > 0)
       const selectLateBtn = document.getElementById("sms-select-late");
       if (selectLateBtn) {
         selectLateBtn.addEventListener("click", () => {
           const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
-          allCheckboxes.forEach((cb) => {
-            const overdue = parseFloat(cb.dataset.overdue) || 0;
-            cb.checked = overdue > 0;
+          const overdueCbs = Array.from(allCheckboxes).filter(
+            (cb) => parseFloat(cb.dataset.overdue) > 0
+          );
+          const allOverdueChecked = overdueCbs.every((cb) => cb.checked);
+          const newState = !allOverdueChecked;
+          overdueCbs.forEach((cb) => {
+            cb.checked = newState;
+            cb.dispatchEvent(new Event("change"));
           });
-          // Trigger cost update
-          const updateCostEvent = new Event("change");
-          allCheckboxes.forEach((cb) => cb.dispatchEvent(updateCostEvent));
+          selectLateBtn.textContent = newState
+            ? "✕ Deselect Late"
+            : "⚠️ Select Late";
         });
       }
 
@@ -3943,21 +4292,32 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         templateSelect.addEventListener("change", () => {
           const val = templateSelect.value;
           let newMsg = "";
-          if (val === "payment") {
-            newMsg =
-              "Dear tenant, your rent payment is due. Please pay to avoid penalties. Thank you.";
-          } else if (val === "water") {
-            newMsg = `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`;
-          } else if (val === "thanks") {
-            newMsg = "Thank you for your payment. Have a great day!";
-          } else if (val === "reminder") {
-            newMsg = `Reminder: Rent is due on the scheduled date. Please pay on time to avoid penalties.`;
-          } else if (val === "late") {
-            newMsg = `URGENT: Your rent payment is past due. Please clear the outstanding amount immediately to avoid penalties.`;
+          if (val === "balance") {
+            msgTextarea.style.display = "none";
+            msgTextarea.value = "";
+            const balanceNote = document.getElementById("balance-note");
+            if (balanceNote) balanceNote.style.display = "block";
+            updateCost();
+          } else {
+            msgTextarea.style.display = "block";
+            const balanceNote = document.getElementById("balance-note");
+            if (balanceNote) balanceNote.style.display = "none";
+            updateCost();
+            if (val === "payment") {
+              newMsg =
+                "Dear tenant, your rent payment is due. Please pay to avoid penalties. Thank you.";
+            } else if (val === "water") {
+              newMsg = `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`;
+            } else if (val === "thanks") {
+              newMsg = "Thank you for your payment. Have a great day!";
+            } else if (val === "reminder") {
+              newMsg = `Reminder: Rent is due on the scheduled date. Please pay on time to avoid penalties.`;
+            } else if (val === "late") {
+              newMsg = `URGENT: Your rent payment is past due. Please clear the outstanding amount immediately to avoid penalties.`;
+            }
+            if (newMsg) msgTextarea.value = newMsg;
+            msgTextarea.dispatchEvent(new Event("input"));
           }
-          if (newMsg) msgTextarea.value = newMsg;
-          const event = new Event("input");
-          msgTextarea.dispatchEvent(event);
         });
       }
 
@@ -3967,14 +4327,22 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         ).length;
         const totalCost = selected * costPerMsg;
         const costDiv = document.getElementById("sms-cost-estimate");
+        const templateValue =
+          document.getElementById("sms-template-bulk").value;
+        const isBalanceMode = templateValue === "balance";
+
         if (selected === 0) {
           costDiv.innerHTML = "📊 Select tenants to see total cost";
         } else {
+          let note = "";
+          if (isBalanceMode) {
+            note = ` <span style="color:#fbbf24; font-size:0.75rem;">(Balance enquiries may cost more for long messages)</span>`;
+          }
           costDiv.innerHTML = `💰 <strong>Total cost: KES ${totalCost.toFixed(
             2
           )}</strong> (${selected} message${
             selected !== 1 ? "s" : ""
-          } × KES ${costPerMsg})`;
+          } × KES ${costPerMsg})${note}`;
         }
       };
       document
@@ -3987,17 +4355,21 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         document.querySelectorAll(".sms-tenant-select:checked")
       ).map((cb) => cb.dataset.id);
       const message = document.getElementById("sms-message").value;
+      const templateValue = document.getElementById("sms-template-bulk").value;
+      const isBalanceMode = templateValue === "balance";
+
       if (selected.length === 0) {
         Swal.showValidationMessage("Select at least one tenant.");
         return false;
       }
-      if (!message.trim()) {
+
+      if (!isBalanceMode && !message.trim()) {
         Swal.showValidationMessage("Message cannot be empty.");
         return false;
       }
+
       const totalCost = selected.length * costPerMsg;
 
-      // Premium confirmation dialog
       const confirm = await Swal.fire({
         title: "📱 Confirm Bulk SMS",
         html: `
@@ -4012,9 +4384,13 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         </div>
         <div style="background: var(--bg-elevated, #1e293b); padding: 14px 18px; border-radius: 24px; width: 100%;">
           <div style="font-weight: 600; margin-bottom: 6px; color: var(--accent-cyan, #38bdf8);">Message preview:</div>
-          <div style="font-size: 0.9rem; color: var(--text-primary, #f1f5f9); word-break: break-word;">“${escapeHtml(
-            message.substring(0, 100)
-          )}${message.length > 100 ? "…" : ""}”</div>
+          <div style="font-size: 0.9rem; color: var(--text-primary, #f1f5f9); word-break: break-word;">${
+            isBalanceMode
+              ? "Each tenant will receive a personalised balance breakdown."
+              : `“${escapeHtml(message.substring(0, 100))}${
+                  message.length > 100 ? "…" : ""
+                }”`
+          }</div>
         </div>
       </div>
     `,
@@ -4035,48 +4411,84 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
           confirmButton: "premium-confirm-btn",
           cancelButton: "premium-cancel-btn",
         },
-        buttonsStyling: false, // We'll use our own CSS for buttons
+        buttonsStyling: false,
       });
 
       if (!confirm.isConfirmed) {
         Swal.showValidationMessage("Cancelled");
         return false;
       }
-      return { tenantIds: selected, message };
+      return { tenantIds: selected, message, isBalanceMode };
     },
   }).then(async (result) => {
     if (result.isConfirmed) {
-      const { tenantIds, message } = result.value;
+      const { tenantIds, message, isBalanceMode } = result.value;
+
       setButtonLoading(btn, true);
       try {
-        const response = await fetchWithTimeout(
-          window.location.origin + "/tenants/send-sms",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-            body: JSON.stringify({ tenantIds, message }),
+        let summary = "";
+        if (isBalanceMode) {
+          const selectedTenants = tenants.filter((t) =>
+            tenantIds.includes(t._id)
+          );
+          let successCount = 0;
+          const failedNames = [];
+          for (const tenant of selectedTenants) {
+            const personalisedMsg = generateShortBalanceMessage(tenant);
+            try {
+              const res = await fetchWithTimeout(
+                window.location.origin + "/tenants/send-sms",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                  },
+                  body: JSON.stringify({
+                    tenantIds: [tenant._id],
+                    message: personalisedMsg,
+                  }),
+                }
+              );
+              const data = await res.json();
+              if (data.results?.[0]?.success) {
+                successCount++;
+              } else {
+                failedNames.push(tenant.name);
+              }
+            } catch (err) {
+              failedNames.push(tenant.name);
+            }
           }
-        );
-        const data = await response.json();
-        if (response.ok) {
-          let summary = `Sent to ${
-            (data.results || []).filter((r) => r.success).length
-          } tenants.`;
-          const failed = (data.results || []).filter((r) => !r.success);
-          if (failed.length)
-            summary += ` Failed for: ${failed
-              .map((f) => f.tenant)
-              .join(", ")}.`;
-          Toast.fire({ icon: "success", title: summary });
+          summary = `Sent to ${successCount} tenant(s).`;
+          if (failedNames.length)
+            summary += ` Failed for: ${failedNames.join(", ")}.`;
         } else {
-          Toast.fire({
-            icon: "error",
-            title: data.message || "Failed to send",
-          });
+          const response = await fetchWithTimeout(
+            window.location.origin + "/tenants/send-sms",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+              body: JSON.stringify({ tenantIds, message }),
+            }
+          );
+          const data = await response.json();
+          if (response.ok) {
+            let sent = (data.results || []).filter((r) => r.success).length;
+            summary = `Sent to ${sent} tenants.`;
+            const failed = (data.results || []).filter((r) => !r.success);
+            if (failed.length)
+              summary += ` Failed for: ${failed
+                .map((f) => f.tenant)
+                .join(", ")}.`;
+          } else {
+            summary = data.message || "Failed to send";
+          }
         }
+        Toast.fire({ icon: "success", title: summary });
       } catch (err) {
         Toast.fire({ icon: "error", title: err.message });
       } finally {
@@ -4086,7 +4498,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   });
 });
 
-// ----- SMS LOGS BUTTON (Perfect layout) -----
+// ----- SMS LOGS BUTTON (updated: date categories, clear all, sorted newest first) -----
 const smsLogsBtn = document.getElementById("sms-logs-btn");
 if (smsLogsBtn) {
   smsLogsBtn.addEventListener("click", async () => {
@@ -4095,41 +4507,98 @@ if (smsLogsBtn) {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       if (!response.ok) throw new Error("Failed to fetch logs");
-      const logs = await response.json();
+      let logs = await response.json();
 
+      // Sort newest first
+      logs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+
+      // ---- Group logs by date category ----
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const groups = []; // array of { label, logs[] }
+      let currentLabel = "";
+      let currentGroup = [];
+
+      for (const log of logs) {
+        const sentDate = new Date(log.sentAt);
+        sentDate.setHours(0, 0, 0, 0);
+        let label = "";
+        if (sentDate.getTime() === today.getTime()) {
+          label = "Today";
+        } else if (sentDate.getTime() === yesterday.getTime()) {
+          label = "Yesterday";
+        } else {
+          label = sentDate.toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          });
+        }
+
+        if (label !== currentLabel) {
+          if (currentGroup.length > 0) {
+            groups.push({ label: currentLabel, logs: currentGroup });
+          }
+          currentLabel = label;
+          currentGroup = [log];
+        } else {
+          currentGroup.push(log);
+        }
+      }
+      if (currentGroup.length > 0) {
+        groups.push({ label: currentLabel, logs: currentGroup });
+      }
+
+      // Build table rows with group headers
       let tableRows = "";
-      if (logs.length === 0) {
-        tableRows = `<tr><td colspan="6" style="text-align:center; padding:40px;">📭 No SMS logs found</td></tr>`;
+      if (groups.length === 0) {
+        tableRows = `<tr><td colspan="5" style="text-align:center; padding:40px;">📭 No SMS logs found</td></tr>`;
       } else {
-        logs.forEach((log) => {
-          const shortMsg =
-            log.message.length > 50
-              ? log.message.substring(0, 50) + "…"
-              : log.message;
+        groups.forEach((group) => {
+          // Group header row
           tableRows += `
-            <tr>
-              <td>${escapeHtml(log.tenantName)}</td>
-              <td>${escapeHtml(log.phoneNumber)}</td>
-              <td class="msg-cell">${escapeHtml(shortMsg)}</td>
-              <td><span class="status-badge ${log.status}">${
-            log.status
-          }</span></td>
-              <td>${new Date(log.sentAt).toLocaleString()}</td>
-             
+            <tr class="sms-group-header">
+              <td colspan="5">${group.label}</td>
             </tr>
           `;
+          group.logs.forEach((log) => {
+            const d = new Date(log.sentAt);
+            const timeStr = d.toLocaleTimeString("en-GB", {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            const shortMsg =
+              log.message.length > 50
+                ? log.message.substring(0, 50) + "…"
+                : log.message;
+            tableRows += `
+              <tr>
+                <td>${escapeHtml(log.tenantName)}</td>
+                <td>${escapeHtml(log.phoneNumber)}</td>
+                <td class="msg-cell">${escapeHtml(shortMsg)}</td>
+                <td><span class="status-badge ${log.status}">${
+              log.status
+            }</span></td>
+                <td>${timeStr}</td>
+              </tr>
+            `;
+          });
         });
       }
 
       const html = `
         <div class="sms-logs-root">
-          <div class="sms-logs-header">
-            <h2>📜 SMS Delivery Logs</h2>
+          <div class="sms-logs-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border, #334155); background: var(--bg-elevated, #1e293b);">
+            <h2 style="margin:0; font-size:1.2rem; font-weight:600; color: var(--text-primary, #f1f5f9);">📜 SMS Delivery Logs</h2>
+            <button id="clear-sms-logs-btn" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid #ef4444; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:600; cursor:pointer; transition:0.15s;">Clear</button>
           </div>
           <div class="sms-logs-body">
             <table class="sms-logs-table">
               <thead>
-                <tr><th>Tenant</th><th>Phone</th><th>Message</th><th>Status</th><th>Sent</th></tr>
+                <tr><th>Tenant</th><th>Phone</th><th>Message</th><th>Status</th><th>Time</th></tr>
               </thead>
               <tbody>${tableRows}</tbody>
             </table>
@@ -4148,9 +4617,9 @@ if (smsLogsBtn) {
           closeButton: "sms-logs-perfect-close",
         },
         didOpen: () => {
+          // Inject the premium styles (same as before, plus group header style)
           const style = document.createElement("style");
           style.textContent = `
-            /* Base modal */
             .sms-logs-perfect {
               padding: 0 !important;
               background: var(--bg-secondary, #0f172a) !important;
@@ -4165,7 +4634,6 @@ if (smsLogsBtn) {
               display: flex !important;
               flex-direction: column !important;
             }
-            /* Root container fills everything */
             .sms-logs-root {
               display: flex;
               flex-direction: column;
@@ -4173,21 +4641,9 @@ if (smsLogsBtn) {
               width: 100%;
               background: var(--bg-secondary);
             }
-            /* Header */
             .sms-logs-header {
-              text-align: center;
-              padding: 16px 20px;
-              border-bottom: 1px solid var(--border, #334155);
-              background: var(--bg-elevated, #1e293b);
               flex-shrink: 0;
             }
-            .sms-logs-header h2 {
-              margin: 0;
-              font-size: 1.5rem;
-              font-weight: 600;
-              color: var(--text-primary, #f1f5f9);
-            }
-            /* Scrollable table body */
             .sms-logs-body {
               flex: 1;
               overflow-y: auto;
@@ -4232,7 +4688,22 @@ if (smsLogsBtn) {
             .status-badge.delivered { background: #10b98120; color: #10b981; }
             .status-badge.failed { background: #ef444420; color: #ef4444; }
 
-            /* Mobile: fullscreen, edges touch */
+            /* Group header */
+            .sms-group-header td {
+              background: #1e293b;
+              color: #94a3b8;
+              font-weight: 700;
+              font-size: 0.8rem;
+              padding: 8px 12px;
+              text-align: left;
+              border-bottom: 1px solid #334155;
+            }
+
+            #clear-sms-logs-btn:hover {
+              background: #ef4444;
+              color: white;
+            }
+
             @media (max-width: 768px) {
               .sms-logs-perfect {
                 width: 100vw !important;
@@ -4270,7 +4741,6 @@ if (smsLogsBtn) {
                 border-radius: 50% !important;
               }
             }
-            /* Desktop: nice margins, rounded, wider */
             @media (min-width: 769px) {
               .sms-logs-perfect {
                 width: 95% !important;
@@ -4315,7 +4785,6 @@ if (smsLogsBtn) {
                 background: rgba(255,255,255,0.2) !important;
               }
             }
-            /* Landscape on mobile: ensure full height */
             @media (orientation: landscape) and (max-width: 768px) {
               .sms-logs-perfect {
                 height: 100vh !important;
@@ -4326,6 +4795,37 @@ if (smsLogsBtn) {
             }
           `;
           document.head.appendChild(style);
+
+          // Clear all logs button handler
+          const clearBtn = document.getElementById("clear-sms-logs-btn");
+          if (clearBtn) {
+            clearBtn.addEventListener("click", async () => {
+              const confirm = await Swal.fire({
+                title: "Clear all SMS logs?",
+                text: "This cannot be undone.",
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonColor: "#ef4444",
+                confirmButtonText: "Yes, clear all",
+                background: "#1e293b",
+                color: "#f1f5f9",
+              });
+              if (confirm.isConfirmed) {
+                try {
+                  await fetchWithTimeout("/tenants/sms-logs", {
+                    method: "DELETE",
+                    headers: {
+                      Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                  });
+                  Swal.close();
+                  smsLogsBtn.click(); // reopen with fresh data
+                } catch (err) {
+                  Toast.fire({ icon: "error", title: "Failed to clear logs" });
+                }
+              }
+            });
+          }
         },
       });
     } catch (err) {

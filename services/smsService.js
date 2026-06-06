@@ -235,41 +235,77 @@ export async function sendOverdueRemindersForUser(
   const results = [];
 
   for (const tenant of allTenants) {
+    // ----- Helper to get charge details for a given month -----
+    const getMonthCharges = (month) => {
+      const chargeEntry = tenant.paymentHistory.find(
+        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      const baseRent = tenant.rent;
+      const garbageFee = settings.garbageFee || 0;
+      if (chargeEntry) {
+        const isDepositMonth =
+          tenant.deposit &&
+          tenant.depositPeriod &&
+          month === tenant.paymentHistory.map((e) => e.month).sort()[0];
+        const depositInstalment = isDepositMonth
+          ? Math.round(tenant.rent / tenant.depositPeriod)
+          : 0;
+        return {
+          rent: chargeEntry.baseRent || baseRent,
+          water: chargeEntry.waterCharge || 0,
+          garbage: chargeEntry.garbageCharge || garbageFee,
+          deposit: depositInstalment,
+          total:
+            chargeEntry.totalDue ||
+            baseRent +
+              depositInstalment +
+              (chargeEntry.waterCharge || 0) +
+              (chargeEntry.garbageCharge || garbageFee),
+          remaining: chargeEntry.remainingBalance,
+          dueDate: chargeEntry.dueDate,
+        };
+      }
+      return {
+        rent: baseRent,
+        water: 0,
+        garbage: garbageFee,
+        deposit: 0,
+        total: baseRent + garbageFee,
+        remaining: baseRent + garbageFee,
+        dueDate: null,
+      };
+    };
+
+    // ----- Collect overdue months with standalone amounts -----
+    const overdueMonths = [];
     const months = [
       ...new Set(tenant.paymentHistory.map((e) => e.month)),
     ].sort();
-    let totalOverdue = 0;
-    let newestOverdueMonth = null; // most recent month that is overdue
-    let earliestDueDate = null;
+    let prevCumulative = 0;
 
     for (const month of months) {
-      const monthEntries = tenant.paymentHistory.filter(
-        (e) => e.month === month
-      );
-      monthEntries.sort((a, b) => {
-        const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
-        const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
-        if (aDate !== bDate) return aDate - bDate;
-        return a._id.toString().localeCompare(b._id.toString());
-      });
-      const latest = monthEntries[monthEntries.length - 1];
-      if (!latest || !latest.dueDate) continue;
-      const dueUTC = new Date(latest.dueDate);
+      const charge = getMonthCharges(month);
+      if (!charge.dueDate) continue;
+      const dueUTC = new Date(charge.dueDate);
       const dueStr = `${dueUTC.getUTCFullYear()}-${String(
         dueUTC.getUTCMonth() + 1
       ).padStart(2, "0")}-${String(dueUTC.getUTCDate()).padStart(2, "0")}`;
-      if (dueStr >= todayStr) break;
+      if (dueStr >= todayStr) continue;
 
-      if (latest.remainingBalance > 0) {
-        totalOverdue = latest.remainingBalance; // cumulative, includes all past
-        newestOverdueMonth = month;
-        if (!earliestDueDate) earliestDueDate = dueUTC;
+      const currentCumulative = charge.remaining;
+      const standalone = currentCumulative - prevCumulative;
+      prevCumulative = currentCumulative;
+
+      if (standalone > 0) {
+        overdueMonths.push({ month, charge, standalone });
       }
     }
 
-    if (totalOverdue === 0 || !newestOverdueMonth) continue;
+    if (overdueMonths.length === 0) continue;
 
-    // Don't resend if we already reminded for this exact month (unless forced)
+    // ----- Newest overdue month for reminderSentMonths check -----
+    const newestOverdueMonth = overdueMonths[overdueMonths.length - 1].month;
+
     if (
       !force &&
       tenant.reminderSentMonths &&
@@ -281,26 +317,28 @@ export async function sendOverdueRemindersForUser(
       continue;
     }
 
-    const dueDateStr = earliestDueDate
-      ? earliestDueDate.toLocaleDateString("en-KE", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })
-      : "recently";
+    // ----- Build a short, single‑SMS message -----
+    const totalOverdue = overdueMonths.reduce(
+      (sum, m) => sum + m.standalone,
+      0
+    );
 
-    // Build a single message with the total overdue amount (covers all overdue months)
+    // Get current month details (use the last month in the list as the current billing month)
+    const currentMonth = months[months.length - 1];
+    const currentCharge = getMonthCharges(currentMonth);
+    const dueDate = new Date(currentCharge.dueDate);
+    const dueStr = `${dueDate.getUTCDate()} ${dueDate.toLocaleString("en-US", {
+      month: "long",
+    })}`;
+    const rent = currentCharge.total.toLocaleString();
+
     let message;
-    if (settings.reminderTemplate) {
-      message = settings.reminderTemplate
-        .replace(/{name}/g, tenant.name)
-        .replace(/{amount}/g, totalOverdue.toLocaleString())
-        .replace(/{dueDate}/g, dueDateStr)
-        .replace(/{monthsCount}/g, "1");
-    } else {
+    if (totalOverdue > 0) {
       message = `Dear ${
         tenant.name
-      }, your overdue rent is KES ${totalOverdue.toLocaleString()} (due: ${dueDateStr}). Please pay to avoid penalties.`;
+      }, total overdue KES ${totalOverdue.toLocaleString()}. Current month KES ${rent} due by ${dueStr}. Please pay overdue.`;
+    } else {
+      message = `Dear ${tenant.name}, no overdue payments. Current month KES ${rent} due by ${dueStr}. Thank you!`;
     }
 
     try {

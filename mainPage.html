@@ -89,10 +89,16 @@
     <input type="date" id="dev-date-picker" class="month-picker-input" style="width: auto;" />
     <button id="reset-dev-date-btn" class="topbar-menu-btn" style="font-size: 0.8rem; padding: 0 8px;">↺</button>
   </div>
-  <div class="search-wrapper">
-    <input class="search-tenants" type="text" placeholder="Search tenants" />
+<div class="search-wrapper">
     <span class="search-icon"></span>
-  </div>
+    <input class="search-tenants" type="text" placeholder="Search…" />
+    <select id="search-type-select" class="search-type-select">
+        <option value="all">All</option>
+        <option value="name">Name</option>
+        <option value="phone">Phone</option>
+        <option value="house">House</option>
+    </select>
+</div>
   <div class="menu-wrapper">
     <button id="topbar-menu-btn" class="topbar-menu-btn" title="Menu">⋮</button>
     <div id="topbar-menu-dropdown" class="topbar-menu-dropdown" style="display: none;">

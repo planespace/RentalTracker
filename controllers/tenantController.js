@@ -607,7 +607,7 @@ async function getExportStatement(req, res) {
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
     const todayDateStr = today.toLocaleDateString();
-    const logoUrl = "https://rentaltracker.onrender.com/images/logo1.png"; // ✅ YOUR LOGO
+    const logoUrl = "https://i.ibb.co/jKbRCvq/logo1.png";
 
     // ---------- HTML with logo and escaped content ----------
     let html = `
@@ -1695,7 +1695,7 @@ async function getTenantStatement(req, res) {
     }
 
     const overdueBalance = getPastDueAmount(tenant);
-    const logoUrl = "https://rentaltracker.onrender.com/images/logo1.png";
+    const logoUrl = "https://i.ibb.co/jKbRCvq/logo1.png";
     // ---------- HTML with escaped dynamic content ----------
     let html = `
 <!DOCTYPE html>

@@ -5006,3 +5006,22 @@ body.bulk-mode-active .due-date-cell {
 .payment-history-scroll {
   contain: strict;
 }
+
+/* Center the new‑tenant and deposit checkboxes */
+.deposit-label {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  margin: 10px auto 0 auto !important;
+  text-align: center !important;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.deposit-label input[type="checkbox"] {
+  margin: 0;
+  vertical-align: middle;
+}

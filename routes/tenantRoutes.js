@@ -1,6 +1,13 @@
 //routes/TenantRoutes.js
 import authMiddleware from "../middleware/auth.js";
 import express from "express";
+import rateLimit from "express-rate-limit";
+
+const smsEmailLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 requests per minute
+  message: { message: "Too many requests. Please wait a minute." },
+});
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -37,6 +44,10 @@ import {
   handleSmsWebhook,
   getSmsLogs,
   clearSmsLogs,
+  sendManualEmails,
+  getEmailLogs,
+  clearEmailLogs,
+  triggerEmailReminders,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -48,6 +59,16 @@ router.get("/export/statement", getExportStatement);
 router.get("/sms-balance", getSmsBalance);
 router.get("/sms-logs", getSmsLogs);
 router.delete("/sms-logs", clearSmsLogs);
+router.post("/trigger-email-reminders", triggerEmailReminders);
+router.post("/send-emails", sendManualEmails);
+router.get("/email-logs", getEmailLogs);
+router.delete("/email-logs", clearEmailLogs);
+
+router.post("/send-sms", smsEmailLimiter, sendManualSms);
+router.post("/send-emails", smsEmailLimiter, sendManualEmails);
+router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
+router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+
 router.patch("/:id/restore", restoreTenant);
 router.delete("/:id/permanent", permanentlyDeleteTenant);
 // ----- PARAMETERIZED ROUTES (specific patterns) -----

@@ -15,16 +15,18 @@
     "@types/node": "^25.6.0"
   },
   "dependencies": {
-    "africastalking": "^0.8.0",
+    "africastalking": "^0.7.4",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "mockdate": "^3.0.5",
     "mongodb": "^7.2.0",
     "mongoose": "^9.4.1",
     "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10",
     "nodemon": "^3.1.14"
   }
 }

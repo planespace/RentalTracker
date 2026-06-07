@@ -27,6 +27,7 @@ const paymentEntrySchema = new mongoose.Schema({
 
   // NEW: M‑Pesa reference (optional)
   mpesaRef: { type: String, default: "" },
+  initialPastDue: { type: Boolean, default: false },
 });
 
 const tenantSchema = new mongoose.Schema({
@@ -34,6 +35,7 @@ const tenantSchema = new mongoose.Schema({
   name: { type: String, required: true },
   rent: { type: Number, required: true }, // base rent
   phoneNumber: { type: String, required: true },
+  email: { type: String, default: "" },
   houseNumber: { type: String, required: true },
   paymentHistory: [paymentEntrySchema],
   notes: { type: String, default: "" },
@@ -51,6 +53,8 @@ const tenantSchema = new mongoose.Schema({
         unitsUsed: { type: Number, default: 0 },
         cost: { type: Number, default: 0 },
         rate: { type: Number, required: true },
+        previousOverride: { type: Number, default: null }, // 👈 new
+        exemptUnits: { type: Number, default: 0 }, // 👈 new
       },
     ],
     default: [],

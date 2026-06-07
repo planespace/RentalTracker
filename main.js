@@ -27,7 +27,7 @@ let trendLineChart = null;
 let currentAppDate;
 let tenantArray = [];
 let globalSettings = { garbageFee: 0, waterRatePerUnit: 0, totalHouses: 0 };
-
+let tenantEmailInput = document.querySelector(".tenant-email");
 let userProfile = { name: "", email: "", phone: "", landlordName: "" };
 
 function getAppToday() {
@@ -905,10 +905,20 @@ function getTenantPastDueAmount(tenant, todayDate) {
       continue;
     }
 
+    // Check if this month has the special "new tenant" flag
+    const chargeEntry = entries.find(
+      (e) => (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    const isFirstMonthWithFlag =
+      chargeEntry &&
+      chargeEntry.initialPastDue &&
+      chargeEntry.remainingBalance > 0;
+
     const due = new Date(latest.dueDate);
     const dueStr = due.toISOString().slice(0, 10);
 
-    if (dueStr >= todayStr) {
+    // If it's not the forced‑past‑due first month, stop at the current billing month
+    if (!isFirstMonthWithFlag && dueStr >= todayStr) {
       break;
     }
 
@@ -1724,8 +1734,12 @@ async function showUtilitiesModal(tenantId) {
       <h4>📝 Add New Reading</h4>
       <div class="add-reading-form">
         <div class="utility-row"><label>Month:</label><input type="month" id="reading-month" value="${currentMonth}"></div>
-        <div class="utility-row"><label>Previous Reading:</label><span id="prev-reading-display">${prevReading}</span></div>
-        <div class="utility-row"><label>Current Reading:</label><input type="number" id="meter-reading" step="0.1" placeholder="Enter current reading"></div>
+      <div class="utility-row"><label>Previous Reading:</label><span id="prev-reading-display">${prevReading}</span> <a href="#" id="override-previous-link" style="font-size:0.8rem; color:var(--accent-cyan); margin-left:10px;">Override</a></div>
+<div class="utility-row" id="override-previous-row" style="display:none;">
+  <label>Override Previous:</label><input type="number" id="override-previous-input" step="0.1" placeholder="Enter manual previous">
+</div>
+<div class="utility-row"><label>Current Reading:</label><input type="number" id="meter-reading" step="0.1" placeholder="Enter current reading"></div>
+<div class="utility-row"><label>Exempt Units:</label><input type="number" id="exempt-units" step="0.1" placeholder="Optional, e.g., 1.2"></div>
         <div class="utility-row"><label>Units Used:</label><span id="units-used">0</span></div>
         <div class="utility-row"><label>Water Cost (KSH):</label><span id="water-cost">0</span></div>
         <div class="utility-actions">
@@ -1744,24 +1758,36 @@ async function showUtilitiesModal(tenantId) {
           </thead>
           <tbody>`;
     readings.forEach((reading, index) => {
-      const prev = index > 0 ? readings[index - 1].reading : 0;
-      const units = reading.reading - prev;
-      const cost = units * reading.rate;
+      // Use the stored units and cost – they already include the effect of override & exempt
+      const storedUnits = reading.unitsUsed;
+      const storedCost = reading.cost;
+
+      // Fallback only if stored values are missing (shouldn't happen after recalc)
+      let units, cost;
+      if (storedUnits != null && storedCost != null) {
+        units = storedUnits;
+        cost = storedCost;
+      } else {
+        const prev = index > 0 ? readings[index - 1].reading : 0;
+        units = reading.reading - prev;
+        cost = units * (reading.rate || waterRate);
+      }
+
       html += `
-        <tr>
-          <td>${reading.month}</td>
-          <td style="text-align:right">${reading.reading}</td>
-          <td style="text-align:right">${units}</td>
-          <td style="text-align:right">${formatCurrency(cost)}</td>
-          <td style="text-align:center">
-            <button class="reading-actions-btn" data-id="${
-              reading._id
-            }" data-month="${reading.month}" data-reading="${
+    <tr>
+      <td>${reading.month}</td>
+      <td style="text-align:right">${reading.reading}</td>
+      <td style="text-align:right">${units}</td>
+      <td style="text-align:right">${formatCurrency(cost)}</td>
+      <td style="text-align:center">
+        <button class="reading-actions-btn" data-id="${
+          reading._id
+        }" data-month="${reading.month}" data-reading="${
         reading.reading
       }" style="background: none; border: none; font-size: 1.2rem; cursor: pointer;">⚙️</button>
-          </td>
-        </tr>
-      `;
+      </td>
+    </tr>
+  `;
     });
     html += `</tbody></table></div>`;
   } else {
@@ -1796,12 +1822,52 @@ async function showUtilitiesModal(tenantId) {
     const selectedMonth = readingMonthInput
       ? readingMonthInput.value
       : currentMonth;
-    const prevRead = getPreviousReadingForMonth(selectedMonth);
+    let prevRead = getPreviousReadingForMonth(selectedMonth);
+
+    // Check for manual override
+    const overrideInput = document.getElementById("override-previous-input");
+    if (overrideInput && overrideInput.value) {
+      prevRead = parseFloat(overrideInput.value) || 0;
+    }
+
     const current = parseFloat(readingInput.value) || 0;
-    const units = current - prevRead;
+    let units = current - prevRead;
+
+    // Subtract exempt units
+    const exemptInput = document.getElementById("exempt-units");
+    if (exemptInput && exemptInput.value) {
+      units = Math.max(0, units - (parseFloat(exemptInput.value) || 0));
+    }
+
     unitsSpan.textContent = units > 0 ? units : 0;
     costSpan.textContent = (units > 0 ? units * waterRate : 0).toFixed(2);
     prevDisplay.textContent = prevRead;
+  }
+
+  // Override toggle
+  const overrideLink = document.getElementById("override-previous-link");
+  const overrideRow = document.getElementById("override-previous-row");
+  if (overrideLink && overrideRow) {
+    overrideLink.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      if (overrideRow.style.display === "none") {
+        overrideRow.style.display = "flex";
+        overrideLink.textContent = "Use auto";
+      } else {
+        overrideRow.style.display = "none";
+        overrideLink.textContent = "Override";
+        document.getElementById("override-previous-input").value = "";
+      }
+    });
+  }
+
+  const overrideInput = document.getElementById("override-previous-input");
+  if (overrideInput) {
+    overrideInput.addEventListener("input", updateCalc);
+  }
+  const exemptInput = document.getElementById("exempt-units");
+  if (exemptInput) {
+    exemptInput.addEventListener("input", updateCalc);
   }
 
   if (readingInput) readingInput.addEventListener("input", updateCalc);
@@ -1817,6 +1883,13 @@ async function showUtilitiesModal(tenantId) {
     const month = btn.dataset.month;
     const currentReading = parseFloat(btn.dataset.reading);
     const tid = tenant._id;
+
+    // Get the full reading object so we can pre‑fill override/exempt
+    const readingObj = (tenant.waterMeterReadings || []).find(
+      (r) => r._id.toString() === id
+    );
+    const currentOverride = readingObj?.previousOverride ?? "";
+    const currentExempt = readingObj?.exemptUnits ?? 0;
 
     const result = await Swal.fire({
       title: `Reading for ${month}`,
@@ -1834,17 +1907,54 @@ async function showUtilitiesModal(tenantId) {
     });
 
     if (result.isConfirmed) {
-      const { value: newReading } = await Swal.fire({
+      // ---- Edit with all fields ----
+      const { value: formValues } = await Swal.fire({
         title: `Edit Reading for ${month}`,
-        input: "number",
-        inputValue: currentReading,
-        inputAttributes: { step: "0.1", min: "0" },
+        html: `
+        <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
+          <div>
+            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Current Reading</label>
+            <input id="swal-reading" class="swal2-input" type="number" value="${currentReading}" step="0.1">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Override Previous (optional)</label>
+            <input id="swal-override" class="swal2-input" type="number" value="${currentOverride}" step="0.1" placeholder="Leave empty for auto">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Exempt Units (optional)</label>
+            <input id="swal-exempt" class="swal2-input" type="number" value="${currentExempt}" step="0.1" placeholder="0">
+          </div>
+        </div>
+      `,
         showCancelButton: true,
         confirmButtonText: "Update",
+        confirmButtonColor: "#3b82f6",
+        cancelButtonColor: "#475569",
         background: "#1e293b",
         color: "#f1f5f9",
+        preConfirm: () => {
+          const read = document.getElementById("swal-reading").value;
+          const ovr = document.getElementById("swal-override").value;
+          const exm = document.getElementById("swal-exempt").value;
+          if (!read || isNaN(Number(read)) || Number(read) < 0) {
+            Swal.showValidationMessage("Enter a valid reading");
+            return false;
+          }
+          if (ovr && Number(read) < Number(ovr)) {
+            Swal.showValidationMessage(
+              "Reading cannot be less than the override value"
+            );
+            return false;
+          }
+          return {
+            reading: Number(read),
+            previousOverride: ovr ? Number(ovr) : null,
+            exemptUnits: exm ? Number(exm) : 0,
+          };
+        },
       });
-      if (newReading !== undefined && !isNaN(newReading) && newReading >= 0) {
+
+      if (formValues) {
         setButtonLoading(btn, true);
         try {
           const response = await fetchWithTimeout(
@@ -1855,7 +1965,7 @@ async function showUtilitiesModal(tenantId) {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${localStorage.getItem("token")}`,
               },
-              body: JSON.stringify({ reading: Number(newReading) }),
+              body: JSON.stringify(formValues),
             }
           );
           if (response.ok) {
@@ -1888,6 +1998,7 @@ async function showUtilitiesModal(tenantId) {
         }
       }
     } else if (result.isDenied) {
+      // Delete – unchanged
       const confirm = await Swal.fire({
         title: "Delete Reading?",
         text: `Delete meter reading for ${month}? This will affect water charges.`,
@@ -1994,6 +2105,10 @@ function showGlobalSettingsModal() {
 
 <div style="display: flex; flex-direction: column; gap: 6px;">
   <button id="resend-overdue-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📢 Resend Overdue Reminders Now</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px;">
+  <button id="resend-email-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📧 Resend Overdue Emails Now</button>
 </div>
 
       <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -2307,6 +2422,40 @@ function showGlobalSettingsModal() {
         setButtonLoading(btn, false);
       }
     }
+
+    if (e.target.id === "resend-email-reminders-btn") {
+      const btn = e.target;
+      setButtonLoading(btn, true);
+      try {
+        const response = await fetchWithTimeout(
+          window.location.origin +
+            "/tenants/trigger-email-reminders?force=true",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        );
+        const data = await response.json();
+        if (response.ok) {
+          const sent = (data.results || []).filter((r) => r.success).length;
+          Toast.fire({
+            icon: "success",
+            title: `Email reminders sent to ${sent} tenant(s).`,
+          });
+        } else {
+          Toast.fire({
+            icon: "error",
+            title: data.message || "Failed to send",
+          });
+        }
+      } catch (err) {
+        Toast.fire({ icon: "error", title: err.message });
+      } finally {
+        setButtonLoading(btn, false);
+      }
+    }
     if (e.target.id === "save-global-settings") {
       const garbageFee =
         parseFloat(document.getElementById("global-garbage").value) || 0;
@@ -2427,14 +2576,21 @@ document.addEventListener("click", async (e) => {
       else break;
     }
 
-    if (reading < prevReading) {
+    // Use the override value if provided, otherwise fall back to the auto‑calculated previous
+    const overrideInput = document.getElementById("override-previous-input");
+    const overrideVal = overrideInput?.value;
+    const effectivePrevious = overrideVal ? Number(overrideVal) : prevReading;
+
+    if (reading < effectivePrevious) {
       Toast.fire({
         icon: "error",
-        title: `Reading cannot be less than previous reading (${prevReading})`,
+        title: `Reading cannot be less than previous reading (${effectivePrevious})`,
       });
       setButtonLoading(e.target, false);
       return;
     }
+
+    const exemptVal = document.getElementById("exempt-units")?.value;
 
     setButtonLoading(e.target, true);
     try {
@@ -2446,7 +2602,12 @@ document.addEventListener("click", async (e) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-          body: JSON.stringify({ month: selectedMonth, reading }),
+          body: JSON.stringify({
+            month: selectedMonth,
+            reading,
+            previousOverride: overrideVal ? Number(overrideVal) : null,
+            exemptUnits: exemptVal ? Number(exemptVal) : 0,
+          }),
         }
       );
       const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
@@ -2474,6 +2635,7 @@ document.addEventListener("click", async (e) => {
       setButtonLoading(e.target, false);
     }
   }
+
   if (e.target.id === "cancel-utilities-btn") {
     document.getElementById("utilities-modal").style.display = "none";
     document.getElementById("modal-overlay").style.display = "none";
@@ -2539,6 +2701,10 @@ document.addEventListener("click", async (e) => {
 
   if (e.target.closest("#modal-send-sms")) {
     showIndividualSmsModal(window.currentActionsTenantId);
+  }
+
+  if (e.target.closest("#modal-send-email")) {
+    showEmailModal(window.currentActionsTenantId);
   }
 
   if (e.target.id === "add-payment-btn") {
@@ -2952,6 +3118,241 @@ document.querySelector("#logout-btn").addEventListener("click", async () => {
   }
 });
 
+function generateBalanceMessage(tenant) {
+  const today = getAppToday();
+  const totalOutstanding = getTenantTotalOutstanding(tenant);
+  const currentMonth = getCurrentBillingMonthForTenant(tenant);
+  const expected = getExpectedForMonth(tenant, currentMonth, globalSettings);
+  const dueDate = getTenantNextDueDate(tenant);
+  const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
+
+  function formatMonth(ym) {
+    const [y, m] = ym.split("-");
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    return months[parseInt(m) - 1] + " " + y;
+  }
+
+  function formatDueDate(dateVal) {
+    if (!dateVal) return "";
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "";
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    return d.getUTCDate() + " " + months[d.getUTCMonth()];
+  }
+
+  const dueStr = formatDueDate(dueDate);
+
+  const getMonthCharges = (month) => {
+    const chargeEntry = tenant.paymentHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (chargeEntry) {
+      const firstMonth = getTenantFirstMonth(tenant);
+      let depositAmount = 0;
+      if (tenant.deposit && tenant.depositPeriod && firstMonth) {
+        const [fy, fm] = firstMonth.split("-").map(Number);
+        const firstDate = new Date(Date.UTC(fy, fm - 1, 1));
+        const lastDepDate = new Date(
+          Date.UTC(fy, fm - 1 + tenant.depositPeriod, 0)
+        );
+        const [cy, cm] = month.split("-").map(Number);
+        const checkDate = new Date(Date.UTC(cy, cm - 1, 1));
+        if (checkDate >= firstDate && checkDate <= lastDepDate) {
+          depositAmount = Math.round(tenant.rent / tenant.depositPeriod);
+        }
+      }
+      const pureRent = (chargeEntry.baseRent || tenant.rent) - depositAmount;
+      return {
+        rent: pureRent,
+        water: chargeEntry.waterCharge || 0,
+        garbage: chargeEntry.garbageCharge || 0,
+        deposit: depositAmount,
+        total: chargeEntry.totalDue || expected,
+        remaining: chargeEntry.remainingBalance,
+        dueDate: chargeEntry.dueDate,
+      };
+    }
+    return {
+      rent: tenant.rent,
+      water: 0,
+      garbage: 0,
+      deposit: 0,
+      total: expected,
+      remaining: expected,
+      dueDate: null,
+    };
+  };
+
+  function chargeBreakdown(charge, omitRent = false) {
+    const parts = [];
+    if (!omitRent || charge.rent > 0)
+      parts.push(`Rent: KES ${charge.rent.toLocaleString()}`);
+    if (charge.deposit > 0)
+      parts.push(`Deposit: KES ${charge.deposit.toLocaleString()}`);
+    if (charge.garbage > 0)
+      parts.push(`Garbage: KES ${charge.garbage.toLocaleString()}`);
+    if (charge.water > 0)
+      parts.push(`Water: KES ${charge.water.toLocaleString()}`);
+    return parts.join(", ");
+  }
+
+  const allMonths = [
+    ...new Set(tenant.paymentHistory.map((e) => e.month)),
+  ].sort();
+  const overdueMonths = [];
+  let previousCumulative = 0;
+  let beforeCurrentCumulative = 0;
+
+  for (const month of allMonths) {
+    const charge = getMonthCharges(month);
+    if (!charge.dueDate) continue;
+
+    if (month === currentMonth) {
+      beforeCurrentCumulative = previousCumulative;
+    }
+
+    const currentCumulative = charge.remaining;
+    const standalone = currentCumulative - previousCumulative;
+    previousCumulative = currentCumulative;
+
+    const dueDateObj = new Date(charge.dueDate);
+    if (dueDateObj < today && standalone > 0) {
+      overdueMonths.push({ month, charge, standalone });
+    }
+  }
+
+  if (
+    beforeCurrentCumulative === 0 &&
+    allMonths.length > 0 &&
+    allMonths[allMonths.length - 1] !== currentMonth
+  ) {
+    beforeCurrentCumulative = previousCumulative;
+  }
+
+  const currentCharge = getMonthCharges(currentMonth);
+  const paymentsThisMonth = tenant.paymentHistory.filter(
+    (e) => e.month === currentMonth && e.amountPaid > 0
+  );
+  const paidThisMonth = paymentsThisMonth.reduce(
+    (sum, e) => sum + e.amountPaid,
+    0
+  );
+
+  function currentMonthSentence(prefix = "Current month ") {
+    const monthLabel = prefix + formatMonth(currentMonth) + ":";
+    const totalStr = `KES ${currentCharge.total.toLocaleString()}`;
+    const details = chargeBreakdown(currentCharge, false);
+    return `${monthLabel} ${totalStr} (${details})`;
+  }
+
+  if (overdueMonths.length === 0) {
+    if (credit > 0) {
+      if (paidThisMonth >= currentCharge.total) {
+        return (
+          `Dear ${tenant.name}, ` +
+          `you have a credit of KES ${credit.toLocaleString()}. ` +
+          `No overdue payments. ` +
+          `${currentMonthSentence()} – fully paid. ` +
+          `Due by ${dueStr}. Thank you!`
+        );
+      } else {
+        const leftToFullyPay = Math.max(0, currentCharge.total - paidThisMonth);
+        const afterCredit = Math.max(0, leftToFullyPay - credit);
+        const coverText =
+          afterCredit === 0
+            ? `your credit covers it`
+            : `your credit reduces what's needed to KES ${afterCredit.toLocaleString()}`;
+        return (
+          `Dear ${tenant.name}, ` +
+          `you have a credit of KES ${credit.toLocaleString()}. ` +
+          `No overdue payments. ` +
+          `${currentMonthSentence()}, ${coverText}. ` +
+          `Due by ${dueStr}. Thank you!`
+        );
+      }
+    }
+
+    if (paidThisMonth >= currentCharge.total) {
+      return (
+        `Dear ${tenant.name}, ` +
+        `all payments are up to date – nothing is owed. ` +
+        `${currentMonthSentence()} – fully paid. ` +
+        `Thank you for paying on time!`
+      );
+    }
+
+    const left = currentCharge.remaining;
+    const paidText =
+      paidThisMonth > 0
+        ? `paid KES ${paidThisMonth.toLocaleString()}, left KES ${left.toLocaleString()}`
+        : `nothing paid yet, left KES ${left.toLocaleString()}`;
+
+    return (
+      `Dear ${tenant.name}, ` +
+      `you are up to date – no overdue payments. ` +
+      `${currentMonthSentence()}, ${paidText}. ` +
+      `Due by ${dueStr}. Thank you!`
+    );
+  }
+
+  let msg = `Dear ${tenant.name}, here's your rent summary. `;
+
+  const overdueParts = overdueMonths.map(({ month, charge, standalone }) => {
+    const breakdown = chargeBreakdown(charge, false);
+    return `${formatMonth(
+      month
+    )} KES ${standalone.toLocaleString()} remaining (Total: KES ${charge.total.toLocaleString()}, ${breakdown})`;
+  });
+  msg += `Overdue: ${overdueParts.join(", ")}. `;
+
+  const totalOverdue = overdueMonths.reduce((sum, m) => sum + m.standalone, 0);
+  msg += `Total overdue: KES ${totalOverdue.toLocaleString()}. `;
+
+  if (credit > 0) {
+    const netOverdue = Math.max(0, totalOverdue - credit);
+    msg += `You have a credit of KES ${credit.toLocaleString()}, so your net overdue payment is KES ${netOverdue.toLocaleString()}. `;
+  }
+
+  const standaloneCurrent = currentCharge.remaining - beforeCurrentCumulative;
+  const leftCurrent = Math.max(0, standaloneCurrent);
+  const paidText =
+    paidThisMonth > 0
+      ? `paid KES ${paidThisMonth.toLocaleString()}, left KES ${leftCurrent.toLocaleString()}`
+      : `nothing paid yet, left KES ${leftCurrent.toLocaleString()}`;
+
+  msg += `${currentMonthSentence()}, ${paidText}. `;
+  msg += `Due by ${dueStr}. `;
+  msg += `Please clear your overdue balance. Thank you!`;
+
+  return msg;
+}
+
 // ----- ADD TENANT -----
 let searchInput = document.querySelector(".search-tenants");
 let tenantsInputs = document.querySelector(".tenants-inputs");
@@ -3018,11 +3419,15 @@ tenantsInputs.addEventListener("click", async (event) => {
             phoneNumber: phoneNumber.value,
             notes: tenantNotes.value,
             dueDay: finalDueDay,
+            email: tenantEmailInput?.value || "",
             depositPeriod: includeDeposit
               ? parseInt(
                   document.getElementById("deposit-period-input").value
                 ) || 1
               : 0,
+
+            newTenant:
+              document.getElementById("new-tenant-checkbox")?.checked ?? true,
           }),
         }
       );
@@ -3045,7 +3450,8 @@ tenantsInputs.addEventListener("click", async (event) => {
       houseNumber.value = "";
       phoneNumber.value = "";
       tenantNotes.value = "";
-      dueDayInput.value = "";
+
+      tenantEmailInput.value = "";
       tenantName.focus();
     } catch (err) {
       let msg = err.message;
@@ -3205,6 +3611,11 @@ document
  <div class="profile-field"><label>Phone:</label> <input type="tel" id="edit-phone" value="${
    tenant.phoneNumber || ""
  }"></div>
+
+ <div class="profile-field"><label>Email:</label> <input type="email" id="edit-email" value="${
+   tenant.email || ""
+ }"></div>
+
     <div class="profile-field"><label>House:</label> <input type="text" id="edit-house" value="${
       tenant.houseNumber || ""
     }"></div>
@@ -3250,6 +3661,7 @@ document
               name: newName,
               rent: newRent,
               phoneNumber: newPhone,
+              email: document.getElementById("edit-email")?.value || "",
               houseNumber: newHouse,
               notes: newNotes,
               entryDate: newEntryDate,
@@ -3969,6 +4381,730 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     setButtonLoading(btn, false);
   }
 }
+
+function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
+  const logoUrl = "https://YOUR_RENDER_APP.onrender.com/images/logo1.png"; // ← change this
+
+  const today = getAppToday();
+  const overdue = getTenantPastDueAmount(tenant, today);
+  const totalOutstanding = getTenantTotalOutstanding(tenant);
+  const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
+
+  const allMonths = [
+    ...new Set(tenant.paymentHistory.map((e) => e.month)),
+  ].sort();
+  const rows = [];
+
+  const leftByMonth = new Map();
+  let prevCumulative = 0;
+  for (const month of allMonths) {
+    const chargeEntry = tenant.paymentHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (!chargeEntry) continue;
+    const cumulative = chargeEntry.remainingBalance;
+    const monthLeft = Math.max(0, cumulative) - Math.max(0, prevCumulative);
+    leftByMonth.set(month, monthLeft);
+    prevCumulative = cumulative;
+  }
+
+  const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
+  let depositEndMonth = null;
+  if (
+    firstMonth &&
+    tenant.deposit &&
+    tenant.depositPeriod &&
+    tenant.depositPeriod > 0
+  ) {
+    const [fy, fm] = firstMonth.split("-").map(Number);
+    const endDate = new Date(Date.UTC(fy, fm - 1 + tenant.depositPeriod, 0));
+    depositEndMonth = `${endDate.getUTCFullYear()}-${String(
+      endDate.getUTCMonth() + 1
+    ).padStart(2, "0")}`;
+  }
+
+  for (const month of allMonths) {
+    const chargeEntry = tenant.paymentHistory.find(
+      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (!chargeEntry) continue;
+
+    const rentAmount = tenant.rent;
+    let depositInstalment = 0;
+    if (
+      firstMonth &&
+      tenant.deposit &&
+      tenant.depositPeriod &&
+      month >= firstMonth &&
+      month <= depositEndMonth
+    ) {
+      depositInstalment = Math.round(tenant.rent / tenant.depositPeriod);
+    }
+
+    const waterCharge = chargeEntry.waterCharge || 0;
+    const garbageCharge = chargeEntry.garbageCharge || 0;
+    const totalDue =
+      chargeEntry.totalDue ||
+      rentAmount + depositInstalment + waterCharge + garbageCharge;
+    const paymentsThisMonth = tenant.paymentHistory.filter(
+      (e) => e.month === month && e.amountPaid > 0
+    );
+    const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
+    const monthLeft = leftByMonth.get(month) || 0;
+    const dueDate = chargeEntry.dueDate ? new Date(chargeEntry.dueDate) : null;
+    const isOverdue = dueDate && dueDate < today && monthLeft > 0;
+    const balance = chargeEntry.remainingBalance;
+
+    let status = "";
+    if (balance <= 0) status = "Paid";
+    else if (isOverdue) status = "Overdue";
+    else status = "Pending";
+
+    rows.push({
+      month,
+      rentAmount,
+      depositInstalment,
+      waterCharge,
+      garbageCharge,
+      totalDue,
+      paid,
+      balance: monthLeft,
+      cumulative: balance,
+      status,
+      isOverdue,
+    });
+  }
+
+  let tableRows = "";
+  for (const r of rows) {
+    const rowBg = r.isOverdue ? "#fff5f5" : "transparent";
+    const statusColor = r.isOverdue ? "#d32f2f" : "#2e7d32";
+    tableRows += `
+      <tr style="background:${rowBg};">
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${
+          r.month
+        }</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.rentAmount.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
+          r.depositInstalment > 0 ? r.depositInstalment.toLocaleString() : "—"
+        }</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.waterCharge.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.garbageCharge.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${r.totalDue.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
+          r.paid > 0 ? r.paid.toLocaleString() : "—"
+        }</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; ${
+          r.balance > 0 ? "color:#d32f2f;" : "color:#2e7d32;"
+        }">${r.balance.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; color:${statusColor};">${
+      r.status
+    }</td>
+      </tr>`;
+  }
+
+  const totalOverdue = rows
+    .filter((r) => r.isOverdue)
+    .reduce((sum, r) => sum + r.balance, 0);
+
+  let note = "";
+  if (overdue > 0) {
+    note = `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
+            </div>`;
+  } else if (credit > 0) {
+    note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">You have a credit of KES ${credit.toLocaleString()}.</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#1b5e20;">Thank you!</p>
+            </div>`;
+  } else {
+    note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
+            </div>`;
+  }
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rent Statement</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width:800px; margin:20px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 6px 24px rgba(0,0,0,0.08);">
+    
+    <!-- Header with Logo -->
+    <div style="background:#0f172a; padding:36px 24px; text-align:center;">
+      <img src="${logoUrl}" alt="Logo" style="height:50px; margin-bottom:15px; display:block; margin-left:auto; margin-right:auto;" />
+      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:0.8px;">RENTAL TRACKER</h1>
+      <p style="margin:8px 0 0; font-size:18px; color:#cbd5e1; font-weight:400;">Monthly Rent Statement</p>
+      <p style="margin:6px 0 0; font-size:16px; color:#94a3b8;">Landlord: ${escapeHtml(
+        landlordName
+      )}</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:36px 24px;">
+      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+        tenant.name
+      )},</p>
+      <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
+
+      <!-- Table -->
+      <table style="width:100%; border-collapse:collapse; font-size:16px;">
+        <thead>
+          <tr style="background:#f1f5f9;">
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+
+      ${note}
+
+      <p style="font-size:15px; color:#64748b; margin-top:35px; text-align:center; line-height:1.6;">
+        If you have any questions, please contact your landlord.<br>
+        This statement was generated on ${today.toLocaleDateString()}.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#0f172a; padding:20px 24px; text-align:center;">
+      <p style="margin:0; font-size:13px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Rental Tracker. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function showEmailModal(tenantId) {
+  const tenant = tenantArray.find((t) => t._id === tenantId);
+  if (!tenant) return;
+
+  if (!tenant.email) {
+    Toast.fire({
+      icon: "warning",
+      title: "No email address",
+      text: "Please add an email address for this tenant first.",
+    });
+    return;
+  }
+
+  const templates = {
+    thanks: `Dear ${tenant.name},\nThank you for your payment. Have a great day!`,
+    quickBalance: generateShortBalanceMessage(tenant),
+    detailedBalance: generateDetailedBalanceHtml(
+      tenant,
+      userProfile.landlordName || userProfile.name || "Your Landlord"
+    ),
+  };
+
+  const { value: formValues } = await Swal.fire({
+    title: `📧 Send Email to ${tenant.name}`,
+    html: `
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <select id="email-template" style="padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
+          <option value="custom">✏️ Custom message</option>
+          <option value="thanks">🙏 Thank you</option>
+          <option value="quickBalance">⚡ Quick Balance</option>
+          <option value="detailedBalance">📋 Detailed Balance</option>
+        </select>
+        <input id="email-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
+        <textarea id="email-body" rows="6" placeholder="Type your message..." style="padding:12px; border-radius:20px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); width:100%;"></textarea>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: "Send Email",
+    confirmButtonColor: "#10b981",
+    cancelButtonText: "Cancel",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    preConfirm: () => {
+      const subject = document.getElementById("email-subject").value.trim();
+      const body = document.getElementById("email-body").value.trim();
+      if (!subject || !body) {
+        Swal.showValidationMessage("Subject and message are required");
+        return false;
+      }
+      return { subject, message: body };
+    },
+    didOpen: () => {
+      const templateSelect = document.getElementById("email-template");
+      const subjectInput = document.getElementById("email-subject");
+      const bodyArea = document.getElementById("email-body");
+
+      templateSelect.addEventListener("change", () => {
+        const val = templateSelect.value;
+        if (val === "custom") {
+          bodyArea.value = "";
+          subjectInput.value = "Rent Update";
+        } else if (val === "quickBalance") {
+          subjectInput.value = "Rent Balance";
+          bodyArea.value = templates.quickBalance;
+        } else if (val === "detailedBalance") {
+          subjectInput.value = "Your Rent Statement";
+          bodyArea.value = templates.detailedBalance;
+        } else if (val === "thanks") {
+          subjectInput.value = "Thank You";
+          bodyArea.value = templates.thanks;
+        }
+      });
+    },
+  });
+
+  if (!formValues) return;
+
+  const btn = document.getElementById("modal-send-email");
+  setButtonLoading(btn, true);
+  try {
+    const response = await fetchWithTimeout(
+      window.location.origin + "/tenants/send-emails",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          tenantIds: [tenantId],
+          subject: formValues.subject,
+          message: formValues.message,
+        }),
+      }
+    );
+    const data = await response.json();
+    if (response.ok) {
+      const success = (data.results || [])[0]?.success;
+      if (success) {
+        Toast.fire({ icon: "success", title: "Email sent" });
+      } else {
+        Toast.fire({ icon: "error", title: "Failed to send email" });
+      }
+    } else {
+      Toast.fire({ icon: "error", title: data.message || "Failed to send" });
+    }
+  } catch (err) {
+    Toast.fire({ icon: "error", title: err.message });
+  } finally {
+    setButtonLoading(btn, false);
+  }
+}
+
+function showBulkEmailModal() {
+  let tenants = [...tenantArray].filter((t) => t.email);
+  if (tenants.length === 0) {
+    Toast.fire({ icon: "warning", title: "No tenants with email addresses." });
+    return;
+  }
+
+  tenants.sort((a, b) => {
+    const ha = String(a.houseNumber || "").trim();
+    const hb = String(b.houseNumber || "").trim();
+    return ha.localeCompare(hb, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  const html = `
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <select id="email-bulk-template" style="width:100%;padding:10px;border-radius:40px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);">
+        <option value="custom">✏️ Custom message</option>
+        <option value="thanks">🙏 Thank you</option>
+        <option value="quickBalance">⚡ Quick Balance</option>
+        <option value="detailedBalance">📋 Detailed Balance</option>
+      </select>
+      <input id="email-bulk-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
+      <textarea id="email-bulk-body" rows="5" placeholder="Type your message..." style="padding:10px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);width:100%;resize:vertical;"></textarea>
+      <div id="email-bulk-note" style="display:none;background:rgba(6,182,212,0.1);border-left:3px solid var(--accent-cyan);padding:10px;border-radius:8px;color:var(--text-secondary);font-size:0.85rem;">
+        Each tenant will receive a personalised balance email.
+      </div>
+      <div style="background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);background:var(--bg-elevated);">
+              <th style="padding:10px 4px;width:35px;"></th>
+              <th style="padding:10px 4px;">House</th>
+              <th style="padding:10px 4px;">Name</th>
+              <th style="padding:10px 4px;">Email</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tenants
+              .map(
+                (t) => `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:10px 4px;text-align:center;">
+                  <input type="checkbox" class="email-tenant-select" data-id="${
+                    t._id
+                  }" style="width:18px;height:18px;accent-color:#10b981;">
+                </td>
+                <td style="padding:10px 4px;text-align:center;">${escapeHtml(
+                  t.houseNumber || "—"
+                )}</td>
+                <td style="padding:10px 4px;text-align:center;">${escapeHtml(
+                  t.name
+                )}</td>
+                <td style="padding:10px 4px;text-align:center;">${escapeHtml(
+                  t.email
+                )}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  Swal.fire({
+    title: "📧 Send Email to Tenants",
+    html,
+    showCancelButton: true,
+    confirmButtonText: "Send",
+    confirmButtonColor: "#10b981",
+    cancelButtonColor: "#ef4444",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "auto",
+    customClass: { popup: "fullscreen-sms-modal" },
+    didOpen: () => {
+      const templateSelect = document.getElementById("email-bulk-template");
+      const subjectInput = document.getElementById("email-bulk-subject");
+      const bodyArea = document.getElementById("email-bulk-body");
+      const balanceNote = document.getElementById("email-bulk-note");
+
+      templateSelect.addEventListener("change", () => {
+        const val = templateSelect.value;
+        if (val === "custom") {
+          bodyArea.style.display = "block";
+          subjectInput.style.display = "block";
+          bodyArea.value = "";
+          subjectInput.value = "Rent Update";
+          balanceNote.style.display = "none";
+        } else if (val === "thanks") {
+          bodyArea.style.display = "block";
+          subjectInput.style.display = "block";
+          subjectInput.value = "Thank You";
+          bodyArea.value = "Thank you for your payment. Have a great day!";
+          balanceNote.style.display = "none";
+        } else if (val === "quickBalance") {
+          bodyArea.style.display = "none";
+          subjectInput.style.display = "none";
+          balanceNote.style.display = "block";
+        } else if (val === "detailedBalance") {
+          bodyArea.style.display = "none";
+          subjectInput.style.display = "none";
+          balanceNote.style.display = "block";
+        }
+      });
+    },
+    preConfirm: async () => {
+      const selected = Array.from(
+        document.querySelectorAll(".email-tenant-select:checked")
+      ).map((cb) => cb.dataset.id);
+      if (selected.length === 0) {
+        Swal.showValidationMessage("Select at least one tenant.");
+        return false;
+      }
+      const subject = document
+        .getElementById("email-bulk-subject")
+        .value.trim();
+      const body = document.getElementById("email-bulk-body").value.trim();
+      const templateValue = document.getElementById(
+        "email-bulk-template"
+      ).value;
+      return {
+        tenantIds: selected,
+        subject,
+        message: body,
+        isBalanceMode: templateValue === "quickBalance",
+        isDetailed: templateValue === "detailedBalance",
+      };
+    },
+  }).then(async (result) => {
+    if (!result.isConfirmed) return;
+    const { tenantIds, subject, message, isBalanceMode, isDetailed } =
+      result.value;
+
+    const btn = document.getElementById("bulk-email-btn");
+    setButtonLoading(btn, true);
+    try {
+      let summary = "";
+
+      if (isBalanceMode) {
+        // Quick Balance – personalised short messages
+        const selectedTenants = tenants.filter((t) =>
+          tenantIds.includes(t._id)
+        );
+        let successCount = 0;
+        const failedNames = [];
+        for (const tenant of selectedTenants) {
+          const personalisedMsg = generateShortBalanceMessage(tenant);
+          try {
+            const res = await fetchWithTimeout(
+              window.location.origin + "/tenants/send-emails",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                  tenantIds: [tenant._id],
+                  subject: "Rent Balance",
+                  message: personalisedMsg,
+                }),
+              }
+            );
+            const data = await res.json();
+            if (data.results?.[0]?.success) {
+              successCount++;
+            } else {
+              failedNames.push(tenant.name);
+            }
+          } catch (err) {
+            failedNames.push(tenant.name);
+          }
+        }
+        summary = `Sent to ${successCount} tenant(s).`;
+        if (failedNames.length)
+          summary += ` Failed for: ${failedNames.join(", ")}.`;
+      } else if (isDetailed) {
+        // Detailed Balance – professional HTML emails
+        const selectedTenants = tenants.filter((t) =>
+          tenantIds.includes(t._id)
+        );
+        let successCount = 0;
+        const failedNames = [];
+        for (const tenant of selectedTenants) {
+          const personalisedMsg = generateDetailedBalanceHtml(
+            tenant,
+            userProfile.landlordName || userProfile.name || "Your Landlord"
+          );
+          try {
+            const res = await fetchWithTimeout(
+              window.location.origin + "/tenants/send-emails",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                  tenantIds: [tenant._id],
+                  subject: "Your Rent Statement",
+                  message: personalisedMsg,
+                }),
+              }
+            );
+            const data = await res.json();
+            if (data.results?.[0]?.success) {
+              successCount++;
+            } else {
+              failedNames.push(tenant.name);
+            }
+          } catch (err) {
+            failedNames.push(tenant.name);
+          }
+        }
+        summary = `Sent to ${successCount} tenant(s).`;
+        if (failedNames.length)
+          summary += ` Failed for: ${failedNames.join(", ")}.`;
+      } else {
+        // Custom / Thanks – one message to all selected
+        const response = await fetchWithTimeout(
+          window.location.origin + "/tenants/send-emails",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+            body: JSON.stringify({ tenantIds, subject, message }),
+          }
+        );
+        const data = await response.json();
+        if (response.ok) {
+          let sent = (data.results || []).filter((r) => r.success).length;
+          summary = `Sent to ${sent} tenants.`;
+          const failed = (data.results || []).filter((r) => !r.success);
+          if (failed.length)
+            summary += ` Failed for: ${failed
+              .map((f) => f.tenant)
+              .join(", ")}.`;
+        } else {
+          summary = data.message || "Failed to send";
+        }
+      }
+      Toast.fire({ icon: "success", title: summary });
+    } catch (err) {
+      Toast.fire({ icon: "error", title: err.message });
+    } finally {
+      setButtonLoading(btn, false);
+    }
+  });
+}
+
+// ----- EMAIL LOGS MODAL -----
+function showEmailLogsModal() {
+  Swal.fire({
+    title: "📧 Email Logs",
+    html: '<div style="text-align:center;padding:20px;">Loading...</div>',
+    showCloseButton: true,
+    showConfirmButton: false,
+    background: "#1e293b",
+    color: "#f1f5f9",
+    didOpen: async () => {
+      try {
+        const response = await fetchWithTimeout("/tenants/email-logs", {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+        if (!response.ok) throw new Error("Failed to fetch email logs");
+        let logs = await response.json();
+
+        // Sort newest first
+        logs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        const groups = [];
+        let currentLabel = "";
+        let currentGroup = [];
+
+        for (const log of logs) {
+          const sentDate = new Date(log.sentAt);
+          sentDate.setHours(0, 0, 0, 0);
+          let label = "";
+          if (sentDate.getTime() === today.getTime()) {
+            label = "Today";
+          } else if (sentDate.getTime() === yesterday.getTime()) {
+            label = "Yesterday";
+          } else {
+            label = sentDate.toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            });
+          }
+
+          if (label !== currentLabel) {
+            if (currentGroup.length > 0)
+              groups.push({ label: currentLabel, logs: currentGroup });
+            currentLabel = label;
+            currentGroup = [log];
+          } else {
+            currentGroup.push(log);
+          }
+        }
+        if (currentGroup.length > 0)
+          groups.push({ label: currentLabel, logs: currentGroup });
+
+        let tableRows = "";
+        if (groups.length === 0) {
+          tableRows = `<tr><td colspan="5" style="text-align:center;padding:40px;">📭 No email logs found</td></tr>`;
+        } else {
+          groups.forEach((group) => {
+            tableRows += `<tr class="sms-group-header"><td colspan="5">${group.label}</td></tr>`;
+            group.logs.forEach((log) => {
+              const d = new Date(log.sentAt);
+              const timeStr = d.toLocaleTimeString("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const shortMsg =
+                log.body.length > 50
+                  ? log.body.substring(0, 50) + "…"
+                  : log.body;
+              tableRows += `
+                <tr>
+                  <td>${escapeHtml(log.tenantName)}</td>
+                  <td>${escapeHtml(log.email)}</td>
+                  <td class="msg-cell">${escapeHtml(shortMsg)}</td>
+                  <td><span class="status-badge ${log.status}">${
+                log.status
+              }</span></td>
+                  <td>${timeStr}</td>
+                </tr>
+              `;
+            });
+          });
+        }
+
+        const html = `
+          <div class="sms-logs-root">
+            <div class="sms-logs-header" style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border, #334155);background:var(--bg-elevated, #1e293b);">
+              <h2 style="margin:0;font-size:1.2rem;font-weight:600;color:var(--text-primary, #f1f5f9);">📧 Email Delivery Logs</h2>
+              <button id="clear-email-logs-btn" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444;padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:600;cursor:pointer;transition:0.15s;">Clear</button>
+            </div>
+            <div class="sms-logs-body">
+              <table class="sms-logs-table">
+                <thead>
+                  <tr><th>Tenant</th><th>Email</th><th>Subject</th><th>Status</th><th>Time</th></tr>
+                </thead>
+                <tbody>${tableRows}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        Swal.update({ html });
+
+        // Clear button
+        const clearBtn = document.getElementById("clear-email-logs-btn");
+        if (clearBtn) {
+          clearBtn.addEventListener("click", async () => {
+            const confirm = await Swal.fire({
+              title: "Clear all email logs?",
+              text: "This cannot be undone.",
+              icon: "warning",
+              showCancelButton: true,
+              confirmButtonColor: "#ef4444",
+              confirmButtonText: "Yes, clear all",
+              background: "#1e293b",
+              color: "#f1f5f9",
+            });
+            if (confirm.isConfirmed) {
+              try {
+                await fetchWithTimeout("/tenants/email-logs", {
+                  method: "DELETE",
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                  },
+                });
+                Swal.close();
+                showEmailLogsModal();
+              } catch (err) {
+                Toast.fire({ icon: "error", title: "Failed to clear logs" });
+              }
+            }
+          });
+        }
+      } catch (err) {
+        Swal.update({
+          html: '<div style="text-align:center;padding:20px;">Failed to load email logs.</div>',
+        });
+      }
+    },
+  });
+}
+
 // Open the bulk SMS modal
 document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   const btn = document.getElementById("bulk-sms-btn");
@@ -4498,8 +5634,17 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   });
 });
 
+document.getElementById("bulk-email-btn").addEventListener("click", () => {
+  showBulkEmailModal();
+});
+
 // ----- SMS LOGS BUTTON (updated: date categories, clear all, sorted newest first) -----
 const smsLogsBtn = document.getElementById("sms-logs-btn");
+
+document.getElementById("email-logs-btn").addEventListener("click", () => {
+  showEmailLogsModal();
+});
+
 if (smsLogsBtn) {
   smsLogsBtn.addEventListener("click", async () => {
     try {

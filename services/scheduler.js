@@ -1,7 +1,7 @@
 //services/scheduler.js
 import cron from "node-cron";
 import { sendOverdueRemindersForUser } from "./smsService.js";
-
+import { sendOverdueEmailRemindersForUser } from "./emailService.js";
 // This function will run daily for each user (you can extend to iterate over all users)
 export function startScheduler() {
   // Run every day at 8:00 AM Nairobi time
@@ -28,3 +28,21 @@ export function startScheduler() {
   );
   console.log("✅ SMS reminder scheduler started.");
 }
+
+// Email reminders at 9:00 AM Nairobi time
+cron.schedule(
+  "0 9 * * *",
+  async () => {
+    console.log("⏰ Running daily email reminders...");
+    const User = (await import("../models/User.js")).default;
+    const users = await User.find({}, "_id");
+    for (const user of users) {
+      try {
+        await sendOverdueEmailRemindersForUser(user._id.toString());
+      } catch (err) {
+        console.error(`Email reminder failed for user ${user._id}:`, err);
+      }
+    }
+  },
+  { timezone: "Africa/Nairobi" }
+);

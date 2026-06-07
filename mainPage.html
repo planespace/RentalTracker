@@ -38,7 +38,16 @@
   <div class="form-field">
     <label>Phone Number</label>
     <input class="tenant-phone" type="tel" placeholder="0712 345 678" />
+    
+    
+
   </div>
+
+  <div class="form-field">
+  <label>Email (optional)</label>
+  <input class="tenant-email" type="email" placeholder="e.g., tenant@email.com" />
+</div>
+
   <div class="form-field">
     <label>House/Apt Number</label>
     <input class="tenant-house" type="text" placeholder="e.g., Flat 2B" />
@@ -67,9 +76,15 @@
     </div>
   </div>
 
+
   <!-- Row 5: Deposit checkbox above Add button -->
   <div class="action-row">
     <div class="action-wrapper">
+      <!-- New tenant input -->
+  <label class="deposit-label" style="margin-top:10px;">
+  <input type="checkbox" id="new-tenant-checkbox" checked />
+  New tenant – rent due on entry
+</label>
    <label class="deposit-label" data-tooltip="Tenant pays double rent in their first month. This extra amount acts as a deposit and is applied to their first month's balance.">
   <input type="checkbox" id="include-deposit-checkbox" />💰Deposit
 </label>
@@ -117,7 +132,9 @@
       <button id="landlord-profile-btn">👤 Profile</button>
       <button id="global-settings-btn">⚙️ Settings</button>
       <button id="bulk-sms-btn">📱 Send SMS to tenants</button>
+      <button id="bulk-email-btn">📧 Send Email to tenants</button>
       <button id="sms-logs-btn">📜 SMS Logs</button>
+      <button id="email-logs-btn">📧 Email Logs</button>
       <button id="logout-btn">Logout</button>
     </div>
   </div>
@@ -226,6 +243,7 @@
           💧 Utilities
         </button>
         <button id="modal-send-sms" class="modal-action-btn">📱 Send SMS</button>
+        <button id="modal-send-email" class="modal-action-btn">📧 Send Email</button>
         <button id="modal-statement" class="modal-action-btn">
           📄 Print Statement
         </button>

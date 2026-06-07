@@ -1,9 +1,9 @@
 // ========================
-//   controllers/tenantController.js – FULLY FIXED (only the necessary changes)
+//   controllers/tenantController.js – FULLY FIXED (HTML escaping applied)
 // ========================
 import { Tenant } from "../models/Tenant.js";
-import Settings from "../models/Settings.js"; // ✅ FIXED: default import only
-import User from "../models/User.js"; // ✅ FIXED: default import only
+import Settings from "../models/Settings.js";
+import User from "../models/User.js";
 import {
   sendBulkSms,
   sendOverdueRemindersForUser,
@@ -11,7 +11,11 @@ import {
 } from "../services/smsService.js";
 import africastalking from "africastalking";
 import SmsLog from "../models/SmsLog.js";
-import https from "https"; // add this at the top of the file
+import https from "https";
+import { sendOverdueEmailRemindersForUser } from "../services/emailService.js";
+import EmailLog from "../models/EmailLog.js";
+import { sendBulkEmails } from "../services/emailService.js";
+
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -37,7 +41,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     today.getUTCMonth() + 1
   ).padStart(2, "0")}`;
 
-  // Only fetch tenants belonging to the given userId (if provided)
   const filter = { active: true };
   if (userId) filter.userId = userId;
   const allTenants = await Tenant.find(filter);
@@ -45,7 +48,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
   for (let tenant of allTenants) {
     const settings = await getGlobalSettings(tenant.userId);
 
-    // --- First month creation ---
     if (tenant.paymentHistory.length === 0) {
       const { dueDate, month: firstMonth } = getNextDueDateAndMonth(
         tenant,
@@ -70,11 +72,11 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
         mpesaRef: "",
       });
       await recalcFutureMonths(tenant, firstMonth);
+      tenant.markModified("paymentHistory");
       await tenant.save();
       continue;
     }
 
-    // --- Existing tenants: find latest month ---
     const sortedMonths = [...tenant.paymentHistory.map((e) => e.month)].sort();
     const lastMonth = sortedMonths[sortedMonths.length - 1];
     const lastEntry = tenant.paymentHistory.find((e) => e.month === lastMonth);
@@ -84,10 +86,13 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     const lastDueTime = lastDueDate.getTime();
 
     if (lastDueTime < todayTime) {
-      const { dueDate: nextDueDate, month: newMonth } = getNextDueDateAndMonth(
-        tenant,
-        today
-      );
+      const [lastYear, lastMon] = lastMonth.split("-").map(Number);
+      const nextDate = new Date(lastYear, lastMon, 1);
+      const newMonth = `${nextDate.getFullYear()}-${String(
+        nextDate.getMonth() + 1
+      ).padStart(2, "0")}`;
+
+      const nextDueDate = getDueDateForMonth(tenant, newMonth);
       if (!tenant.paymentHistory.some((e) => e.month === newMonth)) {
         tenant.paymentHistory.push({
           month: newMonth,
@@ -110,6 +115,16 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
   console.log(`✅ Sync finished up to ${currentMonthStr} (UTC)`);
 }
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function clearSmsLogs(req, res) {
   try {
     await SmsLog.deleteMany({ userId: req.userId });
@@ -129,10 +144,8 @@ function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
   }
   const [year, month] = yearMonth.split("-").map(Number);
 
-  // If a reference date is provided, decide same‑month vs next‑month
   if (referenceDate) {
     const refDay = referenceDate.getUTCDate();
-    // Before due day → same calendar month
     if (refDay < dueDay) {
       const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const day = Math.min(dueDay, lastDay);
@@ -140,7 +153,6 @@ function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
     }
   }
 
-  // Default (no reference, or on/after due day): due date in the NEXT month
   let dueYear = year;
   let dueMonth = month + 1;
   if (dueMonth > 12) {
@@ -163,21 +175,16 @@ function getCurrentMonthString(today) {
   return `${year}-${month}`;
 }
 
-/**
- * Returns { dueDate (UTC midnight), month (YYYY-MM) } for the NEXT billing month
- * based on a reference date (today or entry date).
- */
 function getNextDueDateAndMonth(tenant, referenceDate) {
   const dueDay = tenant.dueDay;
   const y = referenceDate.getUTCFullYear();
-  const m = referenceDate.getUTCMonth(); // 0‑11
+  const m = referenceDate.getUTCMonth();
   const d = referenceDate.getUTCDate();
 
   let dueYear = y;
   let dueMonth = m;
 
   if (d >= dueDay) {
-    // Move to next month
     dueMonth++;
     if (dueMonth > 11) {
       dueMonth = 0;
@@ -207,7 +214,6 @@ function getEffectiveToday(req) {
       );
     }
   }
-  // fallback: real UTC midnight
   const now = new Date();
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
@@ -235,7 +241,7 @@ function getPreviousMonthString(monthString) {
 function getNextMonthDueDate(tenant, yearMonth, referenceDate) {
   const dueDate = getDueDateForMonth(tenant, yearMonth, referenceDate);
   let year = dueDate.getUTCFullYear();
-  let month = dueDate.getUTCMonth(); // 0‑11
+  let month = dueDate.getUTCMonth();
   let day = dueDate.getUTCDate();
 
   let nextYear = year;
@@ -271,7 +277,7 @@ function getFirstFutureMonth(tenant, today) {
 }
 
 async function getGlobalSettings(userId) {
-  let settings = await Settings.findById("global_" + userId); // ✅ FIXED: Settings.findById
+  let settings = await Settings.findById("global_" + userId);
   if (!settings) {
     settings = new Settings({
       _id: "global_" + userId,
@@ -283,6 +289,7 @@ async function getGlobalSettings(userId) {
   }
   return settings;
 }
+
 function getPreviousMeterReading(tenant, targetMonth) {
   const sorted = [...tenant.waterMeterReadings].sort((a, b) =>
     a.month.localeCompare(b.month)
@@ -325,7 +332,6 @@ async function recalcFutureMonths(tenant, changedMonth) {
     const monthDiff = (year - firstYear) * 12 + (mon - firstMonthNum);
     const isBeforeChanged = month < changedMonth;
 
-    // ---------- 1) Charges ----------
     let depositExtra = 0;
     if (
       tenant.deposit &&
@@ -342,7 +348,15 @@ async function recalcFutureMonths(tenant, changedMonth) {
     );
     if (meterReading) {
       const prevReading = getPreviousMeterReading(tenant, month);
-      const unitsUsed = meterReading.reading - prevReading;
+      const effectivePrevious =
+        meterReading.previousOverride != null
+          ? meterReading.previousOverride
+          : prevReading;
+
+      let unitsUsed = meterReading.reading - effectivePrevious;
+      if (meterReading.exemptUnits) {
+        unitsUsed = Math.max(0, unitsUsed - meterReading.exemptUnits);
+      }
       meterReading.unitsUsed = unitsUsed;
       const rate = meterReading.rate || settings.waterRatePerUnit || 0;
       meterReading.cost = unitsUsed * rate;
@@ -353,18 +367,15 @@ async function recalcFutureMonths(tenant, changedMonth) {
     const garbageCharge = settings.garbageFee;
     const totalDue = baseRent + waterCharge + garbageCharge;
 
-    // ---------- 2) Update charge fields (but NOT due date) for months >= changedMonth ----------
     if (!isBeforeChanged) {
       for (const entry of entries) {
         entry.baseRent = baseRent;
         entry.waterCharge = waterCharge;
         entry.garbageCharge = garbageCharge;
         entry.totalDue = totalDue;
-        // ❗ do NOT update dueDate – it stays as originally created
       }
     }
 
-    // ---------- 3) Running balance ----------
     const chargeEntry = entries.find(
       (e) => (e.amountPaid || 0) === 0 && !e.datePaid
     );
@@ -379,7 +390,6 @@ async function recalcFutureMonths(tenant, changedMonth) {
       }
     }
 
-    // ---------- 4) Subtract payments ----------
     const paymentEntries = entries.filter((e) => (e.amountPaid || 0) > 0);
     for (const payment of paymentEntries) {
       runningBalance -= payment.amountPaid;
@@ -390,17 +400,20 @@ async function recalcFutureMonths(tenant, changedMonth) {
       }
     }
 
-    // ---------- 5) Charge entry balance ----------
     if (chargeEntry) {
       chargeEntry.remainingBalance = runningBalance;
       chargeEntry.paid = runningBalance <= 0;
     }
+
+    if (chargeEntry.initialPastDue && chargeEntry.remainingBalance <= 0) {
+      chargeEntry.initialPastDue = false;
+    }
   }
 }
+
 // ========================
 //   CONTROLLER FUNCTIONS
 // ========================
-
 async function getAllTenants(req, res) {
   try {
     const { archived } = req.query;
@@ -416,6 +429,7 @@ async function getAllTenants(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function restoreTenant(req, res) {
   try {
     const { id } = req.params;
@@ -443,12 +457,12 @@ async function permanentlyDeleteTenant(req, res) {
 
 async function getExportStatement(req, res) {
   try {
-    const { type } = req.query; // 'all' or 'late'
+    const { type } = req.query;
     let tenants = await Tenant.find({ userId: req.userId, active: true });
     tenants.forEach((t) => {
       if (!t.paymentHistory) t.paymentHistory = [];
     });
-    // ---------- Today's date (dev‑aware) – convert to UTC midnight ----------
+
     let today;
     if (req.query.devDate) {
       const devDate = new Date(req.query.devDate);
@@ -478,7 +492,6 @@ async function getExportStatement(req, res) {
     const settings = await getGlobalSettings(req.userId);
     const garbageFee = settings.garbageFee || 0;
 
-    // ---------- Helper: get the current billing month (the month whose due date is ≥ today) ----------
     function getCurrentBillingMonth(tenant) {
       const months = [
         ...new Set(tenant.paymentHistory.map((e) => e.month)),
@@ -496,13 +509,11 @@ async function getExportStatement(req, res) {
       return months[months.length - 1];
     }
 
-    // ---------- Helper: expected total for a given billing month (rent + water + garbage + deposit) ----------
     function getExpectedForMonth(tenant, month) {
       const chargeEntry = tenant.paymentHistory.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
       if (chargeEntry) return chargeEntry.totalDue || 0;
-      // Fallback (should rarely happen)
       let depositExtra = 0;
       if (tenant.deposit && tenant.depositPeriod) {
         const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
@@ -522,14 +533,12 @@ async function getExportStatement(req, res) {
       return baseRent + waterCharge + garbageFee;
     }
 
-    // ---------- Helper: collected amount for a given billing month ----------
     function getCollectedForMonth(tenant, month) {
       return tenant.paymentHistory
         .filter((e) => e.month === month && e.amountPaid > 0)
         .reduce((sum, e) => sum + e.amountPaid, 0);
     }
 
-    // ---------- Helper: overdue balance (past months only) ----------
     function getPastDueAmount(tenant) {
       if (!tenant.paymentHistory || tenant.paymentHistory.length === 0)
         return 0;
@@ -561,24 +570,22 @@ async function getExportStatement(req, res) {
         if (dueStr < todayStr) {
           lastPastBalance = latest.remainingBalance;
         } else {
-          break; // stop at the first month that is not past due
+          break;
         }
       }
       return lastPastBalance < 0 ? 0 : lastPastBalance;
     }
-    // ---------- Build stats per tenant ----------
+
     const tenantStats = [];
     for (let tenant of tenants) {
       const currentMonth = getCurrentBillingMonth(tenant);
       const expected = getExpectedForMonth(tenant, currentMonth);
       const collected = getCollectedForMonth(tenant, currentMonth);
       const overdue = getPastDueAmount(tenant);
-      // For "late" export, only include tenants with overdue > 0
       if (type === "late" && overdue === 0) continue;
       tenantStats.push({ tenant, currentMonth, expected, collected, overdue });
     }
 
-    // Sort by house number (natural numeric)
     tenantStats.sort((a, b) => {
       const ha = a.tenant.houseNumber || "";
       const hb = b.tenant.houseNumber || "";
@@ -588,7 +595,6 @@ async function getExportStatement(req, res) {
       });
     });
 
-    // ---------- Totals for the summary cards ----------
     let totalOwed = 0,
       totalExpected = 0,
       totalCollected = 0;
@@ -598,22 +604,25 @@ async function getExportStatement(req, res) {
       totalCollected += ts.collected;
     }
 
-    // ---------- User / landlord info ----------
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
     const todayDateStr = today.toLocaleDateString();
+    const logoUrl = "https://rentaltracker.onrender.com/images/logo1.png"; // ✅ YOUR LOGO
 
-    // ---------- Generate HTML with four cards ----------
+    // ---------- HTML with logo and escaped content ----------
     let html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>${type === "late" ? "Late Tenants Report" : "Tenant Roster"}</title>
+  <title>${escapeHtml(
+    type === "late" ? "Late Tenants Report" : "Tenant Roster"
+  )}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; background:#ffffff; }
     .header { text-align:center; margin-bottom: 40px; }
+    .header img { height:50px; margin-bottom:10px; display:block; margin-left:auto; margin-right:auto; }
     .header h1 { font-size:2.5rem; font-weight:800; color:#0f172a; margin-bottom:5px; letter-spacing:-0.5px; }
     .header p { color:#475569; font-size:1rem; font-weight:400; }
 
@@ -652,10 +661,11 @@ async function getExportStatement(req, res) {
 </head>
 <body>
   <div class="header">
-    <h1>${landlordDisplay}</h1>
+    <img src="${logoUrl}" alt="Logo" />
+    <h1>${escapeHtml(landlordDisplay)}</h1>
     <p>${
       type === "late" ? "Late Tenants Report" : "Complete Tenant Roster"
-    } – ${todayDateStr}</p>
+    } – ${escapeHtml(todayDateStr)}</p>
   </div>
 
   <div class="summary-box">
@@ -716,7 +726,6 @@ async function getExportStatement(req, res) {
       const statusText = overdue > 0 ? "Unpaid" : "Paid";
       const statusClass = overdue > 0 ? "status-unpaid" : "status-paid";
 
-      // Deposit badge (if applicable)
       let depositBadge = "";
       if (tenant.deposit && tenant.depositPeriod) {
         const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
@@ -738,12 +747,14 @@ async function getExportStatement(req, res) {
 
       html += `
         <tr>
-          <td style="font-weight:600;">${tenant.name}</td>
-          <td>${tenant.houseNumber}</td>
-          <td>${tenant.phoneNumber}</td>
+          <td style="font-weight:600;">${escapeHtml(tenant.name)}</td>
+          <td>${escapeHtml(tenant.houseNumber)}</td>
+          <td>${escapeHtml(tenant.phoneNumber)}</td>
           <td>KSH ${tenant.rent.toLocaleString()}${depositBadge}</td>
           <td class="${balanceCellClass}">KSH ${overdue.toLocaleString()}</td>
-          <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+          <td><span class="status-badge ${statusClass}">${escapeHtml(
+        statusText
+      )}</span></td>
         </tr>
       `;
     }
@@ -783,7 +794,7 @@ async function getTenantById(req, res) {
 async function updateMeterReading(req, res) {
   try {
     const { id, readingId } = req.params;
-    const { reading } = req.body;
+    const { reading, previousOverride, exemptUnits } = req.body;
 
     const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
@@ -800,12 +811,25 @@ async function updateMeterReading(req, res) {
     }
 
     meterReading.reading = reading;
-    const unitsUsed = meterReading.reading - prevReading;
+    if (previousOverride !== undefined)
+      meterReading.previousOverride =
+        previousOverride != null ? Number(previousOverride) : null;
+    if (exemptUnits !== undefined)
+      meterReading.exemptUnits = Number(exemptUnits) || 0;
+
+    const effectivePrevious =
+      meterReading.previousOverride != null
+        ? meterReading.previousOverride
+        : prevReading;
+
+    const unitsUsed = meterReading.reading - effectivePrevious;
     meterReading.unitsUsed = unitsUsed;
     meterReading.cost = unitsUsed * meterReading.rate;
 
     await tenant.save();
     await recalcFutureMonths(tenant, meterReading.month);
+    tenant.markModified("paymentHistory");
+    tenant.markModified("waterMeterReadings");
     await tenant.save();
 
     res.json({ success: true });
@@ -865,7 +889,6 @@ async function updatePaymentHistory(req, res) {
     const today = getEffectiveToday(req);
     const currentMonth = getCurrentMonthString(today);
 
-    // ----- Build a map of the charge entry for each month (once) -----
     const chargeByMonth = new Map();
     for (const entry of tenant.paymentHistory) {
       if ((entry.amountPaid || 0) === 0 && !entry.datePaid) {
@@ -873,7 +896,6 @@ async function updatePaymentHistory(req, res) {
       }
     }
 
-    // ----- Compute already paid per month -----
     const paidByMonth = new Map();
     for (const entry of tenant.paymentHistory) {
       if (entry.amountPaid > 0) {
@@ -887,7 +909,7 @@ async function updatePaymentHistory(req, res) {
     ].sort();
     let earliestChangedMonth = null;
 
-    // ----- 1. Pay past‑due & current months (only the missing amount per month) -----
+    // ----- 1. Past‑due & current -----
     for (const month of allMonths) {
       if (remaining <= 0) break;
 
@@ -911,7 +933,7 @@ async function updatePaymentHistory(req, res) {
       tenant.paymentHistory.push({
         month: month,
         amountPaid: pay,
-        remainingBalance: 0, // placeholder, recalc will fix
+        remainingBalance: 0,
         paid: false,
         datePaid: datePaid || null,
         dueDate: charge.dueDate,
@@ -923,7 +945,7 @@ async function updatePaymentHistory(req, res) {
       paidByMonth.set(month, alreadyPaid + pay);
     }
 
-    // ----- 2. Pay future months (months > currentMonth) -----
+    // ----- 2. Future months -----
     const futureMonths = allMonths.filter((m) => m > currentMonth);
     for (const month of futureMonths) {
       if (remaining <= 0) break;
@@ -958,7 +980,7 @@ async function updatePaymentHistory(req, res) {
       paidByMonth.set(month, alreadyPaid + pay);
     }
 
-    // ----- 3. Overpayment: always create a NEW row in the LAST future month (or current if none) -----
+    // ----- 3. Overpayment -----
     if (remaining > 0) {
       const targetMonth =
         futureMonths.length > 0
@@ -969,11 +991,10 @@ async function updatePaymentHistory(req, res) {
         ? chargeEntry.dueDate
         : getDueDateForMonth(tenant, targetMonth, today);
 
-      // Always push a fresh payment entry – never merge with an existing one
       tenant.paymentHistory.push({
         month: targetMonth,
         amountPaid: remaining,
-        remainingBalance: 0, // placeholder, recalc will fix
+        remainingBalance: 0,
         paid: false,
         datePaid: datePaid || null,
         dueDate: dueDateForTarget,
@@ -995,6 +1016,7 @@ async function updatePaymentHistory(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function bulkMarkPaid(req, res) {
   try {
     const { tenantIds } = req.body;
@@ -1003,7 +1025,6 @@ async function bulkMarkPaid(req, res) {
     const tenants = await Tenant.find(query);
 
     for (let tenant of tenants) {
-      // ----- Correct total debt (cumulative balance of the last month) -----
       let totalDebt = 0;
       if (tenant.paymentHistory.length > 0) {
         const sorted = [...tenant.paymentHistory].sort((a, b) => {
@@ -1017,9 +1038,7 @@ async function bulkMarkPaid(req, res) {
         totalDebt = tenant.rent;
       }
 
-      // Only do something if the tenant actually owes money
       if (totalDebt > 0) {
-        // Pay the full amount on the earliest month – recalc will distribute it correctly
         const firstMonth = tenant.paymentHistory.map((e) => e.month).sort()[0];
         const firstEntry = tenant.paymentHistory.find(
           (e) => e.month === firstMonth
@@ -1028,7 +1047,7 @@ async function bulkMarkPaid(req, res) {
         tenant.paymentHistory.push({
           month: firstMonth,
           amountPaid: totalDebt,
-          remainingBalance: 0, // placeholder, recalc fixes it
+          remainingBalance: 0,
           paid: false,
           datePaid: new Date().toISOString(),
           dueDate: firstEntry?.dueDate || new Date(),
@@ -1036,6 +1055,7 @@ async function bulkMarkPaid(req, res) {
         });
 
         await recalcFutureMonths(tenant, firstMonth);
+        tenant.markModified("paymentHistory");
         await tenant.save();
       }
     }
@@ -1057,6 +1077,8 @@ async function createTenant(req, res) {
       houseNumber,
       notes,
       depositPeriod,
+      newTenant,
+      email,
     } = req.body;
     let userId = req.userId;
 
@@ -1078,7 +1100,18 @@ async function createTenant(req, res) {
       });
     }
 
-    // Fallback to global default due day if not provided
+    if (email && email.trim() !== "") {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        return res
+          .status(400)
+          .json({ message: "Please enter a valid email address." });
+      }
+      email = email.trim();
+    } else {
+      email = "";
+    }
+
     const settings = await getGlobalSettings(req.userId);
 
     let dueDayNum = Number(dueDay);
@@ -1109,19 +1142,30 @@ async function createTenant(req, res) {
       }
     }
 
-    // ─────────────────────────────────────────────────────────
-    // First month due date logic (same rule as the sync)
     const today = getEffectiveToday(req);
     const entryDateObj = entryDate ? new Date(entryDate) : today;
     entryDateObj.setHours(0, 0, 0, 0);
 
-    // Use the later of today and entry date as the reference
     const referenceDate = entryDateObj > today ? entryDateObj : today;
-    const { dueDate: computedDueDate, month: startMonth } =
-      getNextDueDateAndMonth({ dueDay: dueDayNum }, referenceDate);
-    // ─────────────────────────────────────────────────────────
+    const { month: startMonth } = getNextDueDateAndMonth(
+      { dueDay: dueDayNum },
+      referenceDate
+    );
 
-    // Deposit logic
+    let firstDueDate;
+    let initialPastDue = false;
+
+    if (newTenant === true) {
+      firstDueDate = entryDateObj;
+      initialPastDue = true;
+    } else {
+      const { dueDate: computedDueDate } = getNextDueDateAndMonth(
+        { dueDay: dueDayNum },
+        referenceDate
+      );
+      firstDueDate = computedDueDate;
+    }
+
     const depPeriod = depositPeriod !== undefined ? Number(depositPeriod) : 1;
     const deposit = depPeriod > 0;
     const depositInstalment = deposit ? Math.round(rentNum / depPeriod) : 0;
@@ -1130,45 +1174,46 @@ async function createTenant(req, res) {
     const garbageCharge = settings.garbageFee;
     const totalDue = baseRent + depositInstalment + waterCharge + garbageCharge;
 
-    const newTenant = new Tenant({
+    const paymentEntry = {
+      amountPaid: 0,
+      remainingBalance: totalDue,
+      month: startMonth,
+      paid: false,
+      datePaid: null,
+      dueDate: firstDueDate,
+      baseRent: baseRent + depositInstalment,
+      waterCharge,
+      garbageCharge,
+      totalDue,
+      mpesaRef: "",
+    };
+
+    if (initialPastDue) {
+      paymentEntry.initialPastDue = true;
+    }
+
+    const newTenantDoc = new Tenant({
       userId,
       name,
       rent: rentNum,
       houseNumber,
       notes,
       phoneNumber,
+      email,
       entryDate: entryDate || new Date(),
       dueDay: dueDayNum,
       deposit,
       depositPeriod: depPeriod,
-      paymentHistory: [
-        {
-          amountPaid: 0,
-          remainingBalance: totalDue,
-          month: startMonth,
-          paid: false,
-          datePaid: null,
-          dueDate: computedDueDate,
-          baseRent: baseRent + depositInstalment, // increased rent for this month
-          waterCharge,
-          garbageCharge,
-          totalDue,
-          mpesaRef: "",
-        },
-      ],
+      paymentHistory: [paymentEntry],
     });
-    console.log(
-      `[createTenant] startMonth=${startMonth}, computedDueDate=${computedDueDate.toISOString()}`
-    );
-    console.log(
-      `[CREATE TENANT] startMonth=${startMonth}, computedDueDate=${computedDueDate.toISOString()}`
-    );
-    await newTenant.save();
-    res.status(201).json(newTenant);
+
+    await newTenantDoc.save();
+    res.status(201).json(newTenantDoc);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function deletePaymentRecord(req, res) {
   try {
     const { id, entryId } = req.params;
@@ -1203,7 +1248,6 @@ async function updateTenant(req, res) {
     const existing = await Tenant.findOne({ _id: id, userId: req.userId });
     if (!existing) return res.status(404).json({ message: "Tenant not found" });
 
-    // Duplicate name/house check
     if (req.body.name || req.body.houseNumber) {
       const duplicateCheck = await Tenant.findOne({
         userId: req.userId,
@@ -1231,10 +1275,10 @@ async function updateTenant(req, res) {
     const dueDayChanged =
       req.body.dueDay && req.body.dueDay !== existing.dueDay;
 
-    // Apply allowed updates
     const allowedUpdates = [
       "name",
       "rent",
+      "email",
       "phoneNumber",
       "houseNumber",
       "notes",
@@ -1248,12 +1292,10 @@ async function updateTenant(req, res) {
     });
     await existing.save();
 
-    // If rent or due day changed, recalc ONLY future months (dev‑date aware)
     if (rentChanged || dueDayChanged) {
-      const today = getEffectiveToday(req); // respects X-Dev-Date if present
+      const today = getEffectiveToday(req);
       const startMonth = getFirstFutureMonth(existing, today);
       if (startMonth) {
-        // only if there’s at least one month still in the future
         await recalcFutureMonths(existing, startMonth);
         existing.markModified("paymentHistory");
         await existing.save();
@@ -1265,8 +1307,6 @@ async function updateTenant(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
-
-// ❌ REMOVED resetMonth – deprecated
 
 async function getPaymentStatusByMonth(req, res) {
   try {
@@ -1307,12 +1347,11 @@ async function archiveTenant(req, res) {
 async function addMeterReading(req, res) {
   try {
     const { id } = req.params;
-    const { month, reading } = req.body;
+    const { month, reading, previousOverride, exemptUnits } = req.body;
 
     const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
-    // Find the latest reading before the given month
     const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
       a.month.localeCompare(b.month)
     );
@@ -1335,12 +1374,27 @@ async function addMeterReading(req, res) {
     if (existing) {
       existing.reading = reading;
       existing.rate = rate;
+      existing.previousOverride =
+        previousOverride != null
+          ? Number(previousOverride)
+          : existing.previousOverride;
+      existing.exemptUnits =
+        exemptUnits !== undefined ? Number(exemptUnits) : existing.exemptUnits;
     } else {
-      tenant.waterMeterReadings.push({ month, reading, rate });
+      tenant.waterMeterReadings.push({
+        month,
+        reading,
+        rate,
+        previousOverride:
+          previousOverride != null ? Number(previousOverride) : null,
+        exemptUnits: exemptUnits ? Number(exemptUnits) : 0,
+      });
     }
 
     await tenant.save();
     await recalcFutureMonths(tenant, month);
+    tenant.markModified("paymentHistory");
+    tenant.markModified("waterMeterReadings");
     await tenant.save();
 
     res.json({ success: true });
@@ -1348,8 +1402,6 @@ async function addMeterReading(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
-
-// ❌ REMOVED updateTenantUtilities – no longer needed
 
 // ========================
 //   GLOBAL SETTINGS ENDPOINTS
@@ -1366,7 +1418,7 @@ async function getGlobalSettingsEndpoint(req, res) {
 async function updateGlobalSettings(req, res) {
   try {
     const { garbageFee, waterRatePerUnit, defaultDueDay } = req.body;
-    let settings = await Settings.findById("global_" + req.userId); // ✅ FIXED
+    let settings = await Settings.findById("global_" + req.userId);
 
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
     if (req.body.autoRemindersEnabled !== undefined)
@@ -1380,9 +1432,8 @@ async function updateGlobalSettings(req, res) {
 
     await settings.save();
 
-    // ---- Immediately update all active tenants with the new charges ----
     const tenants = await Tenant.find({ userId: req.userId, active: true });
-    const today = getEffectiveToday(req); // ✅ use dev‑aware today
+    const today = getEffectiveToday(req);
     for (let tenant of tenants) {
       const startMonth = getFirstFutureMonth(tenant, today);
       if (startMonth) {
@@ -1414,7 +1465,6 @@ async function importTenants(req, res) {
     const errors = [];
 
     for (const t of tenants) {
-      // --- Basic required fields ---
       if (!t.name || !t.phoneNumber || !t.houseNumber || !t.rent) {
         errors.push(
           `Skipped row: missing required fields - ${JSON.stringify(t)}`
@@ -1428,7 +1478,6 @@ async function importTenants(req, res) {
         continue;
       }
 
-      // Duplicate check
       const existing = await Tenant.findOne({
         userId,
         $or: [{ houseNumber: t.houseNumber }, { name: t.name }],
@@ -1438,7 +1487,6 @@ async function importTenants(req, res) {
         continue;
       }
 
-      // ----- dueDay – directly from CSV, fallback to global default -----
       let dueDayNum = settings.defaultDueDay || 1;
       if (t.dueDay !== undefined && t.dueDay !== "") {
         const parsed = parseInt(t.dueDay);
@@ -1447,7 +1495,6 @@ async function importTenants(req, res) {
         }
       }
 
-      // ----- Deposit logic -----
       let deposit = false;
       let depositPeriod = 1;
       if (t.depositPeriod !== undefined && t.depositPeriod !== "") {
@@ -1474,6 +1521,7 @@ async function importTenants(req, res) {
         rent: rentNum,
         phoneNumber: t.phoneNumber,
         houseNumber: t.houseNumber,
+        email: t.email || "",
         notes: t.notes || "",
         entryDate,
         dueDay: dueDayNum,
@@ -1538,9 +1586,9 @@ async function deleteMeterReading(req, res) {
     const readingMonth = tenant.waterMeterReadings[readingIndex].month;
     tenant.waterMeterReadings.splice(readingIndex, 1);
 
-    // Recalculate future months (water charge will be 0 for that month now)
     await recalcFutureMonths(tenant, readingMonth);
     tenant.markModified("waterMeterReadings");
+    tenant.markModified("paymentHistory");
     await tenant.save();
 
     res.json({ success: true });
@@ -1560,11 +1608,9 @@ async function getTenantStatement(req, res) {
 
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
-    // Safety: ensure paymentHistory is an array
     if (!tenant.paymentHistory) tenant.paymentHistory = [];
     if (!Array.isArray(tenant.paymentHistory)) tenant.paymentHistory = [];
 
-    // Determine today's date (dev‑aware)
     let today;
     if (req.query.devDate) {
       const devDate = new Date(req.query.devDate);
@@ -1585,7 +1631,6 @@ async function getTenantStatement(req, res) {
       );
     }
 
-    // Sort all entries (safe)
     const allEntries = [...tenant.paymentHistory].sort((a, b) => {
       if (a.month !== b.month) return a.month.localeCompare(b.month);
       const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
@@ -1597,7 +1642,6 @@ async function getTenantStatement(req, res) {
     const allMonths = [...new Set(allEntries.map((e) => e.month))].sort();
     const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
 
-    // Build a map of the final remaining balance for each month (last entry)
     const finalBalanceByMonth = {};
     for (const entry of allEntries) {
       finalBalanceByMonth[entry.month] = entry.remainingBalance;
@@ -1613,7 +1657,6 @@ async function getTenantStatement(req, res) {
       return month >= firstMonth && month <= lastDepMonth;
     }
 
-    // Overdue calculation helper
     function getPastDueAmount(tenant) {
       if (!tenant.paymentHistory || tenant.paymentHistory.length === 0)
         return 0;
@@ -1652,18 +1695,19 @@ async function getTenantStatement(req, res) {
     }
 
     const overdueBalance = getPastDueAmount(tenant);
-
-    // ---------- HTML ----------
+    const logoUrl = "https://rentaltracker.onrender.com/images/logo1.png";
+    // ---------- HTML with escaped dynamic content ----------
     let html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Statement – ${tenant.name}</title>
+  <title>Statement – ${escapeHtml(tenant.name)}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
     .header { text-align:center; margin-bottom: 30px; }
+    .header img { height: 60px; margin-bottom: 15px; }
     .header h1 { font-size:2rem; color:#0f172a; }
     .header p { color:#475569; font-size:0.9rem; }
     .tenant-info { margin-bottom:25px; padding:12px; background:#f8fafc; border-radius:8px; text-align:center; }
@@ -1685,14 +1729,17 @@ async function getTenantStatement(req, res) {
 </head>
 <body>
   <div class="header">
-    <h1>${landlordDisplay}</h1>
-    <p>Statement generated on ${today.toLocaleDateString()}</p>
+    <img src="${logoUrl}" alt="Logo" />
+    <h1>${escapeHtml(landlordDisplay)}</h1>
+    <p>Statement generated on ${escapeHtml(today.toLocaleDateString())}</p>
   </div>
   <div class="tenant-info">
-    <p><strong>Tenant:</strong> ${tenant.name}</p>
-    <p><strong>House:</strong> ${
+    <p><strong>Tenant:</strong> ${escapeHtml(tenant.name)}</p>
+    <p><strong>House:</strong> ${escapeHtml(
       tenant.houseNumber
-    } &nbsp;&nbsp; <strong>Phone:</strong> ${tenant.phoneNumber}</p>
+    )} &nbsp;&nbsp; <strong>Phone:</strong> ${escapeHtml(
+      tenant.phoneNumber
+    )}</p>
   </div>
 
   <table>
@@ -1701,6 +1748,7 @@ async function getTenantStatement(req, res) {
     </thead>
     <tbody>
 `;
+    // the rest of the table generation remains the same...
 
     let currentMonth = null;
     for (const entry of allEntries) {
@@ -1722,7 +1770,6 @@ async function getTenantStatement(req, res) {
           } units × ${reading.rate.toLocaleString()})</span>`;
         }
 
-        // ---- NEW: calculate month's own balance + carry-over ----
         const monthIndex = allMonths.indexOf(entry.month);
         const previousMonth = monthIndex > 0 ? allMonths[monthIndex - 1] : null;
         const carryOver = previousMonth
@@ -1734,7 +1781,7 @@ async function getTenantStatement(req, res) {
 
         html += `
           <tr class="charge-row">
-            <td>${entry.month}</td>
+            <td>${escapeHtml(entry.month)}</td>
             <td>${(entry.baseRent || 0).toLocaleString()}${depositText}</td>
             <td>${waterDisplay}</td>
             <td>${(entry.garbageCharge || 0).toLocaleString()}</td>
@@ -1759,7 +1806,7 @@ async function getTenantStatement(req, res) {
                 ? new Date(entry.datePaid).toLocaleDateString()
                 : "—"
             }</td>
-            <td>${entry.mpesaRef || "—"}</td>
+            <td>${escapeHtml(entry.mpesaRef || "—")}</td>
           </tr>
         `;
       }
@@ -1784,6 +1831,49 @@ async function getTenantStatement(req, res) {
   }
 }
 
+// ========================
+//   REMAINING ENDPOINTS (SMS, Email, Logs, etc.) – unchanged
+// ========================
+async function sendManualEmails(req, res) {
+  try {
+    const { tenantIds, subject, message } = req.body;
+    if (!tenantIds?.length)
+      return res.status(400).json({ message: "Select tenants." });
+    if (!subject?.trim() || !message?.trim())
+      return res.status(400).json({ message: "Subject and message required." });
+    const results = await sendBulkEmails(
+      tenantIds,
+      subject,
+      message,
+      req.userId
+    );
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error("sendManualEmails error:", error);
+    res.status(500).json({ message: error.message });
+  }
+}
+
+async function getEmailLogs(req, res) {
+  try {
+    const logs = await EmailLog.find({ userId: req.userId })
+      .sort({ sentAt: -1 })
+      .limit(200);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+async function clearEmailLogs(req, res) {
+  try {
+    await EmailLog.deleteMany({ userId: req.userId });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 async function sendManualSms(req, res) {
   try {
     const { tenantIds, message } = req.body;
@@ -1801,7 +1891,6 @@ async function sendManualSms(req, res) {
   }
 }
 
-// (Optional) Endpoint to trigger automatic reminders manually
 async function triggerAutomaticReminders(req, res) {
   try {
     let today = new Date();
@@ -1819,15 +1908,23 @@ async function triggerAutomaticReminders(req, res) {
   }
 }
 
+async function triggerEmailReminders(req, res) {
+  try {
+    const force = req.query.force === "true";
+    const results = await sendOverdueEmailRemindersForUser(req.userId, force);
+    res.json({ success: true, results });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 async function manualSync(req, res) {
   let today = new Date();
   if (req.headers["x-dev-date"]) {
-    // Parse the header as UTC (since it's YYYY-MM-DD)
     const devDateStr = req.headers["x-dev-date"];
     const [year, month, day] = devDateStr.split("-").map(Number);
     today = new Date(Date.UTC(year, month - 1, day));
   } else {
-    // Use current UTC date at midnight
     const now = new Date();
     today = new Date(
       Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
@@ -1853,7 +1950,7 @@ async function bulkChangeRent(req, res) {
     }
 
     const tenants = await Tenant.find({ userId: req.userId, active: true });
-    const today = getEffectiveToday(req); // ✅ use simulated date if present
+    const today = getEffectiveToday(req);
 
     for (let tenant of tenants) {
       tenant.rent = rentNum;
@@ -1871,6 +1968,7 @@ async function bulkChangeRent(req, res) {
     res.status(500).json({ message: error.message });
   }
 }
+
 async function bulkChangeDueDay(req, res) {
   try {
     const { newDueDay } = req.body;
@@ -1882,7 +1980,7 @@ async function bulkChangeDueDay(req, res) {
     }
 
     const tenants = await Tenant.find({ userId: req.userId, active: true });
-    const today = getEffectiveToday(req); // ✅ simulated date
+    const today = getEffectiveToday(req);
 
     for (let tenant of tenants) {
       tenant.dueDay = day;
@@ -1894,10 +1992,6 @@ async function bulkChangeDueDay(req, res) {
         await tenant.save();
       }
     }
-
-    // 🔥 REMOVED the syncAllTenantsToCurrentMonth(new Date()) call – it was
-    // both unnecessary (the recalculation already adjusts future months) and
-    // would ignore the dev-date.
 
     res.json({ success: true, updatedCount: tenants.length });
   } catch (error) {
@@ -1998,7 +2092,6 @@ async function getSmsBalance(req, res) {
         );
         let balance = null;
         if (parsed?.UserData?.balance) {
-          // Remove the "KES " prefix and parse the number
           const balanceStr = parsed.UserData.balance.replace("KES ", "").trim();
           balance = parseFloat(balanceStr) || null;
         }
@@ -2024,12 +2117,10 @@ async function handleSmsWebhook(req, res) {
     }
 
     const data = req.body;
-    // Africa's Talking sends a JSON with delivery reports
-    // Expected format: { data: [{ id, status, ... }] }
     const reports = data?.data || [];
     for (const report of reports) {
       const messageId = report.id;
-      const status = report.status; // e.g., "Delivered", "Failed", "Sent"
+      const status = report.status;
       const error = report.reason || null;
       await SmsLog.findOneAndUpdate(
         { messageId },
@@ -2102,4 +2193,8 @@ export {
   handleSmsWebhook,
   getSmsLogs,
   clearSmsLogs,
+  sendManualEmails,
+  getEmailLogs,
+  clearEmailLogs,
+  triggerEmailReminders,
 };

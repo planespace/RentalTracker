@@ -5,21 +5,24 @@ import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
 import { getOverdueTenants } from "./smsService.js";
 
-// ---------- CREATE TRANSPORTER WITH RELIABLE SETTINGS ----------
+// ---------- CREATE TRANSPORTER ----------
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465, // SSL directly
-  secure: true, // TLS without STARTTLS delay
+  port: 587, // STARTTLS
+  secure: false, // plain connection first, then upgrade to TLS
+  requireTLS: true,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // no spaces!
+    pass: process.env.EMAIL_PASS,
   },
-  connectionTimeout: 8000, // give up after 8s trying to connect
-  greetingTimeout: 8000, // wait max 8s for SMTP greeting
-  socketTimeout: 12000, // max 12s of inactivity
+  connectionTimeout: 12000,
+  greetingTimeout: 12000,
+  socketTimeout: 15000,
+  debug: true, // show SMTP commands in console
+  logger: true, // log to console
 });
 
-// ---------- SEND EMAIL WITH TIMEOUT WRAPPER ----------
+// Helper to send with detailed error logging
 export async function sendEmail(
   tenantEmail,
   tenantName,
@@ -38,40 +41,33 @@ export async function sendEmail(
   });
   await logEntry.save();
 
-  // Wrap the actual sending in a race against a timeout
-  const timeoutMs = 8000; // 8 seconds
-
-  const sendPromise = transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: tenantEmail,
-    subject: subject,
-    html: message,
-  });
-
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(
-      () => reject(new Error("Email send timed out after 8s")),
-      timeoutMs
-    )
-  );
-
   try {
-    const info = await Promise.race([sendPromise, timeoutPromise]);
+    // Attempt to send – if this fails, we'll get the real error
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: tenantEmail,
+      subject: subject,
+      html: message,
+    });
     logEntry.messageId = info.messageId;
     logEntry.status = "sent";
     await logEntry.save();
+    console.log(`✅ Email sent to ${tenantEmail}: ${info.messageId}`);
     return info;
   } catch (error) {
-    console.error("Email send failed:", error.message);
+    // Log the full error for Render logs
+    console.error(`❌ Email error for ${tenantEmail}:`, error.message);
+    console.error(error.stack);
+
     logEntry.status = "failed";
     logEntry.error = error.message;
     logEntry.failedAt = new Date();
     await logEntry.save();
-    throw error;
+    throw error; // let the caller handle it
   }
 }
 
-// ---------- REST OF THE FILE REMAINS UNCHANGED ----------
+// ---------- REMINDER FUNCTIONS (unchanged, but ensure they still import correctly) ----------
 export async function sendOverdueEmailRemindersForUser(userId, force = false) {
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {

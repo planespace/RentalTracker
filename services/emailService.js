@@ -8,19 +8,13 @@ import { getOverdueTenants } from "./smsService.js";
 // ---------- CREATE TRANSPORTER ----------
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 587, // STARTTLS
-  secure: false,
-  requireTLS: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 8000, // 8 seconds to establish TCP
+  port: 465,
+  secure: true,
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  connectionTimeout: 8000,
   greetingTimeout: 8000,
   socketTimeout: 10000,
-  family: 4, // ✅ force IPv4 (skip IPv6)
-  debug: true,
-  logger: true,
+  family: 4,
 });
 
 // Helper to send with detailed error logging

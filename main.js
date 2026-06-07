@@ -4381,20 +4381,21 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     setButtonLoading(btn, false);
   }
 }
-
 function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
-  const logoUrl = "https://YOUR_RENDER_APP.onrender.com/images/logo1.png"; // ← change this
+  const logoUrl = "https://rentaltracker.onrender.com/images/logo1.png"; // your logo
 
   const today = getAppToday();
-  const overdue = getTenantPastDueAmount(tenant, today);
+  const overdue = getTenantPastDueAmount(tenant, today); // total overdue (respects initialPastDue)
   const totalOutstanding = getTenantTotalOutstanding(tenant);
   const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
 
+  // Build structured rows for all months
   const allMonths = [
     ...new Set(tenant.paymentHistory.map((e) => e.month)),
   ].sort();
   const rows = [];
 
+  // Compute standalone left for each month (same logic as payment modal)
   const leftByMonth = new Map();
   let prevCumulative = 0;
   for (const month of allMonths) {
@@ -4408,6 +4409,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     prevCumulative = cumulative;
   }
 
+  // Determine deposit period
   const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
   let depositEndMonth = null;
   if (
@@ -4423,6 +4425,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     ).padStart(2, "0")}`;
   }
 
+  // Gather data for each month
   for (const month of allMonths) {
     const chargeEntry = tenant.paymentHistory.find(
       (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
@@ -4446,19 +4449,30 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     const totalDue =
       chargeEntry.totalDue ||
       rentAmount + depositInstalment + waterCharge + garbageCharge;
+
     const paymentsThisMonth = tenant.paymentHistory.filter(
       (e) => e.month === month && e.amountPaid > 0
     );
     const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
+
     const monthLeft = leftByMonth.get(month) || 0;
     const dueDate = chargeEntry.dueDate ? new Date(chargeEntry.dueDate) : null;
-    const isOverdue = dueDate && dueDate < today && monthLeft > 0;
+
+    // ---------- FIX: respect initialPastDue flag ----------
+    const isPastDueByDate = dueDate && dueDate < today && monthLeft > 0;
+    const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
+    const isOverdue = isPastDueByDate || isInitialPastDue;
+
     const balance = chargeEntry.remainingBalance;
 
     let status = "";
-    if (balance <= 0) status = "Paid";
-    else if (isOverdue) status = "Overdue";
-    else status = "Pending";
+    if (balance <= 0) {
+      status = "Paid";
+    } else if (isOverdue) {
+      status = "Overdue";
+    } else {
+      status = "Pending";
+    }
 
     rows.push({
       month,
@@ -4475,6 +4489,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     });
   }
 
+  // Build table rows
   let tableRows = "";
   for (const r of rows) {
     const rowBg = r.isOverdue ? "#fff5f5" : "transparent";
@@ -4503,9 +4518,8 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
       </tr>`;
   }
 
-  const totalOverdue = rows
-    .filter((r) => r.isOverdue)
-    .reduce((sum, r) => sum + r.balance, 0);
+  // Use the correct overdue amount (already computed by getTenantPastDueAmount)
+  const totalOverdue = overdue; // <-- this is the real overdue, matches the row overdue flags now
 
   let note = "";
   if (overdue > 0) {
@@ -4524,6 +4538,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
             </div>`;
   }
 
+  // Full professional email template
   return `
 <!DOCTYPE html>
 <html lang="en">

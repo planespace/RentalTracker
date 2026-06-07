@@ -2,18 +2,24 @@
 import nodemailer from "nodemailer";
 import EmailLog from "../models/EmailLog.js";
 import { Tenant } from "../models/Tenant.js";
-
 import Settings from "../models/Settings.js";
 import { getOverdueTenants } from "./smsService.js";
 
+// ---------- CREATE TRANSPORTER WITH RELIABLE SETTINGS ----------
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465, // SSL directly
+  secure: true, // TLS without STARTTLS delay
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS, // no spaces!
   },
+  connectionTimeout: 8000, // give up after 8s trying to connect
+  greetingTimeout: 8000, // wait max 8s for SMTP greeting
+  socketTimeout: 12000, // max 12s of inactivity
 });
 
+// ---------- SEND EMAIL WITH TIMEOUT WRAPPER ----------
 export async function sendEmail(
   tenantEmail,
   tenantName,
@@ -32,18 +38,31 @@ export async function sendEmail(
   });
   await logEntry.save();
 
+  // Wrap the actual sending in a race against a timeout
+  const timeoutMs = 8000; // 8 seconds
+
+  const sendPromise = transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: tenantEmail,
+    subject: subject,
+    html: message,
+  });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error("Email send timed out after 8s")),
+      timeoutMs
+    )
+  );
+
   try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: tenantEmail,
-      subject: subject,
-      html: message, // send as HTML – plain text still works in HTML mode
-    });
+    const info = await Promise.race([sendPromise, timeoutPromise]);
     logEntry.messageId = info.messageId;
     logEntry.status = "sent";
     await logEntry.save();
     return info;
   } catch (error) {
+    console.error("Email send failed:", error.message);
     logEntry.status = "failed";
     logEntry.error = error.message;
     logEntry.failedAt = new Date();
@@ -52,6 +71,7 @@ export async function sendEmail(
   }
 }
 
+// ---------- REST OF THE FILE REMAINS UNCHANGED ----------
 export async function sendOverdueEmailRemindersForUser(userId, force = false) {
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {
@@ -113,7 +133,6 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
       (sum, m) => sum + m.standalone,
       0
     );
-
     let body = `Dear ${tenant.name},\n\nOverdue Rent Reminder\n\n`;
     for (const m of overdueMonths) {
       body += `- ${m.month}: KES ${m.standalone.toLocaleString()} remaining\n`;

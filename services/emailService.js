@@ -1,68 +1,69 @@
 //services/emailService.js
-import nodemailer from "nodemailer";
+import SibApiV3Sdk from "sib-api-v3-sdk";
 import EmailLog from "../models/EmailLog.js";
 import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
 import { getOverdueTenants } from "./smsService.js";
 
-// ---------- CREATE TRANSPORTER ----------
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  connectionTimeout: 8000,
-  greetingTimeout: 8000,
-  socketTimeout: 10000,
-  family: 4,
-});
+// Configure Brevo client
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications["api-key"];
+apiKey.apiKey = process.env.BREVO_API_KEY;
 
-// Helper to send with detailed error logging
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
+/**
+ * Send a single email via Brevo
+ */
 export async function sendEmail(
-  tenantEmail,
+  toEmail,
   tenantName,
   subject,
-  message,
+  htmlBody,
   userId
 ) {
+  // Create pending log entry
   const logEntry = new EmailLog({
     userId,
     tenantName,
-    email: tenantEmail,
+    email: toEmail,
     subject,
-    body: message,
+    body: htmlBody,
     status: "pending",
     sentAt: new Date(),
   });
   await logEntry.save();
 
+  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+  sendSmtpEmail.sender = {
+    email: process.env.EMAIL_USER,
+    name: "Rental Tracker",
+  };
+  sendSmtpEmail.to = [{ email: toEmail }];
+  sendSmtpEmail.subject = subject;
+  sendSmtpEmail.htmlContent = htmlBody;
+
   try {
-    // Attempt to send – if this fails, we'll get the real error
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: tenantEmail,
-      subject: subject,
-      html: message,
-    });
-    logEntry.messageId = info.messageId;
+    const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    logEntry.messageId = response.messageId || null;
     logEntry.status = "sent";
     await logEntry.save();
-    console.log(`✅ Email sent to ${tenantEmail}: ${info.messageId}`);
-    return info;
+    console.log(
+      `✅ Email sent to ${toEmail} (Brevo ID: ${response.messageId})`
+    );
+    return response;
   } catch (error) {
-    // Log the full error for Render logs
-    console.error(`❌ Email error for ${tenantEmail}:`, error.message);
-    console.error(error.stack);
-
+    console.error(`❌ Brevo error for ${toEmail}:`, error.message);
     logEntry.status = "failed";
     logEntry.error = error.message;
     logEntry.failedAt = new Date();
     await logEntry.save();
-    throw error; // let the caller handle it
+    throw error;
   }
 }
 
-// ---------- REMINDER FUNCTIONS (unchanged, but ensure they still import correctly) ----------
+// ---------- Reminder & bulk functions (unchanged) ----------
+
 export async function sendOverdueEmailRemindersForUser(userId, force = false) {
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {

@@ -3474,16 +3474,29 @@ document.addEventListener("click", async (e) => {
   if (e.target.classList.contains("ref-btn")) {
     const ref = e.target.dataset.ref;
     if (ref && ref.trim() !== "") {
-      Swal.fire({
+      originalSwalFire.call(Swal, {
         title: "M‑Pesa Reference",
         text: ref,
         icon: "info",
         confirmButtonColor: "#3b82f6",
+        background: "#1e293b",
+        color: "#f1f5f9",
       });
     } else {
-      Toast.fire({ icon: "info", title: "No M‑Pesa Reference" });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "info",
+        title: "No M‑Pesa Reference",
+      });
     }
   }
+
   if (e.target.classList.contains("actions-btn")) {
     const btn = e.target;
     const entryId = btn.dataset.id;
@@ -3499,7 +3512,8 @@ document.addEventListener("click", async (e) => {
          </button>`
       : "";
 
-    const action = await Swal.fire({
+    // Action selection popup – safe
+    const action = await originalSwalFire.call(Swal, {
       title: "Payment Actions",
       html: `
         <div style="display:flex; flex-direction:column; align-items:center; text-align:center;">
@@ -3526,7 +3540,7 @@ document.addEventListener("click", async (e) => {
         if (mpesaBtn) {
           mpesaBtn.addEventListener("click", () => {
             Swal.close();
-            Swal.fire({
+            originalSwalFire.call(Swal, {
               title: "📱 M‑Pesa Reference",
               html: `<div style="background:rgba(59,130,246,0.1); border-left:4px solid #3b82f6; padding:14px; border-radius:6px; font-size:1.1rem; color:#e2e8f0; text-align:center;">${mpesa}</div>`,
               icon: "info",
@@ -3540,7 +3554,8 @@ document.addEventListener("click", async (e) => {
     });
 
     if (action.isConfirmed) {
-      const { value: formValues } = await Swal.fire({
+      // ---- Edit ----
+      const { value: formValues } = await originalSwalFire.call(Swal, {
         title: "✏️ Edit Payment",
         html: `
         <div style="display: flex; flex-direction: column; gap: 16px; text-align: left;">
@@ -3575,6 +3590,7 @@ document.addEventListener("click", async (e) => {
           return { amount: Number(amt), date: dt, mpesa: ref };
         },
       });
+
       if (formValues) {
         setButtonLoading(btn, true);
         try {
@@ -3597,16 +3613,50 @@ document.addEventListener("click", async (e) => {
           if (response.ok) {
             await loadTenants();
             renderPaymentModal(tenantId);
-            Toast.fire({ icon: "success", title: "Payment Updated" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 2000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "success",
+              title: "Payment Updated",
+            });
+          } else {
+            const err = await response.json();
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 3000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "error",
+              title: err.message || "Update failed",
+            });
           }
         } catch (err) {
-          Toast.fire({ icon: "error", title: err.message });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: err.message,
+          });
         } finally {
           setButtonLoading(btn, false);
         }
       }
     } else if (action.isDenied) {
-      const confirmDelete = await Swal.fire({
+      // ---- Delete ----
+      const confirmDelete = await originalSwalFire.call(Swal, {
         title: "🗑️ Delete Payment?",
         text: `Delete the payment record for ${month}?`,
         icon: "warning",
@@ -3616,6 +3666,7 @@ document.addEventListener("click", async (e) => {
         background: "#1e293b",
         color: "#f1f5f9",
       });
+
       if (confirmDelete.isConfirmed) {
         setButtonLoading(btn, true);
         try {
@@ -3632,10 +3683,43 @@ document.addEventListener("click", async (e) => {
           if (response.ok) {
             await loadTenants();
             renderPaymentModal(tenantId);
-            Toast.fire({ icon: "success", title: "Payment Deleted" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 2000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "success",
+              title: "Payment Deleted",
+            });
+          } else {
+            const err = await response.json();
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 3000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "error",
+              title: err.message || "Delete failed",
+            });
           }
         } catch (err) {
-          Toast.fire({ icon: "error", title: err.message });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: err.message,
+          });
         } finally {
           setButtonLoading(btn, false);
         }

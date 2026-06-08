@@ -8,6 +8,7 @@ const settingsSchema = new mongoose.Schema({
   defaultDueDay: { type: Number, default: 1 },
   totalHouses: { type: Number, default: 0 },
   autoRemindersEnabled: { type: Boolean, default: true },
+  autoEmailRemindersEnabled: { type: Boolean, default: true },
   reminderTemplate: {
     type: String,
     default:

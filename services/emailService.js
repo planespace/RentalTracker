@@ -3,6 +3,7 @@ import SibApiV3Sdk from "sib-api-v3-sdk";
 import EmailLog from "../models/EmailLog.js";
 import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
+import User from "../models/User.js"; // ✅ static import
 import { getOverdueTenants } from "./smsService.js";
 
 // Configure Brevo client
@@ -12,9 +13,46 @@ apiKey.apiKey = process.env.BREVO_API_KEY;
 
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
-/**
- * Send a single email via Brevo
- */
+// Helper to escape HTML
+function escapeHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Premium email wrapper (logo‑free)
+function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
+  const today = new Date();
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
+    <div style="background:#0f172a; padding:36px 24px; text-align:center;">
+      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">RENTAL TRACKER</h1>
+      <p style="margin:10px 0 0; font-size:16px; color:#cbd5e1;">Landlord: ${escapeHtml(
+        landlordName
+      )}</p>
+    </div>
+    <div style="padding:32px 24px;">
+      ${innerHtml}
+    </div>
+    <div style="background:#0f172a; padding:16px 24px; text-align:center;">
+      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${today.getFullYear()} Rental Tracker. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// Send a single email via Brevo
 export async function sendEmail(
   toEmail,
   tenantName,
@@ -22,7 +60,6 @@ export async function sendEmail(
   htmlBody,
   userId
 ) {
-  // Create pending log entry
   const logEntry = new EmailLog({
     userId,
     tenantName,
@@ -62,9 +99,9 @@ export async function sendEmail(
   }
 }
 
-// ---------- Reminder & bulk functions (unchanged) ----------
-
+// Send overdue reminder emails for a user
 export async function sendOverdueEmailRemindersForUser(userId, force = false) {
+  // Load settings
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {
     settings = new Settings({
@@ -73,20 +110,31 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
       waterRatePerUnit: 0,
       defaultDueDay: 1,
       autoRemindersEnabled: true,
+      autoEmailRemindersEnabled: true, // 👈 ensure it exists
     });
     await settings.save();
   }
-  if (!settings.autoRemindersEnabled) {
-    console.log(`[Email Reminder] Auto reminders disabled for user ${userId}`);
+
+  // Respect the email‑reminder toggle
+  if (!settings.autoEmailRemindersEnabled) {
+    console.log(
+      `[Email Reminder] Auto email reminders disabled for user ${userId}`
+    );
     return [];
   }
 
   const overdueTenants = await getOverdueTenants(userId);
   const results = [];
 
+  // Fetch landlord info once
+  const User = (await import("../models/User.js")).default;
+  const user = await User.findById(userId);
+  const landlordName = user?.landlordName || user?.name || "Landlord";
+
   for (const tenant of overdueTenants) {
     if (!tenant.email) continue;
 
+    // ---------- Build list of overdue months ----------
     const months = [
       ...new Set(tenant.paymentHistory.map((e) => e.month)),
     ].sort();
@@ -121,26 +169,78 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
 
     if (overdueMonths.length === 0) continue;
 
+    // ---------- Once‑per‑month guard ----------
+    const newestOverdueMonth = overdueMonths[overdueMonths.length - 1]?.month;
+    if (!newestOverdueMonth) continue;
+
+    if (
+      !force &&
+      tenant.emailReminderSentMonths &&
+      tenant.emailReminderSentMonths.includes(newestOverdueMonth)
+    ) {
+      console.log(
+        `[Email Reminder] Already sent for ${tenant.name} (${newestOverdueMonth}), skipping`
+      );
+      continue;
+    }
+
     const totalOverdue = overdueMonths.reduce(
       (sum, m) => sum + m.standalone,
       0
     );
-    let body = `Dear ${tenant.name},\n\nOverdue Rent Reminder\n\n`;
-    for (const m of overdueMonths) {
-      body += `- ${m.month}: KES ${m.standalone.toLocaleString()} remaining\n`;
-      body += `  (Total: KES ${m.total.toLocaleString()} — Rent: KES ${m.rent.toLocaleString()}, Water: KES ${m.water.toLocaleString()}, Garbage: KES ${m.garbage.toLocaleString()})\n\n`;
-    }
-    body += `Total overdue: KES ${totalOverdue.toLocaleString()}\n`;
-    body += `\nPlease pay your overdue amount at your earliest convenience. Thank you!`;
 
+    // ---------- Build HTML content ----------
+    let htmlBody = `
+      <p style="font-size:16px; color:#1e293b;">Dear ${escapeHtml(
+        tenant.name
+      )},</p>
+      <p style="font-size:15px; color:#475569;">You have the following overdue rent:</p>
+      <table style="width:100%; border-collapse:collapse; margin:20px 0; font-size:15px;">
+        <thead>
+          <tr style="background:#f1f5f9;">
+            <th style="padding:10px; text-align:left;">Month</th>
+            <th style="padding:10px; text-align:right;">Amount Owed</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    overdueMonths.forEach((m) => {
+      htmlBody += `
+        <tr>
+          <td style="padding:10px; border-bottom:1px solid #e0e0e0;">${escapeHtml(
+            m.month
+          )}</td>
+          <td style="padding:10px; text-align:right; border-bottom:1px solid #e0e0e0;">KES ${m.standalone.toLocaleString()}</td>
+        </tr>
+      `;
+    });
+    htmlBody += `
+        </tbody>
+      </table>
+      <p style="font-size:16px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+      <p style="font-size:15px; color:#475569; margin-top:20px;">Please pay at your earliest convenience. Thank you!</p>
+    `;
+
+    const wrappedHtml = wrapPremiumEmail(htmlBody, landlordName);
+
+    // ---------- Send and record ----------
     try {
       await sendEmail(
         tenant.email,
         tenant.name,
         "Overdue Rent Reminder",
-        body,
+        wrappedHtml,
         userId
       );
+
+      // Remember that we sent the email for this month
+      if (!force) {
+        if (!tenant.emailReminderSentMonths)
+          tenant.emailReminderSentMonths = [];
+        tenant.emailReminderSentMonths.push(newestOverdueMonth);
+        await tenant.save();
+      }
+
       results.push({ tenant: tenant.name, success: true });
     } catch (err) {
       results.push({ tenant: tenant.name, success: false, error: err.message });
@@ -149,6 +249,7 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
   return results;
 }
 
+// Bulk send (used by manual email sending)
 export async function sendBulkEmails(tenantIds, subject, message, userId) {
   const tenants = await Tenant.find({
     _id: { $in: tenantIds },

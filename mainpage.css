@@ -5025,3 +5025,109 @@ body.bulk-mode-active .due-date-cell {
   margin: 0;
   vertical-align: middle;
 }
+
+/* Ensure SweetAlert2 buttons are visible above mobile navigation bar */
+@media (max-width: 768px) {
+  .swal2-container.swal2-center > .swal2-popup {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 16px)) !important;
+  }
+}
+
+/* Make sure the Send/Cancel buttons are visible above the mobile navigation bar */
+@media (max-width: 768px) {
+  /* Target the action buttons container inside full‑screen SweetAlert2 modals */
+  .fullscreen-sms-modal .swal2-actions,
+  .individual-sms-modal .swal2-actions {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+    padding-top: 10px !important;
+    background: var(
+      --bg-secondary,
+      #0f172a
+    ) !important; /* match modal background */
+    margin-top: auto !important;
+    position: sticky;
+    bottom: 0;
+  }
+
+  /* Give the modal’s content area a bit less height so the buttons have room */
+  .fullscreen-sms-modal .swal2-html-container,
+  .individual-sms-modal .swal2-html-container {
+    padding-bottom: 10px !important;
+    max-height: calc(100vh - 140px) !important; /* leave room for buttons */
+    overflow-y: auto !important;
+  }
+}
+
+@media (max-width: 768px) {
+  body.modal-open #utilities-modal .utility-actions {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 16px)) !important;
+    margin-top: auto !important;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  #save-global-settings,
+  #cancel-global-settings {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+/* Submenu styles */
+.submenu-toggle {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.submenu-toggle:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+.submenu {
+  display: none;
+  padding-left: 12px;
+}
+.submenu.open {
+  display: block;
+}
+.submenu button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.submenu button:hover {
+  color: white;
+  background: rgba(59, 130, 246, 0.2);
+}
+
+/* Balance info inside submenu */
+.balance-info {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  color: var(--accent-cyan);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+/* Ensure Settings / Landlord Profile save buttons are above phone nav bar */
+@media (max-width: 768px) {
+  #utilities-modal .utility-actions {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 16px)) !important;
+    margin-top: auto !important;
+    flex-shrink: 0;
+    background: var(--bg-surface); /* match modal background, hide any gap */
+  }
+}

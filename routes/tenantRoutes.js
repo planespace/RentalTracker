@@ -48,6 +48,7 @@ import {
   getEmailLogs,
   clearEmailLogs,
   triggerEmailReminders,
+  getEmailUsage,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -59,6 +60,7 @@ router.get("/export/statement", getExportStatement);
 router.get("/sms-balance", getSmsBalance);
 router.get("/sms-logs", getSmsLogs);
 router.delete("/sms-logs", clearSmsLogs);
+router.get("/email-usage", getEmailUsage);
 router.post("/trigger-email-reminders", triggerEmailReminders);
 router.post("/send-emails", sendManualEmails);
 router.get("/email-logs", getEmailLogs);

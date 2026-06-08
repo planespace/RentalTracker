@@ -5,7 +5,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="icon" href="/images/logo.png" type="image/png" />
+    <link rel="icon" href="/images/logo.png" type="image/png" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -23,147 +23,262 @@
 
     <!-- Add tenant form -->
     <div class="tenants-inputs">
-<div class="add-tenants-inputs">
-  <!-- Row 1: Name & Rent -->
-  <div class="form-field">
-    <label>Tenant Name</label>
-    <input class="tenant-name" type="text" placeholder="e.g., John Doe" />
-  </div>
-  <div class="form-field">
-    <label>Rent Amount (KSH)</label>
-    <input class="rent-amount" type="number" placeholder="0.00" />
-  </div>
+      <div class="add-tenants-inputs">
+        <!-- Row 1: Name & Rent -->
+        <div class="form-field">
+          <label>Tenant Name</label>
+          <input class="tenant-name" type="text" placeholder="e.g., John Doe" />
+        </div>
+        <div class="form-field">
+          <label>Rent Amount (KSH)</label>
+          <input class="rent-amount" type="number" placeholder="0.00" />
+        </div>
 
-  <!-- Row 2: Phone & House -->
-  <div class="form-field">
-    <label>Phone Number</label>
-    <input class="tenant-phone" type="tel" placeholder="0712 345 678" />
-    
-    
+        <!-- Row 2: Phone & House -->
+        <div class="form-field">
+          <label>Phone Number</label>
+          <input class="tenant-phone" type="tel" placeholder="0712 345 678" />
+        </div>
 
-  </div>
+        <div class="form-field">
+          <label>Email (optional)</label>
+          <input
+            class="tenant-email"
+            type="email"
+            placeholder="e.g., tenant@email.com"
+          />
+        </div>
 
-  <div class="form-field">
-  <label>Email (optional)</label>
-  <input class="tenant-email" type="email" placeholder="e.g., tenant@email.com" />
-</div>
+        <div class="form-field">
+          <label>House/Apt Number</label>
+          <input class="tenant-house" type="text" placeholder="e.g., Flat 2B" />
+        </div>
 
-  <div class="form-field">
-    <label>House/Apt Number</label>
-    <input class="tenant-house" type="text" placeholder="e.g., Flat 2B" />
-  </div>
+        <!-- Row 3: Entry Date & Due Date -->
+        <div class="form-field">
+          <label>Entry Date</label>
+          <input class="tenant-entry-date" type="date" />
+        </div>
 
-  <!-- Row 3: Entry Date & Due Date -->
-<!-- Entry Date: cannot be in the future -->
-<div class="form-field">
-  <label>Entry Date</label>
-  <input class="tenant-entry-date" type="date"  />
-</div>
+        <div class="form-field">
+          <label>Due Day (1‑31)</label>
+          <input
+            class="tenant-due-day"
+            type="number"
+            min="1"
+            max="31"
+            placeholder="e.g., 5"
+          />
+        </div>
 
-<!-- Due Date: will be dynamically set min = entryDate + 1 day -->
-<div class="form-field">
-  <label>Due Day (1‑31)</label>
-  <input class="tenant-due-day" type="number" min="1" max="31" placeholder="e.g., 5" />
-</div>
+        <!-- Row 4: Notes (centered) -->
+        <div class="notes-row">
+          <div class="notes-wrapper">
+            <div class="form-field">
+              <label>Notes (optional)</label>
+              <textarea
+                class="tenant-notes"
+                placeholder="Any extra info..."
+              ></textarea>
+            </div>
+          </div>
+        </div>
 
-  <!-- Row 4: Notes (centered) -->
-  <div class="notes-row">
-    <div class="notes-wrapper">
-      <div class="form-field">
-        <label>Notes (optional)</label>
-        <textarea class="tenant-notes" placeholder="Any extra info..."></textarea>
+        <!-- Row 5: Deposit checkbox above Add button -->
+        <div class="action-row">
+          <div class="action-wrapper">
+            <label class="deposit-label" style="margin-top: 10px">
+              <input type="checkbox" id="new-tenant-checkbox" checked />
+              New tenant – rent due on entry
+            </label>
+            <label
+              class="deposit-label"
+              data-tooltip="Tenant pays double rent in their first month. This extra amount acts as a deposit and is applied to their first month's balance."
+            >
+              <input type="checkbox" id="include-deposit-checkbox" />💰Deposit
+            </label>
+            <div
+              id="deposit-period-wrapper"
+              style="
+                display: none;
+                margin-top: 8px;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+              "
+            >
+              <label
+                for="deposit-period-input"
+                style="color: var(--text-secondary); font-size: 0.85rem"
+                >Deposit Period (months)</label
+              >
+              <input
+                type="number"
+                id="deposit-period-input"
+                min="1"
+                max="12"
+                value="1"
+                style="
+                  width: 80px;
+                  padding: 4px 8px;
+                  border-radius: 20px;
+                  border: 1px solid var(--border);
+                  background: var(--bg-elevated);
+                  color: var(--text-primary);
+                  text-align: center;
+                "
+              />
+            </div>
+            <button class="add-tenant-button">Add tenant</button>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
 
+    <!-- Top bar (filter, sort, logout) -->
+    <div class="tenant-filter-inputs">
+      <div
+        id="dev-date-picker-wrapper"
+        style="display: none; margin-left: 10px"
+      >
+        <input
+          type="date"
+          id="dev-date-picker"
+          class="month-picker-input"
+          style="width: auto"
+        />
+        <button
+          id="reset-dev-date-btn"
+          class="topbar-menu-btn"
+          style="font-size: 0.8rem; padding: 0 8px"
+        >
+          ↺
+        </button>
+      </div>
 
-  <!-- Row 5: Deposit checkbox above Add button -->
-  <div class="action-row">
-    <div class="action-wrapper">
-      <!-- New tenant input -->
-  <label class="deposit-label" style="margin-top:10px;">
-  <input type="checkbox" id="new-tenant-checkbox" checked />
-  New tenant – rent due on entry
-</label>
-   <label class="deposit-label" data-tooltip="Tenant pays double rent in their first month. This extra amount acts as a deposit and is applied to their first month's balance.">
-  <input type="checkbox" id="include-deposit-checkbox" />💰Deposit
-</label>
-<div id="deposit-period-wrapper" style="display:none; margin-top:8px; flex-direction:column; align-items:center; gap:6px;">
-  <label for="deposit-period-input" style="color:var(--text-secondary); font-size:0.85rem;">Deposit Period (months)</label>
-  <input type="number" id="deposit-period-input" min="1" max="12" value="1"
-         style="width:80px; padding:4px 8px; border-radius:20px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); text-align:center;">
-</div>
-      <button class="add-tenant-button">Add tenant</button>
+      <div class="search-wrapper">
+        <span class="search-icon"></span>
+        <input class="search-tenants" type="text" placeholder="Search…" />
+        <select id="search-type-select" class="search-type-select">
+          <option value="all">All</option>
+          <option value="name">Name</option>
+          <option value="phone">Phone</option>
+          <option value="house">House</option>
+        </select>
+      </div>
+
+      <div class="menu-wrapper">
+        <button id="topbar-menu-btn" class="topbar-menu-btn" title="Menu">
+          ⋮
+        </button>
+        <!-- Clean dropdown with grouped items -->
+        <div
+          id="topbar-menu-dropdown"
+          class="topbar-menu-dropdown"
+          style="display: none"
+        >
+          <!-- Messaging group -->
+          <button class="submenu-toggle">📨 Messaging ▸</button>
+          <div id="messaging-submenu" class="submenu">
+            <button id="bulk-sms-btn">📱 Send SMS</button>
+            <button id="bulk-email-btn">📧 Send Email</button>
+            <button id="sms-logs-btn">📜 SMS Logs</button>
+            <button id="email-logs-btn">📧 Email Logs</button>
+            <div class="balance-info" id="sms-balance-info"></div>
+            <div class="balance-info" id="email-balance-info"></div>
+          </div>
+
+          <!-- Settings group -->
+          <button class="submenu-toggle">⚙️ Settings ▸</button>
+          <div id="settings-submenu" class="submenu">
+            <button id="landlord-profile-btn">👤 Profile</button>
+            <button id="global-settings-btn">⚙️ Global Settings</button>
+          </div>
+
+          <!-- Filter & Sort group -->
+          <button class="submenu-toggle">🔽 Filter & Sort ▸</button>
+          <div
+            id="filter-sort-submenu"
+            class="submenu"
+            style="padding: 8px 12px"
+          >
+            <select
+              id="filter-select"
+              class="search-type-select"
+              style="width: 100%; margin-bottom: 8px"
+            >
+              <option value="all">All</option>
+              <option value="late">Late</option>
+              <option value="missing-water">🚰 Missing Water</option>
+            </select>
+            <select
+              id="sort-select"
+              class="search-type-select"
+              style="width: 100%"
+            >
+              <option value="none">Sort by house</option>
+              <option value="balance-high">Balance high → low</option>
+              <option value="balance-low">Balance low → high</option>
+            </select>
+          </div>
+
+          <button id="data-import-export-btn">📤 Import / Export</button>
+          <button id="toggle-archived-btn">📦 Show Archived</button>
+          <button id="logout-btn">🚪 Logout</button>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
-      <!-- Filter, sort, logout -->
-
-   <div class="tenant-filter-inputs">
-<div id="dev-date-picker-wrapper" style="display: none; margin-left: 10px;">
-    <input type="date" id="dev-date-picker" class="month-picker-input" style="width: auto;" />
-    <button id="reset-dev-date-btn" class="topbar-menu-btn" style="font-size: 0.8rem; padding: 0 8px;">↺</button>
-  </div>
-<div class="search-wrapper">
-    <span class="search-icon"></span>
-    <input class="search-tenants" type="text" placeholder="Search…" />
-    <select id="search-type-select" class="search-type-select">
-        <option value="all">All</option>
-        <option value="name">Name</option>
-        <option value="phone">Phone</option>
-        <option value="house">House</option>
-    </select>
-</div>
-  <div class="menu-wrapper">
-    <button id="topbar-menu-btn" class="topbar-menu-btn" title="Menu">⋮</button>
-    <div id="topbar-menu-dropdown" class="topbar-menu-dropdown" style="display: none;">
-      <button id="toggle-archived-btn">📦 Show Archived</button>
- <select id="filter-select">
-  <option value="all">All</option>
-  <option value="late">Late</option>
-  <option value="missing-water">🚰 Missing Water Reading</option>
-</select>
-<select id="sort-select">
-  <option value="none">Sort by house</option>
-  <option value="balance-high">Balance high → low</option>
-  <option value="balance-low">Balance low → high</option>
-</select>
-    <button id="data-import-export-btn">📤 Import/Export</button>
-      <button id="landlord-profile-btn">👤 Profile</button>
-      <button id="global-settings-btn">⚙️ Settings</button>
-      <button id="bulk-sms-btn">📱 Send SMS to tenants</button>
-      <button id="bulk-email-btn">📧 Send Email to tenants</button>
-      <button id="sms-logs-btn">📜 SMS Logs</button>
-      <button id="email-logs-btn">📧 Email Logs</button>
-      <button id="logout-btn">Logout</button>
-    </div>
-  </div>
-
-</div>
-
-
 
     <!-- Tenant table and bulk actions -->
     <div class="tenants-div">
-      <div id="status-bar" class="status-bar" style="display: none;"></div>
+      <div id="status-bar" class="status-bar" style="display: none"></div>
 
-      <div id="archive-indicator" style="display:none; background:rgba(245,158,11,0.12); border-left:4px solid var(--warning); padding:6px 14px; margin:8px 0; border-radius:6px; font-size:0.85rem; color:var(--warning); font-weight:500; text-align:center;">
-  📦 You are viewing <strong>Archived</strong> tenants.
-</div>
+      <div
+        id="archive-indicator"
+        style="
+          display: none;
+          background: rgba(245, 158, 11, 0.12);
+          border-left: 4px solid var(--warning);
+          padding: 6px 14px;
+          margin: 8px 0;
+          border-radius: 6px;
+          font-size: 0.85rem;
+          color: var(--warning);
+          font-weight: 500;
+          text-align: center;
+        "
+      >
+        📦 You are viewing <strong>Archived</strong> tenants.
+      </div>
 
-   <div class="bulk-actions-container">
-  <div class="bulk-actions-left">
-    <button id="enter-bulk-mode-btn" class="bulk-mode-trigger-btn">✓ Bulk Mark Paid</button>
-    <div id="bulk-mode-buttons" class="bulk-mode-buttons">
-      <button id="mark-selected-paid-btn" class="bulk-mark-confirm-btn">✓ Mark selected paid</button>
-      <button id="cancel-bulk-mode-btn" class="bulk-cancel-btn">✕ Cancel</button>
-    </div>
-  </div>
-  <!-- NEW occupancy indicator -->
-  <span id="occupancy-indicator" style="display: block; text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 0.9rem; margin-top: auto;">
-    🏠 – / –
-  </span>
-</div>
+      <div class="bulk-actions-container">
+        <div class="bulk-actions-left">
+          <button id="enter-bulk-mode-btn" class="bulk-mode-trigger-btn">
+            ✓ Bulk Mark Paid
+          </button>
+          <div id="bulk-mode-buttons" class="bulk-mode-buttons">
+            <button id="mark-selected-paid-btn" class="bulk-mark-confirm-btn">
+              ✓ Mark selected paid
+            </button>
+            <button id="cancel-bulk-mode-btn" class="bulk-cancel-btn">
+              ✕ Cancel
+            </button>
+          </div>
+        </div>
+        <span
+          id="occupancy-indicator"
+          style="
+            display: block;
+            text-align: center;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: auto;
+          "
+        >
+          🏠 – / –
+        </span>
+      </div>
 
       <div class="tenant-info-div">
         <div class="tenant-info">
@@ -175,9 +290,7 @@
           <h2>Actions</h2>
         </div>
       </div>
-      <div class="set-month-row">
-     
-      </div>
+      <div class="set-month-row"></div>
     </div>
 
     <!-- Charts -->
@@ -205,15 +318,13 @@
         <div class="stats-subtitle"></div>
       </div>
       <div class="stat total-owed"></div>
-    
-   
       <div class="stat total-paid-tenants"></div>
       <div class="stat total-expected-rent"></div>
       <div class="stat collection-rate"></div>
       <div class="stat total-late-tenants"></div>
-   
       <div class="stat total-paid-rent"></div>
     </div>
+
     <!-- All-Time Stats -->
     <div class="stats-container all-time-stats">
       <div class="stats-header">
@@ -223,9 +334,8 @@
       <div class="stat all-time-highest-debtor"></div>
       <div class="stat all-time-collected"></div>
     </div>
-    <!-- Modals (all hidden by default via CSS) -->
- 
 
+    <!-- Modals (all hidden by default via CSS) -->
     <div id="modal-overlay" class="modal-overlay"></div>
 
     <div id="tenant-actions-modal" class="tenant-modal">
@@ -242,13 +352,18 @@
         <button id="modal-utilities" class="modal-action-btn">
           💧 Utilities
         </button>
-        <button id="modal-send-sms" class="modal-action-btn">📱 Send SMS</button>
-        <button id="modal-send-email" class="modal-action-btn">📧 Send Email</button>
+        <button id="modal-send-sms" class="modal-action-btn">
+          📱 Send SMS
+        </button>
+        <button id="modal-send-email" class="modal-action-btn">
+          📧 Send Email
+        </button>
         <button id="modal-statement" class="modal-action-btn">
           📄 Print Statement
         </button>
-     
-       <button id="modal-archive" class="modal-action-btn danger">📦 Archive Tenant</button>
+        <button id="modal-archive" class="modal-action-btn danger">
+          📦 Archive Tenant
+        </button>
       </div>
     </div>
 
@@ -268,17 +383,17 @@
       </div>
       <div id="payment-content" class="payment-content"></div>
     </div>
+
     <!-- Utilities modal -->
+    <div id="utilities-modal" class="tenant-modal">
+      <div class="modal-header">
+        <button id="close-utilities-modal" class="modal-close-btn">✕</button>
+        <h3>💧 Water Reading</h3>
+      </div>
+      <div id="utilities-content" class="utilities-content"></div>
+    </div>
 
-<div id="utilities-modal" class="tenant-modal">
-  <div class="modal-header">
-    <button id="close-utilities-modal" class="modal-close-btn">✕</button>
-    <h3>💧 Water Reading</h3>
-  </div>
-  <div id="utilities-content" class="utilities-content"></div>
-</div>
-
-    <!-- Full‑page custom loader (hidden by default) -->
+    <!-- Full‑page custom loader -->
     <div id="custom-loader-overlay" style="display: none">
       <div class="loader">
         <div class="text"><span>Loading</span></div>
@@ -294,25 +409,64 @@
       </div>
     </div>
 
-<!-- Import/Export Modal -->
-<div id="import-export-modal" class="tenant-modal">
-  <div class="modal-header">
-    <button id="close-import-export-modal" class="modal-close-btn">✕</button>
-    <h3>📤 Import / Export Data</h3>
-  </div>
-  <div id="import-export-content" style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;">
-<p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 12px; text-align: center;">
-  📄 CSV format: name, phoneNumber, houseNumber, rent, dueDay (1‑31), entryDate (YYYY-MM-DD), notes (optional), depositPeriod (optional, months)
-</p>
-    <button id="export-all-data-btn" class="modal-action-btn" style="background: var(--success);">📥 Export All Tenants</button>
-   <button id="export-late-data-btn" class="modal-action-btn" style="background:#1e293b;">⚠️ Export Late Tenants</button>
-    <button id="import-data-btn" class="modal-action-btn" style="background: var(--accent-blue);">📂 Import Tenants (CSV)</button>
-  </div>
-  <div class="modal-footer">
-    <button id="close-import-export-footer" class="modal-action-btn danger">Close</button>
-  </div>
-</div>
-<script src="logoConfig.js"></script>
+    <!-- Import/Export Modal -->
+    <div id="import-export-modal" class="tenant-modal">
+      <div class="modal-header">
+        <button id="close-import-export-modal" class="modal-close-btn">
+          ✕
+        </button>
+        <h3>📤 Import / Export Data</h3>
+      </div>
+      <div
+        id="import-export-content"
+        style="
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 10px 0;
+        "
+      >
+        <p
+          style="
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 12px;
+            text-align: center;
+          "
+        >
+          📄 CSV format: name, phoneNumber, houseNumber, rent, dueDay (1‑31),
+          entryDate (YYYY-MM-DD), notes (optional), depositPeriod (optional,
+          months)
+        </p>
+        <button
+          id="export-all-data-btn"
+          class="modal-action-btn"
+          style="background: var(--success)"
+        >
+          📥 Export All Tenants
+        </button>
+        <button
+          id="export-late-data-btn"
+          class="modal-action-btn"
+          style="background: #1e293b"
+        >
+          ⚠️ Export Late Tenants
+        </button>
+        <button
+          id="import-data-btn"
+          class="modal-action-btn"
+          style="background: var(--accent-blue)"
+        >
+          📂 Import Tenants (CSV)
+        </button>
+      </div>
+      <div class="modal-footer">
+        <button id="close-import-export-footer" class="modal-action-btn danger">
+          Close
+        </button>
+      </div>
+    </div>
+
     <script src="utils.js"></script>
     <script src="ui.js"></script>
     <script src="main.js"></script>

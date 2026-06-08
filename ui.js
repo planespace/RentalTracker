@@ -372,35 +372,6 @@ function updateAllTimeStats(tenantArray) {
   document.querySelector(".all-time-highest-debtor").textContent = debtorText;
 }
 
-// Topbar menu toggle
-const menuBtn = document.getElementById("topbar-menu-btn");
-const menuDropdown = document.getElementById("topbar-menu-dropdown");
-
-if (menuBtn && menuDropdown) {
-  menuBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const isHidden = menuDropdown.style.display === "none";
-    menuDropdown.style.display = isHidden ? "flex" : "none";
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!menuBtn.contains(e.target) && !menuDropdown.contains(e.target)) {
-      menuDropdown.style.display = "none";
-    }
-  });
-}
-
-document.getElementById("modal-overlay").addEventListener("click", () => {
-  if (window._closeGlobalSettingsModal) {
-    window._closeGlobalSettingsModal();
-  }
-  document.getElementById("tenant-actions-modal").style.display = "none";
-  document.getElementById("profile-modal").style.display = "none";
-  document.getElementById("utilities-modal").style.display = "none";
-  document.getElementById("modal-overlay").style.display = "none";
-  document.body.classList.remove("modal-open");
-});
-
 function updateStatsForMonth(tenants, month) {
   let totalOwed = 0,
     totalPaidTenants = 0,

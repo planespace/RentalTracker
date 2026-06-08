@@ -15,7 +15,9 @@ import https from "https";
 import { sendOverdueEmailRemindersForUser } from "../services/emailService.js";
 import EmailLog from "../models/EmailLog.js";
 import { sendBulkEmails } from "../services/emailService.js";
-import LOGO_BASE64 from "../logoConfig.js";
+
+import fetch from "node-fetch";
+
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -607,7 +609,6 @@ async function getExportStatement(req, res) {
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
     const todayDateStr = today.toLocaleDateString();
-    const logoUrl = LOGO_BASE64;
 
     // ---------- HTML with logo and escaped content ----------
     let html = `
@@ -661,11 +662,8 @@ async function getExportStatement(req, res) {
 </head>
 <body>
   <div class="header">
-    <img src="${logoUrl}" alt="Logo" />
     <h1>${escapeHtml(landlordDisplay)}</h1>
-    <p>${
-      type === "late" ? "Late Tenants Report" : "Complete Tenant Roster"
-    } – ${escapeHtml(todayDateStr)}</p>
+    <p>Statement generated on ${escapeHtml(today.toLocaleDateString())}</p>
   </div>
 
   <div class="summary-box">
@@ -1403,6 +1401,45 @@ async function addMeterReading(req, res) {
   }
 }
 
+// if you don't already have fetch, install npm i node-fetch
+
+async function getEmailUsage(req, res) {
+  try {
+    const apiKey = process.env.BREVO_API_KEY;
+    if (!apiKey) {
+      return res.json({ remaining: null, error: "Brevo API key not set" });
+    }
+
+    const response = await fetch("https://api.brevo.com/v3/account", {
+      headers: {
+        "api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return res.json({
+        remaining: null,
+        error: "Failed to fetch account info",
+      });
+    }
+
+    const data = await response.json();
+    // Brevo returns plan info with credits and used emails
+    const plan = data.plan || [];
+    const currentPlan =
+      plan.find((p) => p.type === "payAsYouGo" || p.type === "free") || plan[0];
+    const credits = currentPlan?.credits || 0; // credits = emails remaining for the period
+    const creditsType = currentPlan?.creditsType || "sendLimit"; // usually "sendLimit"
+
+    // For free plan, Brevo returns remaining emails in "credits"
+    res.json({ remaining: credits });
+  } catch (error) {
+    console.error("Error fetching Brevo usage:", error);
+    res.json({ remaining: null, error: error.message });
+  }
+}
+
 // ========================
 //   GLOBAL SETTINGS ENDPOINTS
 // ========================
@@ -1423,6 +1460,10 @@ async function updateGlobalSettings(req, res) {
     if (!settings) settings = new Settings({ _id: "global_" + req.userId });
     if (req.body.autoRemindersEnabled !== undefined)
       settings.autoRemindersEnabled = req.body.autoRemindersEnabled;
+
+    if (req.body.autoEmailRemindersEnabled !== undefined)
+      settings.autoEmailRemindersEnabled = req.body.autoEmailRemindersEnabled;
+
     if (garbageFee !== undefined) settings.garbageFee = garbageFee;
     if (waterRatePerUnit !== undefined)
       settings.waterRatePerUnit = waterRatePerUnit;
@@ -1695,7 +1736,7 @@ async function getTenantStatement(req, res) {
     }
 
     const overdueBalance = getPastDueAmount(tenant);
-    const logoUrl = LOGO_BASE64;
+
     // ---------- HTML with escaped dynamic content ----------
     let html = `
 <!DOCTYPE html>
@@ -1729,11 +1770,9 @@ async function getTenantStatement(req, res) {
 </head>
 <body>
   <div class="header">
-    <img src="${logoUrl}" alt="Logo" />
     <h1>${escapeHtml(landlordDisplay)}</h1>
     <p>Statement generated on ${escapeHtml(today.toLocaleDateString())}</p>
-  </div>
-  <div class="tenant-info">
+  </div>  <div class="tenant-info">
     <p><strong>Tenant:</strong> ${escapeHtml(tenant.name)}</p>
     <p><strong>House:</strong> ${escapeHtml(
       tenant.houseNumber
@@ -1829,6 +1868,37 @@ async function getTenantStatement(req, res) {
     console.error("Statement generation error:", error);
     res.status(500).json({ message: error.message });
   }
+}
+
+function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
+  const today = new Date();
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rent Statement</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
+    
+    <div style="background:#0f172a; padding:32px 24px; text-align:center;">
+      <h1 style="margin:0; font-size:26px; font-weight:800; color:#ffffff; letter-spacing:1px;">RENTAL TRACKER</h1>
+      <p style="margin:8px 0 0; font-size:16px; color:#cbd5e1;">Landlord: ${escapeHtml(
+        landlordName
+      )}</p>
+    </div>
+
+    <div style="padding:32px 24px;">
+      ${innerHtml}
+    </div>
+
+    <div style="background:#0f172a; padding:16px 24px; text-align:center;">
+      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Rental Tracker. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 // ========================
@@ -2197,4 +2267,5 @@ export {
   getEmailLogs,
   clearEmailLogs,
   triggerEmailReminders,
+  getEmailUsage,
 };

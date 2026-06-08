@@ -66,36 +66,33 @@ async function fetchAndDisplaySmsBalance() {
       }
     );
     const data = await res.json();
-    if (data.balance !== undefined && data.balance !== null) {
+    const infoEl = document.getElementById("sms-balance-info");
+    if (data.balance !== undefined && data.balance !== null && infoEl) {
       const balance = Number(data.balance);
       const costPerMsg = 0.8;
       const estimatedMessages = Math.floor(balance / costPerMsg);
-
-      let badge = document.getElementById("sms-balance-badge");
-      if (!badge) {
-        badge = document.createElement("div");
-        badge.id = "sms-balance-badge";
-        badge.style.cssText = `
-          padding: 8px 12px;
-          margin-bottom: 8px;
-          background: rgba(16, 185, 129, 0.15);
-          border-left: 3px solid var(--success);
-          border-radius: 0px;
-          color: var(--success);
-          font-weight: 600;
-          font-size: 0.85rem;
-          text-align: center;
-          user-select: none;
-        `;
-        const dropdown = document.getElementById("topbar-menu-dropdown");
-        if (dropdown) {
-          dropdown.insertBefore(badge, dropdown.firstChild);
-        }
-      }
-      badge.textContent = `💰 ${balance.toLocaleString()} KES credit (≈ ${estimatedMessages} messages)`;
+      infoEl.textContent = `💰 ${balance.toLocaleString()} KES (≈ ${estimatedMessages} msgs)`;
     }
   } catch (err) {
     console.warn("Cannot fetch SMS balance");
+  }
+}
+
+async function fetchAndDisplayEmailBalance() {
+  try {
+    const res = await fetchWithTimeout(
+      window.location.origin + "/tenants/email-usage",
+      {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      }
+    );
+    const data = await res.json();
+    const infoEl = document.getElementById("email-balance-info");
+    if (data.remaining !== undefined && data.remaining !== null && infoEl) {
+      infoEl.textContent = `✉️ ${data.remaining.toLocaleString()} emails left today`;
+    }
+  } catch (err) {
+    console.warn("Cannot fetch email balance");
   }
 }
 
@@ -165,6 +162,40 @@ function getAppTodayStr() {
       });
   };
 })();
+
+function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
+  const today = getAppToday();
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
+    
+    <!-- HEADER (dark, logo‑free) -->
+    <div style="background:#0f172a; padding:36px 24px; text-align:center;">
+      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">RENTAL TRACKER</h1>
+      <p style="margin:10px 0 0; font-size:16px; color:#cbd5e1; font-weight:400;">Landlord: ${escapeHtml(
+        landlordName
+      )}</p>
+    </div>
+
+    <!-- BODY -->
+    <div style="padding:32px 24px;">
+      ${innerHtml}
+    </div>
+
+    <!-- FOOTER -->
+    <div style="background:#0f172a; padding:16px 24px; text-align:center;">
+      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Rental Tracker. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 
 // ----- FETCH WITH TIMEOUT (10 seconds) -----
 async function fetchWithTimeout(url, options = {}, timeout = 10000) {
@@ -343,6 +374,8 @@ function showGlobalLoader() {
 }
 
 function showLandlordProfileModal() {
+  closeDropdownIfOpen();
+  pushModalState();
   const html = `
     <div class="utilities-section" style="display: flex; flex-direction: column; gap: 16px;">
       <h4 style="margin-bottom: 0;">👤 Landlord Profile</h4>
@@ -482,7 +515,8 @@ async function updateGlobalSettingsOnServer(
   waterRatePerUnit,
   defaultDueDay,
   totalHouses,
-  autoRemindersEnabled
+  autoRemindersEnabled,
+  autoEmailRemindersEnabled
 ) {
   const response = await fetchWithTimeout(
     window.location.origin + "/tenants/settings",
@@ -498,6 +532,7 @@ async function updateGlobalSettingsOnServer(
         defaultDueDay,
         totalHouses,
         autoRemindersEnabled,
+        autoEmailRemindersEnabled,
       }),
     }
   );
@@ -578,6 +613,7 @@ async function loadTenants() {
     updateStatusBar();
     updateOccupancy();
     fetchAndDisplaySmsBalance();
+    fetchAndDisplayEmailBalance();
   } catch (err) {
     showNetworkErrorModal(err.message);
   }
@@ -1110,6 +1146,8 @@ function updateOccupancy() {
 
 // ----- MODALS: Tenant Actions, History, Profile, Payment -----
 async function showTenantActionsModal(id) {
+  closeDropdownIfOpen();
+  pushModalState();
   window.currentActionsTenantId = id;
   document.getElementById("tenant-actions-modal").style.display = "block";
   document.getElementById("modal-overlay").style.display = "block";
@@ -1712,6 +1750,8 @@ function renderPaymentModal(tenantId) {
 
 // ----- UTILITIES MODAL (Meter Reading) -----
 async function showUtilitiesModal(tenantId) {
+  closeDropdownIfOpen();
+  pushModalState();
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
   const currentMonth = getCurrentMonth();
@@ -2055,6 +2095,9 @@ function getPreviousMeterReading(tenant, targetMonth) {
 
 // ----- GLOBAL SETTINGS MODAL (VERTICAL LAYOUT) -----
 function showGlobalSettingsModal() {
+  closeDropdownIfOpen(); // close the dropdown first to prevent popstate conflict
+  pushModalState();
+
   const html = `
     <div class="utilities-section" style="display: flex; flex-direction: column; gap: 20px;">
       <h4 style="margin-bottom: 0; text-align: center;">⚙️ Global Settings</h4>
@@ -2087,42 +2130,45 @@ function showGlobalSettingsModal() {
         }" class="swal2-input" style="margin: 0;">
       </div>
 
-   <!-- Big checkbox for auto reminders -->
-<div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 16px 0;">
-  <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
-    <input type="checkbox" id="global-auto-reminders" style="width: 28px; height: 28px; transform: scale(1.1); accent-color: #10b981;" ${
-      globalSettings.autoRemindersEnabled !== false ? "checked" : ""
-    }>
+      <!-- SMS auto reminders checkbox -->
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 16px 0;">
+        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+          <input type="checkbox" id="global-auto-reminders" style="width: 28px; height: 28px; transform: scale(1.1); accent-color: #10b981;" ${
+            globalSettings.autoRemindersEnabled !== false ? "checked" : ""
+          }>
+          <span style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Send automatic overdue SMS reminders</span>
+        </label>
+        <span style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">Daily at 1:00 AM (costs ~KES 0.80 per message)</span>
+      </div>
 
-   
+      <!-- Email auto reminders checkbox -->
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 16px 0;">
+        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+          <input type="checkbox" id="global-auto-email-reminders" style="width: 28px; height: 28px; transform: scale(1.1); accent-color: #10b981;" ${
+            globalSettings.autoEmailRemindersEnabled !== false ? "checked" : ""
+          }>
+          <span style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Send automatic overdue email reminders</span>
+        </label>
+        <span style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">Daily at 1:00 AM (tenants with email)</span>
+      </div>
 
-    <span style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">Send automatic overdue reminders</span>
-  </label>
-  <span style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">Daily check for unpaid tenants (costs ~KES 0.80 per message)</span>
-</div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <button id="resend-overdue-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📢 Resend Overdue SMS Reminders Now</button>
+      </div>
 
-
-
-<div style="display: flex; flex-direction: column; gap: 6px;">
-  <button id="resend-overdue-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📢 Resend Overdue Reminders Now</button>
-</div>
-
-<div style="display: flex; flex-direction: column; gap: 6px;">
-  <button id="resend-email-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📧 Resend Overdue Emails Now</button>
-</div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <button id="resend-email-reminders-btn" class="modal-action-btn" style="background: #f59e0b;">📧 Resend Overdue Emails Now</button>
+      </div>
 
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-due-day-btn" class="modal-action-btn" style="background: var(--accent-cyan);">📅 Change Due Day for All Tenants</button>
       </div>
 
-
-
-
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-rent-btn" class="modal-action-btn" style="background: var(--accent-cyan);">💰 Change Rent for All Tenants</button>
       </div>
       
-     <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
+      <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
         <button id="save-global-settings" class="modal-action-btn">Save</button>
         <button id="cancel-global-settings" class="modal-action-btn danger">Cancel</button>
       </div>
@@ -2137,57 +2183,32 @@ function showGlobalSettingsModal() {
   overlay.style.display = "block";
   document.body.classList.add("modal-open");
 
-  const autoRemindersCheckbox = document.getElementById(
-    "global-auto-reminders"
-  );
-  if (autoRemindersCheckbox) {
-    const oldListener = autoRemindersCheckbox._listener;
-    if (oldListener)
-      autoRemindersCheckbox.removeEventListener("change", oldListener);
-
-    const handleAutoReminderChange = async (e) => {
+  // ---------- SMS auto reminders checkbox ----------
+  const smsCheckbox = document.getElementById("global-auto-reminders");
+  if (smsCheckbox) {
+    smsCheckbox.addEventListener("change", async (e) => {
       const isChecked = e.target.checked;
 
-      if (isChecked) {
-        try {
-          let countUrl = window.location.origin + "/tenants/overdue-count";
-          if (currentDevDate) countUrl += `?devDate=${currentDevDate}`;
-          const res = await fetchWithTimeout(countUrl, {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          });
-          const data = await res.json();
-          const overdueCount = data.count || 0;
-          const totalCost = overdueCount * 0.8;
-
-          await Swal.fire({
-            title: "Auto‑reminders enabled",
-            html: `
-              <div style="text-align: center;">
-                <p>Automatic daily reminders are now <strong>ON</strong>.</p>
-                <div style="background: linear-gradient(135deg, #f59e0b20, #3b82f620); padding: 16px; border-radius: 20px; margin: 12px 0;">
-                  <div style="font-size: 1.6rem; font-weight: 800; color: #fbbf24;">KES ${totalCost.toFixed(
-                    2
-                  )}</div>
-                  <div style="font-size: 0.8rem;">Estimated next run cost (${overdueCount} messages × KES 0.80)</div>
-                </div>
-                <p class="swal2-text" style="font-size: 0.85rem;">Reminders are sent <strong>once per billing month</strong> for each overdue tenant, daily at 8:00 AM.</p>
-                <p style="font-size: 0.8rem; margin-top: 8px;">You can also click the<strong>📢 Resend Overdue Reminders</strong> button to send immediately.</p>
-              </div>
-            `,
-            icon: "success",
-            confirmButtonText: "Got it",
-            confirmButtonColor: "#10b981",
-            background: "#1e293b",
-            color: "#f1f5f9",
-          });
-        } catch (err) {
-          Toast.fire({
-            icon: "warning",
-            title: "Could not fetch overdue count",
-          });
-        }
+      // Confirmation
+      window.ignoreNextPopstate = true;
+      const confirmResult = await Swal.fire({
+        title: isChecked
+          ? "Enable SMS auto‑reminders?"
+          : "Disable SMS auto‑reminders?",
+        text: isChecked
+          ? "Daily SMS reminders will be sent at 1:00 AM for overdue tenants."
+          : "Automatic SMS reminders will stop.",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#10b981",
+        cancelButtonColor: "#ef4444",
+        confirmButtonText: isChecked ? "Yes, enable" : "Yes, disable",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+      if (!confirmResult.isConfirmed) {
+        e.target.checked = !isChecked;
+        return;
       }
 
       setButtonLoading(e.target, true);
@@ -2201,20 +2222,23 @@ function showGlobalSettingsModal() {
           1;
         const totalHouses =
           parseInt(document.getElementById("global-total-houses").value) || 0;
+        const emailChecked = document.getElementById(
+          "global-auto-email-reminders"
+        ).checked;
 
         const ok = await updateGlobalSettingsOnServer(
           garbageFee,
           waterRatePerUnit,
           defaultDueDay,
           totalHouses,
-          isChecked
+          isChecked,
+          emailChecked
         );
-
         if (ok) {
           await fetchGlobalSettings();
           Toast.fire({
             icon: "success",
-            title: `Auto‑reminders ${isChecked ? "enabled" : "disabled"}`,
+            title: `SMS auto‑reminders ${isChecked ? "enabled" : "disabled"}`,
           });
         } else {
           Toast.fire({ icon: "error", title: "Failed to save setting" });
@@ -2226,10 +2250,75 @@ function showGlobalSettingsModal() {
       } finally {
         setButtonLoading(e.target, false);
       }
-    };
+    });
+  }
 
-    autoRemindersCheckbox.addEventListener("change", handleAutoReminderChange);
-    autoRemindersCheckbox._listener = handleAutoReminderChange;
+  // ---------- Email auto reminders checkbox ----------
+  const emailCheckbox = document.getElementById("global-auto-email-reminders");
+  if (emailCheckbox) {
+    emailCheckbox.addEventListener("change", async (e) => {
+      const isChecked = e.target.checked;
+      window.ignoreNextPopstate = true;
+      const confirmResult = await Swal.fire({
+        title: isChecked
+          ? "Enable email auto‑reminders?"
+          : "Disable email auto‑reminders?",
+        text: isChecked
+          ? "Daily email reminders will be sent at 1:00 AM for overdue tenants who have email addresses."
+          : "Automatic email reminders will stop.",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#10b981",
+        cancelButtonColor: "#ef4444",
+        confirmButtonText: isChecked ? "Yes, enable" : "Yes, disable",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+      if (!confirmResult.isConfirmed) {
+        e.target.checked = !isChecked;
+        return;
+      }
+
+      setButtonLoading(e.target, true);
+      try {
+        const garbageFee =
+          parseFloat(document.getElementById("global-garbage").value) || 0;
+        const waterRatePerUnit =
+          parseFloat(document.getElementById("global-waterrate").value) || 0;
+        const defaultDueDay =
+          parseInt(document.getElementById("global-default-due-day").value) ||
+          1;
+        const totalHouses =
+          parseInt(document.getElementById("global-total-houses").value) || 0;
+        const smsChecked = document.getElementById(
+          "global-auto-reminders"
+        ).checked;
+
+        const ok = await updateGlobalSettingsOnServer(
+          garbageFee,
+          waterRatePerUnit,
+          defaultDueDay,
+          totalHouses,
+          smsChecked,
+          isChecked
+        );
+        if (ok) {
+          await fetchGlobalSettings();
+          Toast.fire({
+            icon: "success",
+            title: `Email auto‑reminders ${isChecked ? "enabled" : "disabled"}`,
+          });
+        } else {
+          Toast.fire({ icon: "error", title: "Failed to save setting" });
+          e.target.checked = !isChecked;
+        }
+      } catch (err) {
+        Toast.fire({ icon: "error", title: err.message });
+        e.target.checked = !isChecked;
+      } finally {
+        setButtonLoading(e.target, false);
+      }
+    });
   }
 
   if (window._globalSettingsHandler) {
@@ -2342,6 +2431,7 @@ function showGlobalSettingsModal() {
         }
       }
     }
+
     if (e.target.id === "resend-overdue-reminders-btn") {
       const btn = e.target;
       setButtonLoading(btn, true);
@@ -2367,17 +2457,17 @@ function showGlobalSettingsModal() {
         const confirm = await Swal.fire({
           title: "📢 Resend Overdue Reminders",
           html: `
-        <div style="text-align: center;">
-          <div style="font-size: 1.1rem; margin-bottom: 16px;">You are about to send reminders to <strong>${overdueCount}</strong> tenant(s).</div>
-          <div style="background: linear-gradient(135deg, #f59e0b20, #3b82f620); padding: 16px; border-radius: 24px; margin: 16px 0;">
-            <div style="font-size: 2rem; font-weight: 800; color: #fbbf24;">KES ${totalCost.toFixed(
-              2
-            )}</div>
-            <div style="font-size: 0.85rem; color: var(--text-secondary);">Estimated cost (${overdueCount} messages × KES 0.80)</div>
-          </div>
-          <div style="font-size: 0.85rem; color: var(--text-muted);">This will send a reminder to each tenant who is currently overdue (once per billing month).</div>
-        </div>
-      `,
+            <div style="text-align: center;">
+              <div style="font-size: 1.1rem; margin-bottom: 16px;">You are about to send reminders to <strong>${overdueCount}</strong> tenant(s).</div>
+              <div style="background: linear-gradient(135deg, #f59e0b20, #3b82f620); padding: 16px; border-radius: 24px; margin: 16px 0;">
+                <div style="font-size: 2rem; font-weight: 800; color: #fbbf24;">KES ${totalCost.toFixed(
+                  2
+                )}</div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">Estimated cost (${overdueCount} messages × KES 0.80)</div>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--text-muted);">This will send a reminder to each tenant who is currently overdue (once per billing month).</div>
+            </div>
+          `,
           icon: "question",
           showCancelButton: true,
           confirmButtonText: `Yes, resend to ${overdueCount} tenant(s)`,
@@ -2456,6 +2546,7 @@ function showGlobalSettingsModal() {
         setButtonLoading(btn, false);
       }
     }
+
     if (e.target.id === "save-global-settings") {
       const garbageFee =
         parseFloat(document.getElementById("global-garbage").value) || 0;
@@ -2470,6 +2561,9 @@ function showGlobalSettingsModal() {
       const autoRemindersEnabled = document.getElementById(
         "global-auto-reminders"
       ).checked;
+      const autoEmailRemindersEnabled = document.getElementById(
+        "global-auto-email-reminders"
+      ).checked;
 
       try {
         const ok = await updateGlobalSettingsOnServer(
@@ -2477,7 +2571,8 @@ function showGlobalSettingsModal() {
           waterRatePerUnit,
           defaultDueDay,
           totalHouses,
-          autoRemindersEnabled
+          autoRemindersEnabled,
+          autoEmailRemindersEnabled
         );
         if (ok) {
           await fetchGlobalSettings();
@@ -3090,18 +3185,6 @@ function exportToCSV(includeLateOnly = false) {
   downloadCSV(csvContent, filename);
 }
 
-// ----- OVERLAY CLICK (close all modals) -----
-document.getElementById("modal-overlay").addEventListener("click", () => {
-  if (window._closeGlobalSettingsModal) window._closeGlobalSettingsModal();
-  document.getElementById("tenant-actions-modal").style.display = "none";
-  document.getElementById("profile-modal").style.display = "none";
-
-  document.getElementById("payment-modal").style.display = "none";
-  document.getElementById("utilities-modal").style.display = "none";
-  document.getElementById("modal-overlay").style.display = "none";
-  document.body.classList.remove("modal-open");
-});
-
 // ----- LOGOUT -----
 document.querySelector("#logout-btn").addEventListener("click", async () => {
   const result = await Swal.fire({
@@ -3569,16 +3652,19 @@ document
 // ----- CLOSE MODAL BUTTONS -----
 
 document.getElementById("close-profile-modal").addEventListener("click", () => {
+  popModalState();
   document.getElementById("profile-modal").style.display = "none";
   document.getElementById("modal-overlay").style.display = "none";
   document.body.classList.remove("modal-open");
 });
 document.getElementById("close-tenant-modal").addEventListener("click", () => {
+  popModalState();
   document.getElementById("tenant-actions-modal").style.display = "none";
   document.getElementById("modal-overlay").style.display = "none";
   document.body.classList.remove("modal-open");
 });
 document.getElementById("close-payment-modal").addEventListener("click", () => {
+  popModalState();
   document.getElementById("payment-modal").style.display = "none";
   document.getElementById("modal-overlay").style.display = "none";
   document.body.classList.remove("modal-open");
@@ -3586,6 +3672,7 @@ document.getElementById("close-payment-modal").addEventListener("click", () => {
 document
   .getElementById("close-utilities-modal")
   .addEventListener("click", () => {
+    popModalState();
     document.getElementById("utilities-modal").style.display = "none";
     document.getElementById("modal-overlay").style.display = "none";
     document.body.classList.remove("modal-open");
@@ -3793,6 +3880,7 @@ async function updateArchivedBadge() {
 // ----- ESC KEY TO CLOSE MODALS -----
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    popModalState();
     const modals = [
       "tenant-actions-modal",
       "profile-modal",
@@ -4382,9 +4470,8 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   }
 }
 function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
-  const logoUrl = window.LOGO_BASE64;
   const today = getAppToday();
-  const overdue = getTenantPastDueAmount(tenant, today); // total overdue (respects initialPastDue)
+  const overdue = getTenantPastDueAmount(tenant, today);
   const totalOutstanding = getTenantTotalOutstanding(tenant);
   const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
 
@@ -4394,7 +4481,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   ].sort();
   const rows = [];
 
-  // Compute standalone left for each month (same logic as payment modal)
+  // Compute standalone left for each month
   const leftByMonth = new Map();
   let prevCumulative = 0;
   for (const month of allMonths) {
@@ -4408,7 +4495,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     prevCumulative = cumulative;
   }
 
-  // Determine deposit period
+  // Determine deposit period range
   const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
   let depositEndMonth = null;
   if (
@@ -4456,8 +4543,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
     const monthLeft = leftByMonth.get(month) || 0;
     const dueDate = chargeEntry.dueDate ? new Date(chargeEntry.dueDate) : null;
-
-    // ---------- FIX: respect initialPastDue flag ----------
     const isPastDueByDate = dueDate && dueDate < today && monthLeft > 0;
     const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
     const isOverdue = isPastDueByDate || isInitialPastDue;
@@ -4517,9 +4602,8 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
       </tr>`;
   }
 
-  // Use the correct overdue amount (already computed by getTenantPastDueAmount)
-  const totalOverdue = overdue; // <-- this is the real overdue, matches the row overdue flags now
-
+  // Summary note
+  const totalOverdue = overdue;
   let note = "";
   if (overdue > 0) {
     note = `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
@@ -4537,70 +4621,41 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
             </div>`;
   }
 
-  // Full professional email template
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rent Statement</title>
-</head>
-<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-  <div style="max-width:800px; margin:20px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 6px 24px rgba(0,0,0,0.08);">
-    
-    <!-- Header with Logo -->
-    <div style="background:#0f172a; padding:36px 24px; text-align:center;">
-      <img src="${logoUrl}" alt="Logo" style="height:50px; margin-bottom:15px; display:block; margin-left:auto; margin-right:auto;" />
-      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:0.8px;">RENTAL TRACKER</h1>
-      <p style="margin:8px 0 0; font-size:18px; color:#cbd5e1; font-weight:400;">Monthly Rent Statement</p>
-      <p style="margin:6px 0 0; font-size:16px; color:#94a3b8;">Landlord: ${escapeHtml(
-        landlordName
-      )}</p>
-    </div>
+  // Build the inner content (everything that goes inside the white body area)
+  const innerHtml = `
+    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+      tenant.name
+    )},</p>
+    <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
-    <!-- Body -->
-    <div style="padding:36px 24px;">
-      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-        tenant.name
-      )},</p>
-      <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
+    <table style="width:100%; border-collapse:collapse; font-size:16px;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
 
-      <!-- Table -->
-      <table style="width:100%; border-collapse:collapse; font-size:16px;">
-        <thead>
-          <tr style="background:#f1f5f9;">
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-        </tbody>
-      </table>
+    ${note}
 
-      ${note}
+    <p style="font-size:15px; color:#64748b; margin-top:35px; text-align:center; line-height:1.6;">
+      If you have any questions, please contact your landlord.<br>
+      This statement was generated on ${today.toLocaleDateString()}.
+    </p>
+  `;
 
-      <p style="font-size:15px; color:#64748b; margin-top:35px; text-align:center; line-height:1.6;">
-        If you have any questions, please contact your landlord.<br>
-        This statement was generated on ${today.toLocaleDateString()}.
-      </p>
-    </div>
-
-    <!-- Footer -->
-    <div style="background:#0f172a; padding:20px 24px; text-align:center;">
-      <p style="margin:0; font-size:13px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Rental Tracker. All rights reserved.</p>
-    </div>
-  </div>
-</body>
-</html>`;
+  return wrapPremiumEmail(innerHtml, landlordName);
 }
 
 async function showEmailModal(tenantId) {
@@ -4683,6 +4738,48 @@ async function showEmailModal(tenantId) {
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
   try {
+    let subject = formValues.subject;
+    let htmlMessage;
+
+    // Decide how to build the HTML based on template type
+    const templateValue = document.getElementById("email-template").value;
+
+    if (templateValue === "detailedBalance") {
+      // Already HTML
+      htmlMessage = formValues.message;
+    } else if (templateValue === "quickBalance") {
+      // Wrap the plain text quick balance
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `
+        <p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+          tenant.name
+        )},</p>
+        <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+          formValues.message
+        )}</div>
+      `,
+        landlordName
+      );
+      subject = "Rent Balance";
+    } else {
+      // Custom or Thanks – wrap plain text
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `
+        <p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
+          subject
+        )}</p>
+        <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
+          formValues.message
+        ).replace(/\n/g, "<br>")}</div>
+      `,
+        landlordName
+      );
+    }
+
     const response = await fetchWithTimeout(
       window.location.origin + "/tenants/send-emails",
       {
@@ -4693,8 +4790,8 @@ async function showEmailModal(tenantId) {
         },
         body: JSON.stringify({
           tenantIds: [tenantId],
-          subject: formValues.subject,
-          message: formValues.message,
+          subject: subject,
+          message: htmlMessage, // always send HTML
         }),
       }
     );
@@ -4744,6 +4841,11 @@ function showBulkEmailModal() {
       <textarea id="email-bulk-body" rows="5" placeholder="Type your message..." style="padding:10px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);width:100%;resize:vertical;"></textarea>
       <div id="email-bulk-note" style="display:none;background:rgba(6,182,212,0.1);border-left:3px solid var(--accent-cyan);padding:10px;border-radius:8px;color:var(--text-secondary);font-size:0.85rem;">
         Each tenant will receive a personalised balance email.
+      </div>
+      <!-- Select All / Select Late buttons -->
+      <div style="display: flex; gap: 12px; justify-content: flex-start; padding: 0 4px;">
+        <button id="email-select-all" style="background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">✓ Select All</button>
+        <button id="email-select-late" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">⚠️ Select Late</button>
       </div>
       <div style="background:var(--bg-tertiary);border-radius:12px;border:1px solid var(--border);">
         <table style="width:100%;border-collapse:collapse;">
@@ -4796,6 +4898,44 @@ function showBulkEmailModal() {
     width: "auto",
     customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
+      // Select All / Select Late logic
+      const selectAllBtn = document.getElementById("email-select-all");
+      const selectLateBtn = document.getElementById("email-select-late");
+      const checkboxes = () =>
+        document.querySelectorAll(".email-tenant-select");
+
+      if (selectAllBtn) {
+        selectAllBtn.addEventListener("click", () => {
+          const allCB = checkboxes();
+          const allChecked = Array.from(allCB).every((cb) => cb.checked);
+          const newState = !allChecked;
+          allCB.forEach((cb) => {
+            cb.checked = newState;
+          });
+          selectAllBtn.textContent = newState
+            ? "✕ Deselect All"
+            : "✓ Select All";
+        });
+      }
+      if (selectLateBtn) {
+        selectLateBtn.addEventListener("click", () => {
+          const allCB = checkboxes();
+          const overdueCbs = Array.from(allCB).filter((cb) => {
+            const tenant = tenants.find((t) => t._id === cb.dataset.id);
+            return tenant && getTenantPastDueAmount(tenant, getAppToday()) > 0;
+          });
+          const allOverdueChecked = overdueCbs.every((cb) => cb.checked);
+          const newState = !allOverdueChecked;
+          overdueCbs.forEach((cb) => {
+            cb.checked = newState;
+          });
+          selectLateBtn.textContent = newState
+            ? "✕ Deselect Late"
+            : "⚠️ Select Late";
+        });
+      }
+
+      // Template dropdown logic
       const templateSelect = document.getElementById("email-bulk-template");
       const subjectInput = document.getElementById("email-bulk-subject");
       const bodyArea = document.getElementById("email-bulk-body");
@@ -4858,6 +4998,8 @@ function showBulkEmailModal() {
     setButtonLoading(btn, true);
     try {
       let summary = "";
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
 
       if (isBalanceMode) {
         // Quick Balance – personalised short messages
@@ -4868,6 +5010,17 @@ function showBulkEmailModal() {
         const failedNames = [];
         for (const tenant of selectedTenants) {
           const personalisedMsg = generateShortBalanceMessage(tenant);
+          const htmlMsg = wrapPremiumEmail(
+            `
+            <p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+              tenant.name
+            )},</p>
+            <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+              personalisedMsg
+            )}</div>
+          `,
+            landlordName
+          );
           try {
             const res = await fetchWithTimeout(
               window.location.origin + "/tenants/send-emails",
@@ -4880,16 +5033,13 @@ function showBulkEmailModal() {
                 body: JSON.stringify({
                   tenantIds: [tenant._id],
                   subject: "Rent Balance",
-                  message: personalisedMsg,
+                  message: htmlMsg,
                 }),
               }
             );
             const data = await res.json();
-            if (data.results?.[0]?.success) {
-              successCount++;
-            } else {
-              failedNames.push(tenant.name);
-            }
+            if (data.results?.[0]?.success) successCount++;
+            else failedNames.push(tenant.name);
           } catch (err) {
             failedNames.push(tenant.name);
           }
@@ -4898,7 +5048,7 @@ function showBulkEmailModal() {
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
       } else if (isDetailed) {
-        // Detailed Balance – professional HTML emails
+        // Detailed Balance – professional HTML emails (already wrapped by generateDetailedBalanceHtml)
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
@@ -4907,7 +5057,7 @@ function showBulkEmailModal() {
         for (const tenant of selectedTenants) {
           const personalisedMsg = generateDetailedBalanceHtml(
             tenant,
-            userProfile.landlordName || userProfile.name || "Your Landlord"
+            landlordName
           );
           try {
             const res = await fetchWithTimeout(
@@ -4926,11 +5076,8 @@ function showBulkEmailModal() {
               }
             );
             const data = await res.json();
-            if (data.results?.[0]?.success) {
-              successCount++;
-            } else {
-              failedNames.push(tenant.name);
-            }
+            if (data.results?.[0]?.success) successCount++;
+            else failedNames.push(tenant.name);
           } catch (err) {
             failedNames.push(tenant.name);
           }
@@ -4939,7 +5086,19 @@ function showBulkEmailModal() {
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
       } else {
-        // Custom / Thanks – one message to all selected
+        // Custom / Thanks – wrap the plain text
+        const htmlMessage = wrapPremiumEmail(
+          `
+          <p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
+            subject
+          )}</p>
+          <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
+            message
+          ).replace(/\n/g, "<br>")}</div>
+        `,
+          landlordName
+        );
+
         const response = await fetchWithTimeout(
           window.location.origin + "/tenants/send-emails",
           {
@@ -4948,7 +5107,7 @@ function showBulkEmailModal() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-            body: JSON.stringify({ tenantIds, subject, message }),
+            body: JSON.stringify({ tenantIds, subject, message: htmlMessage }),
           }
         );
         const data = await response.json();
@@ -4976,13 +5135,192 @@ function showBulkEmailModal() {
 // ----- EMAIL LOGS MODAL -----
 function showEmailLogsModal() {
   Swal.fire({
-    title: "📧 Email Logs",
     html: '<div style="text-align:center;padding:20px;">Loading...</div>',
     showCloseButton: true,
     showConfirmButton: false,
-    background: "#1e293b",
-    color: "#f1f5f9",
+    background: "transparent",
+    width: "auto",
+    customClass: {
+      popup: "sms-logs-perfect",
+      closeButton: "sms-logs-perfect-close",
+    },
     didOpen: async () => {
+      const style = document.createElement("style");
+      style.textContent = `
+        .sms-logs-perfect {
+          padding: 0 !important;
+          background: var(--bg-secondary, #0f172a) !important;
+          overflow: hidden !important;
+          display: flex !important;
+          flex-direction: column !important;
+        }
+        .sms-logs-perfect .swal2-html-container {
+          margin: 0 !important;
+          padding: 0 !important;
+          flex: 1 !important;
+          display: flex !important;
+          flex-direction: column !important;
+        }
+        .sms-logs-root {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          width: 100%;
+          background: var(--bg-secondary);
+        }
+        .sms-logs-header {
+          flex-shrink: 0;
+        }
+        .sms-logs-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 0;
+        }
+        .sms-logs-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: center;
+          font-size: 0.85rem;
+        }
+        .sms-logs-table th {
+          background: var(--bg-elevated, #1e293b);
+          padding: 14px 8px;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-secondary, #94a3b8);
+          position: sticky;
+          top: 0;
+          border-bottom: 2px solid var(--border, #334155);
+        }
+        .sms-logs-table td {
+          padding: 12px 8px;
+          border-bottom: 1px solid var(--border-light, #2d3a4e);
+          color: var(--text-primary, #f1f5f9);
+        }
+        .sms-logs-table td.msg-cell {
+          max-width: 250px;
+          word-break: break-word;
+        }
+        .status-badge {
+          display: inline-block;
+          padding: 4px 12px;
+          border-radius: 40px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: capitalize;
+        }
+        .status-badge.pending { background: #3b82f620; color: #3b82f6; }
+        .status-badge.sent { background: #10b98120; color: #10b981; }
+        .status-badge.failed { background: #ef444420; color: #ef4444; }
+
+        .sms-group-header td {
+          background: #1e293b;
+          color: #94a3b8;
+          font-weight: 700;
+          font-size: 0.8rem;
+          padding: 8px 12px;
+          text-align: left;
+          border-bottom: 1px solid #334155;
+        }
+
+        #clear-email-logs-btn:hover {
+          background: #ef4444;
+          color: white;
+        }
+
+        @media (max-width: 768px) {
+          .sms-logs-perfect {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+          }
+          .sms-logs-header {
+            padding: 12px 12px;
+          }
+          .sms-logs-header h2 {
+            font-size: 1.2rem;
+          }
+          .sms-logs-table th, .sms-logs-table td {
+            font-size: 0.7rem;
+            padding: 8px 4px;
+          }
+          .sms-logs-table td.msg-cell {
+            max-width: 120px;
+          }
+          .sms-logs-perfect-close {
+            right: 8px !important;
+            top: 8px !important;
+            font-size: 1.4rem !important;
+            width: 32px !important;
+            height: 32px !important;
+            background: rgba(0,0,0,0.4) !important;
+            border-radius: 50% !important;
+          }
+        }
+        @media (min-width: 769px) {
+          .sms-logs-perfect {
+            width: 95% !important;
+            max-width: 1400px !important;
+            height: auto !important;
+            max-height: 90vh !important;
+            border-radius: 32px !important;
+            margin: 5vh auto !important;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5) !important;
+          }
+          .sms-logs-header {
+            padding: 20px 24px;
+          }
+          .sms-logs-header h2 {
+            font-size: 1.8rem;
+          }
+          .sms-logs-body {
+            max-height: calc(90vh - 85px);
+          }
+          .sms-logs-table th {
+            padding: 18px 12px;
+            font-size: 0.9rem;
+          }
+          .sms-logs-table td {
+            padding: 16px 12px;
+            font-size: 0.95rem;
+          }
+          .sms-logs-table td.msg-cell {
+            max-width: 300px;
+          }
+          .sms-logs-perfect-close {
+            right: 24px !important;
+            top: 20px !important;
+            font-size: 1.8rem !important;
+            width: 40px !important;
+            height: 40px !important;
+            background: rgba(0,0,0,0.3) !important;
+            border-radius: 50% !important;
+            transition: 0.1s;
+          }
+          .sms-logs-perfect-close:hover {
+            background: rgba(255,255,255,0.2) !important;
+          }
+        }
+        @media (orientation: landscape) and (max-width: 768px) {
+          .sms-logs-perfect {
+            height: 100vh !important;
+          }
+          .sms-logs-table td.msg-cell {
+            max-width: 180px;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+
       try {
         const response = await fetchWithTimeout("/tenants/email-logs", {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -4990,7 +5328,6 @@ function showEmailLogsModal() {
         if (!response.ok) throw new Error("Failed to fetch email logs");
         let logs = await response.json();
 
-        // Sort newest first
         logs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
 
         const today = new Date();
@@ -5042,15 +5379,15 @@ function showEmailLogsModal() {
                 hour: "2-digit",
                 minute: "2-digit",
               });
-              const shortMsg =
-                log.body.length > 50
-                  ? log.body.substring(0, 50) + "…"
-                  : log.body;
+              const shortSubject =
+                log.subject && log.subject.length > 40
+                  ? log.subject.substring(0, 40) + "…"
+                  : log.subject || "(no subject)";
               tableRows += `
                 <tr>
                   <td>${escapeHtml(log.tenantName)}</td>
                   <td>${escapeHtml(log.email)}</td>
-                  <td class="msg-cell">${escapeHtml(shortMsg)}</td>
+                  <td class="msg-cell">${escapeHtml(shortSubject)}</td>
                   <td><span class="status-badge ${log.status}">${
                 log.status
               }</span></td>
@@ -5102,6 +5439,7 @@ function showEmailLogsModal() {
                     Authorization: `Bearer ${localStorage.getItem("token")}`,
                   },
                 });
+                window.ignoreNextPopstate = true; // ✅ prevents closing the new modal
                 Swal.close();
                 showEmailLogsModal();
               } catch (err) {
@@ -5118,7 +5456,6 @@ function showEmailLogsModal() {
     },
   });
 }
-
 // Open the bulk SMS modal
 document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   const btn = document.getElementById("bulk-sms-btn");
@@ -5677,7 +6014,7 @@ if (smsLogsBtn) {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
 
-      const groups = []; // array of { label, logs[] }
+      const groups = [];
       let currentLabel = "";
       let currentGroup = [];
 
@@ -5717,7 +6054,6 @@ if (smsLogsBtn) {
         tableRows = `<tr><td colspan="5" style="text-align:center; padding:40px;">📭 No SMS logs found</td></tr>`;
       } else {
         groups.forEach((group) => {
-          // Group header row
           tableRows += `
             <tr class="sms-group-header">
               <td colspan="5">${group.label}</td>
@@ -5776,7 +6112,7 @@ if (smsLogsBtn) {
           closeButton: "sms-logs-perfect-close",
         },
         didOpen: () => {
-          // Inject the premium styles (same as before, plus group header style)
+          // Inject the premium styles
           const style = document.createElement("style");
           style.textContent = `
             .sms-logs-perfect {
@@ -5977,6 +6313,7 @@ if (smsLogsBtn) {
                       Authorization: `Bearer ${localStorage.getItem("token")}`,
                     },
                   });
+                  window.ignoreNextPopstate = true; // ✅ prevents closing the new modal
                   Swal.close();
                   smsLogsBtn.click(); // reopen with fresh data
                 } catch (err) {
@@ -5992,3 +6329,177 @@ if (smsLogsBtn) {
     }
   });
 }
+
+// Helper to safely close the dropdown before opening a modal
+function closeDropdownIfOpen() {
+  const dropdown = document.getElementById("topbar-menu-dropdown");
+  if (dropdown && dropdown.style.display !== "none") {
+    dropdown.style.display = "none";
+    // Do NOT call popModalState() – the history entry remains, but the dropdown is hidden.
+    // The modal will push its own state, and the dropdown state will be popped later harmlessly.
+    isDropdownOpen = false;
+    const menuBtn = document.getElementById("topbar-menu-btn");
+    if (menuBtn) menuBtn.blur();
+  }
+}
+
+// Topbar menu toggle
+const menuBtn = document.getElementById("topbar-menu-btn");
+const menuDropdown = document.getElementById("topbar-menu-dropdown");
+
+if (menuBtn && menuDropdown) {
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden =
+      menuDropdown.style.display === "none" ||
+      menuDropdown.style.display === "";
+    if (isHidden) {
+      menuDropdown.style.display = "flex";
+      pushModalState();
+      isDropdownOpen = true;
+    } else {
+      menuDropdown.style.display = "none";
+      popModalState();
+      isDropdownOpen = false;
+      menuBtn.blur(); // ← removes the focus highlight
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!menuBtn.contains(e.target) && !menuDropdown.contains(e.target)) {
+      if (menuDropdown.style.display !== "none") {
+        menuDropdown.style.display = "none";
+        popModalState();
+        isDropdownOpen = false;
+        menuBtn.blur(); // ← removes the focus highlight
+      }
+    }
+  });
+}
+
+// ========================
+// BACK BUTTON PROTECTION (final – no infinite loop)
+// ========================
+let modalOpenCount = 0;
+let isDropdownOpen = false;
+let backButtonClosing = false; // prevents recursive popstate
+let lastModalOpenTime = 0;
+
+function pushModalState() {
+  window.history.pushState({ modal: true }, "");
+  modalOpenCount++;
+  lastModalOpenTime = Date.now();
+}
+
+function popModalState() {
+  if (modalOpenCount > 0) {
+    window.history.back();
+    modalOpenCount--;
+  }
+}
+
+window.addEventListener("popstate", (event) => {
+  // Ignore popstate if a modal is being replaced (e.g., after clearing logs)
+  if (window.ignoreNextPopstate) {
+    window.ignoreNextPopstate = false;
+    return;
+  }
+
+  // 1. Close any open SweetAlert2 modal
+  if (Swal.isVisible()) {
+    backButtonClosing = true;
+    Swal.close();
+    backButtonClosing = false;
+  }
+
+  // 2. Close the topbar dropdown if open
+  const dropdown = document.getElementById("topbar-menu-dropdown");
+  if (dropdown && dropdown.style.display !== "none") {
+    dropdown.style.display = "none";
+    isDropdownOpen = false;
+  }
+
+  // 3. Close all custom modals
+  const overlay = document.getElementById("modal-overlay");
+  [
+    "tenant-actions-modal",
+    "profile-modal",
+    "payment-modal",
+    "utilities-modal",
+  ].forEach((id) => {
+    const m = document.getElementById(id);
+    if (m) m.style.display = "none";
+  });
+  if (window._closeGlobalSettingsModal) window._closeGlobalSettingsModal();
+  if (overlay) overlay.style.display = "none";
+  document.body.classList.remove("modal-open");
+
+  modalOpenCount = 0;
+  isDropdownOpen = false;
+
+  // Stay on the page (push a fresh state)
+  window.history.pushState({ modal: false }, "");
+});
+
+// Intercept ALL SweetAlert2 popups
+const originalSwalFire = Swal.fire;
+Swal.fire = function (options) {
+  closeDropdownIfOpen();
+  pushModalState();
+  const swalInstance = originalSwalFire.call(Swal, options);
+
+  const cleanup = () => {
+    if (!backButtonClosing) {
+      popModalState();
+    }
+  };
+  swalInstance.then(cleanup).catch(cleanup);
+  return swalInstance;
+};
+
+// ========================
+// CLEAN MODAL CLOSE (only when tapping outside – time guard applied)
+// ========================
+document.addEventListener("click", (e) => {
+  // Ignore any click within 400ms of a modal opening (prevents mobile retarget)
+  if (Date.now() - lastModalOpenTime < 400) return;
+
+  // Don't close if click is inside any modal or the dropdown
+  if (
+    e.target.closest(".tenant-modal") ||
+    e.target.closest(".swal2-popup") ||
+    e.target.closest("#topbar-menu-dropdown") ||
+    e.target.closest("#topbar-menu-btn")
+  )
+    return;
+
+  // Don't close if no modal is open
+  const overlay = document.getElementById("modal-overlay");
+  if (!overlay || overlay.style.display === "none") return;
+
+  // Close all custom modals
+  popModalState();
+  if (window._closeGlobalSettingsModal) window._closeGlobalSettingsModal();
+  document.getElementById("tenant-actions-modal").style.display = "none";
+  document.getElementById("profile-modal").style.display = "none";
+  document.getElementById("payment-modal").style.display = "none";
+  document.getElementById("utilities-modal").style.display = "none";
+  document.getElementById("import-export-modal").style.display = "none";
+  overlay.style.display = "none";
+  document.body.classList.remove("modal-open");
+});
+
+// Submenu toggling (the only dropdown click handler)
+document
+  .getElementById("topbar-menu-dropdown")
+  ?.addEventListener("click", (e) => {
+    const toggle = e.target.closest(".submenu-toggle");
+    if (toggle) {
+      const submenu = toggle.nextElementSibling;
+      if (submenu?.classList.contains("submenu")) {
+        const isOpen = submenu.classList.toggle("open");
+        toggle.innerHTML = toggle.innerHTML.replace(/[▸▾]/, isOpen ? "▾" : "▸");
+      }
+      e.stopPropagation(); // prevent the document click from closing anything
+    }
+  });

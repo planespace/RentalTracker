@@ -6,7 +6,7 @@ import { sendOverdueEmailRemindersForUser } from "./emailService.js";
 export function startScheduler() {
   // Run every day at 8:00 AM Nairobi time
   cron.schedule(
-    "0 8 * * *",
+    "0 1 * * *",
     async () => {
       console.log("⏰ Running daily overdue reminders...");
       // You need to get all unique userIds from tenants
@@ -31,7 +31,7 @@ export function startScheduler() {
 
 // Email reminders at 9:00 AM Nairobi time
 cron.schedule(
-  "0 9 * * *",
+  "0 1 * * *",
   async () => {
     console.log("⏰ Running daily email reminders...");
     const User = (await import("../models/User.js")).default;

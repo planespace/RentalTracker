@@ -41,6 +41,7 @@ const tenantSchema = new mongoose.Schema({
   notes: { type: String, default: "" },
   active: { type: Boolean, default: true },
   reminderSentMonths: { type: [String], default: [] },
+  emailReminderSentMonths: { type: [String], default: [] },
   entryDate: { type: Date, default: Date.now },
   dueDay: { type: Number, required: true, min: 1, max: 31 },
   deposit: { type: Boolean, default: false },

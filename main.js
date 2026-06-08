@@ -266,7 +266,14 @@ if (devModeActive) {
           } catch (err) {
             console.warn("Sync after dev-date change failed:", err);
           }
-          Toast.fire({
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
             icon: "info",
             title: `Date changed to ${currentDevDate}`,
           });
@@ -280,7 +287,17 @@ if (devModeActive) {
           newParams.set("dev", "true");
           window.history.replaceState({}, "", `?${newParams.toString()}`);
           await loadTenants();
-          Toast.fire({ icon: "info", title: "Using real date" });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "info",
+            title: "Using real date",
+          });
         });
       }
     }
@@ -1966,11 +1983,9 @@ async function showUtilitiesModal(tenantId) {
           </thead>
           <tbody>`;
     readings.forEach((reading, index) => {
-      // Use the stored units and cost – they already include the effect of override & exempt
       const storedUnits = reading.unitsUsed;
       const storedCost = reading.cost;
 
-      // Fallback only if stored values are missing (shouldn't happen after recalc)
       let units, cost;
       if (storedUnits != null && storedCost != null) {
         units = storedUnits;
@@ -2032,7 +2047,6 @@ async function showUtilitiesModal(tenantId) {
       : currentMonth;
     let prevRead = getPreviousReadingForMonth(selectedMonth);
 
-    // Check for manual override
     const overrideInput = document.getElementById("override-previous-input");
     if (overrideInput && overrideInput.value) {
       prevRead = parseFloat(overrideInput.value) || 0;
@@ -2041,7 +2055,6 @@ async function showUtilitiesModal(tenantId) {
     const current = parseFloat(readingInput.value) || 0;
     let units = current - prevRead;
 
-    // Subtract exempt units
     const exemptInput = document.getElementById("exempt-units");
     if (exemptInput && exemptInput.value) {
       units = Math.max(0, units - (parseFloat(exemptInput.value) || 0));
@@ -2052,7 +2065,6 @@ async function showUtilitiesModal(tenantId) {
     prevDisplay.textContent = prevRead;
   }
 
-  // Override toggle
   const overrideLink = document.getElementById("override-previous-link");
   const overrideRow = document.getElementById("override-previous-row");
   if (overrideLink && overrideRow) {
@@ -2070,13 +2082,9 @@ async function showUtilitiesModal(tenantId) {
   }
 
   const overrideInput = document.getElementById("override-previous-input");
-  if (overrideInput) {
-    overrideInput.addEventListener("input", updateCalc);
-  }
+  if (overrideInput) overrideInput.addEventListener("input", updateCalc);
   const exemptInput = document.getElementById("exempt-units");
-  if (exemptInput) {
-    exemptInput.addEventListener("input", updateCalc);
-  }
+  if (exemptInput) exemptInput.addEventListener("input", updateCalc);
 
   if (readingInput) readingInput.addEventListener("input", updateCalc);
   if (readingMonthInput)
@@ -2092,14 +2100,13 @@ async function showUtilitiesModal(tenantId) {
     const currentReading = parseFloat(btn.dataset.reading);
     const tid = tenant._id;
 
-    // Get the full reading object so we can pre‑fill override/exempt
     const readingObj = (tenant.waterMeterReadings || []).find(
       (r) => r._id.toString() === id
     );
     const currentOverride = readingObj?.previousOverride ?? "";
     const currentExempt = readingObj?.exemptUnits ?? 0;
 
-    const result = await Swal.fire({
+    const result = await originalSwalFire.call(Swal, {
       title: `Reading for ${month}`,
       text: "Choose an action:",
       icon: "question",
@@ -2116,7 +2123,7 @@ async function showUtilitiesModal(tenantId) {
 
     if (result.isConfirmed) {
       // ---- Edit with all fields ----
-      const { value: formValues } = await Swal.fire({
+      const { value: formValues } = await originalSwalFire.call(Swal, {
         title: `Edit Reading for ${month}`,
         html: `
         <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
@@ -2187,8 +2194,8 @@ async function showUtilitiesModal(tenantId) {
             );
             if (resp.ok) {
               tenantArray = await resp.json();
-              updateTenantList(tenantArray);
-              updateStats(tenantArray);
+                   applyFiltersAndSort();
+                   updateStats(tenantArray);
               const paymentModal = document.getElementById("payment-modal");
               if (paymentModal && paymentModal.style.display === "block") {
                 renderPaymentModal(window.currentActionsTenantId);
@@ -2207,14 +2214,24 @@ async function showUtilitiesModal(tenantId) {
               title: "Reading updated",
             });
           } else {
-            Toast.fire({ icon: "error", title: "Update failed" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 3000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "error",
+              title: "Update failed",
+            });
           }
         } catch (err) {
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
             showConfirmButton: false,
-            timer: 2000,
+            timer: 3000,
             timerProgressBar: true,
             background: "#1e293b",
             color: "#f1f5f9",
@@ -2226,8 +2243,8 @@ async function showUtilitiesModal(tenantId) {
         }
       }
     } else if (result.isDenied) {
-      // Delete – unchanged
-      const confirm = await Swal.fire({
+      // Delete
+      const confirm = await originalSwalFire.call(Swal, {
         title: "Delete Reading?",
         text: `Delete meter reading for ${month}? This will affect water charges.`,
         icon: "warning",
@@ -2268,14 +2285,24 @@ async function showUtilitiesModal(tenantId) {
               title: "Reading deleted",
             });
           } else {
-            Toast.fire({ icon: "error", title: "Delete failed" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 3000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "error",
+              title: "Delete failed",
+            });
           }
         } catch (err) {
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
             showConfirmButton: false,
-            timer: 2000,
+            timer: 3000,
             timerProgressBar: true,
             background: "#1e293b",
             color: "#f1f5f9",
@@ -2293,6 +2320,7 @@ async function showUtilitiesModal(tenantId) {
   utilitiesContent.removeEventListener("click", handleReadingActions);
   utilitiesContent.addEventListener("click", handleReadingActions);
 }
+
 function getPreviousMeterReading(tenant, targetMonth) {
   const sorted = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
     a.month.localeCompare(b.month)
@@ -2985,10 +3013,16 @@ document.addEventListener("click", async (e) => {
       !globalSettings.waterRatePerUnit ||
       globalSettings.waterRatePerUnit <= 0
     ) {
-      Toast.fire({
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
         icon: "warning",
         title: "Water rate not set",
-        text: "Please configure the water rate in Global Settings first.",
       });
       return;
     }
@@ -3003,13 +3037,19 @@ document.addEventListener("click", async (e) => {
       else break;
     }
 
-    // Use the override value if provided, otherwise fall back to the auto‑calculated previous
     const overrideInput = document.getElementById("override-previous-input");
     const overrideVal = overrideInput?.value;
     const effectivePrevious = overrideVal ? Number(overrideVal) : prevReading;
 
     if (reading < effectivePrevious) {
-      Toast.fire({
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
         icon: "error",
         title: `Reading cannot be less than previous reading (${effectivePrevious})`,
       });
@@ -3042,7 +3082,7 @@ document.addEventListener("click", async (e) => {
       });
       if (resp.ok) {
         tenantArray = await resp.json();
-        updateTenantList(tenantArray);
+        applyFiltersAndSort();
         updateStats(tenantArray);
 
         const paymentModal = document.getElementById("payment-modal");
@@ -3052,9 +3092,26 @@ document.addEventListener("click", async (e) => {
 
         showUtilitiesModal(window.currentActionsTenantId);
       }
-      Toast.fire({ icon: "success", title: "Meter reading saved" });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "success",
+        title: "Meter reading saved",
+      });
     } catch (err) {
-      Toast.fire({
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
         icon: "error",
         title: err.message || "Failed to save reading",
       });
@@ -3090,39 +3147,76 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.id === "modal-archive") {
     let id = window.currentActionsTenantId;
-    const result = await Swal.fire({
+
+    // Confirmation popup – keeps the safety, but uses originalSwalFire
+    const result = await originalSwalFire.call(Swal, {
       title: "Archive Tenant?",
       text: "The tenant will be hidden from the main list. You can restore them later.",
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#f59e0b",
       confirmButtonText: "Yes, archive",
+      background: "#1e293b",
+      color: "#f1f5f9",
     });
-    if (result.isConfirmed) {
-      setButtonLoading(e.target, true);
-      try {
-        let response = await fetchWithTimeout(
-          window.location.origin + `/tenants/${id}/archive`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
-        if (response.ok) {
-          await loadTenants();
-          document.getElementById("tenant-actions-modal").style.display =
-            "none";
-          document.getElementById("modal-overlay").style.display = "none";
-          document.body.classList.remove("modal-open");
-          Toast.fire({ icon: "success", title: "Tenant Archived" });
+
+    if (!result.isConfirmed) return;
+
+    setButtonLoading(e.target, true);
+    try {
+      let response = await fetchWithTimeout(
+        window.location.origin + `/tenants/${id}/archive`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
         }
-      } catch (err) {
-        Toast.fire({ icon: "error", title: err.message });
-      } finally {
-        setButtonLoading(e.target, false);
+      );
+      if (response.ok) {
+        await loadTenants();
+        document.getElementById("tenant-actions-modal").style.display = "none";
+        document.getElementById("modal-overlay").style.display = "none";
+        document.body.classList.remove("modal-open");
+
+        // Safe success toast
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Tenant Archived",
+        });
+      } else {
+        const data = await response.json();
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: data.message || "Archive failed",
+        });
       }
+    } catch (err) {
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: err.message,
+      });
+    } finally {
+      setButtonLoading(e.target, false);
     }
   }
 
@@ -4748,10 +4842,9 @@ document.addEventListener("click", async (e) => {
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
 
-  const { isConfirmed, isDenied } = await Swal.fire({
-    title: `Actions for ${tenant.name}`,
-    icon: "question",
-    iconColor: "#f59e0b",
+  // Main actions modal – uses originalSwalFire so no extra history
+  const action = await originalSwalFire.call(Swal, {
+    title: `Actions for ${escapeHtml(tenant.name)}`,
     html: `
       <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
         <button id="swal-restore-btn" style="background: #10b981; color: white; border: none; padding: 12px; border-radius: 40px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.1s;">↩️ Restore Tenant</button>
@@ -4763,9 +4856,11 @@ document.addEventListener("click", async (e) => {
     showConfirmButton: false,
     background: "#1e293b",
     color: "#f1f5f9",
+    customClass: { popup: "premium-confirm-popup" },
     didOpen: () => {
       const restoreBtn = document.getElementById("swal-restore-btn");
       const deleteBtn = document.getElementById("swal-delete-btn");
+
       if (restoreBtn) {
         restoreBtn.onclick = () => Swal.clickConfirm();
         restoreBtn.onmouseenter = () =>
@@ -4782,7 +4877,8 @@ document.addEventListener("click", async (e) => {
     },
   });
 
-  if (isConfirmed) {
+  // Restore
+  if (action.isConfirmed) {
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
@@ -4794,49 +4890,125 @@ document.addEventListener("click", async (e) => {
       );
       if (response.ok) {
         await loadTenants();
-        Toast.fire({ icon: "success", title: "Tenant restored" });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Tenant restored",
+        });
       } else {
-        Toast.fire({ icon: "error", title: "Restore failed" });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: "Restore failed",
+        });
       }
     } catch (err) {
-      Toast.fire({ icon: "error", title: err.message });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: err.message,
+      });
     } finally {
       setButtonLoading(btn, false);
     }
-  } else if (isDenied) {
-    const confirm = await Swal.fire({
+  }
+
+  // Delete permanently
+  if (action.isDenied) {
+    // Prevent flicker: set the guard before showing the confirmation
+    lastModalOpenTime = Date.now();
+
+    const confirmDelete = await originalSwalFire.call(Swal, {
       title: "Permanently Delete?",
-      text: "This action cannot be undone. All payment history will be lost.",
-      icon: "warning",
+      html: `
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+          <div style="font-size: 2.5rem; color: #ef4444;">⚠️</div>
+          <div style="font-size: 1rem; color: #f1f5f9; text-align: center;">
+            This action <strong style="color: #ef4444;">cannot be undone</strong>.
+            All payment history will be lost.
+          </div>
+        </div>
+      `,
+      icon: null,
       showCancelButton: true,
       confirmButtonColor: "#ef4444",
       confirmButtonText: "Yes, delete forever",
+      cancelButtonText: "Cancel",
       background: "#1e293b",
       color: "#f1f5f9",
+      customClass: { popup: "premium-confirm-popup" },
     });
-    if (confirm.isConfirmed) {
-      setButtonLoading(btn, true);
-      try {
-        const response = await fetchWithTimeout(
-          window.location.origin + `/tenants/${tenantId}/permanent`,
-          {
-            method: "DELETE",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
-        if (response.ok) {
-          await loadTenants();
-          Toast.fire({ icon: "success", title: "Tenant deleted permanently" });
-        } else {
-          Toast.fire({ icon: "error", title: "Delete failed" });
+
+    if (!confirmDelete.isConfirmed) return;
+
+    lastModalOpenTime = Date.now();
+    setButtonLoading(btn, true);
+    try {
+      const response = await fetchWithTimeout(
+        window.location.origin + `/tenants/${tenantId}/permanent`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
         }
-      } catch (err) {
-        Toast.fire({ icon: "error", title: err.message });
-      } finally {
-        setButtonLoading(btn, false);
+      );
+      if (response.ok) {
+        await loadTenants();
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Tenant deleted permanently",
+        });
+      } else {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: "Delete failed",
+        });
       }
+    } catch (err) {
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: err.message,
+      });
+    } finally {
+      setButtonLoading(btn, false);
     }
   }
 });

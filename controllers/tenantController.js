@@ -831,10 +831,15 @@ async function updateMeterReading(req, res) {
         ? meterReading.previousOverride
         : prevReading;
 
-    const unitsUsed = meterReading.reading - effectivePrevious;
+    let unitsUsed = meterReading.reading - effectivePrevious;
+    // Apply exempt units
+    if (meterReading.exemptUnits > 0) {
+      unitsUsed = Math.max(0, unitsUsed - meterReading.exemptUnits);
+    }
     meterReading.unitsUsed = unitsUsed;
     meterReading.cost = unitsUsed * meterReading.rate;
 
+    // Save the reading before recalculation (optional but safe)
     await tenant.save();
     await recalcFutureMonths(tenant, meterReading.month);
     tenant.markModified("paymentHistory");

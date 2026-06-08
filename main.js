@@ -5089,6 +5089,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     waterBill: generateWaterBillSms(tenant),
   };
 
+  // First popup – choose template
   const { value: message } = await Swal.fire({
     title: `📱 Send SMS to ${tenant.name}`,
     html: `
@@ -5153,10 +5154,14 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
 
   if (!message) return;
 
+  // Small delay – avoids the first click leaking into the second popup
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
   const segments = Math.max(1, Math.ceil(message.length / 160));
   const cost = segments * 0.8;
 
-  const confirmResult = await Swal.fire({
+  // Use original Swal.fire to keep the history stack clean
+  const confirmResult = await originalSwalFire.call(Swal, {
     title: "📨 Confirm SMS",
     html: `
       <div style="text-align: center;">
@@ -5186,7 +5191,6 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     color: "#f1f5f9",
     showLoaderOnConfirm: true,
     preConfirm: async () => {
-      // This code runs inside the Swal and will show a loading spinner on the confirm button
       const response = await fetchWithTimeout(
         window.location.origin + "/tenants/send-sms",
         {

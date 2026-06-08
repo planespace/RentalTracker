@@ -4889,6 +4889,175 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document
+    .getElementById("delete-all-tenants-btn")
+    ?.addEventListener("click", async () => {
+      // First confirmation – type DELETE ALL
+      const firstConfirm = await originalSwalFire.call(Swal, {
+        title: "⚠️ Delete All Tenants",
+        html: `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 20px;">
+        <div style="font-size: 1rem; color: #f1f5f9; text-align: center;">
+          This will <strong style="color: #ef4444;">permanently remove all active tenants</strong> and their payment history.
+        </div>
+        <div style="font-size: 0.9rem; color: #94a3b8; text-align: center;">
+          Type <strong style="color: #fbbf24; font-size: 1.1rem;">DELETE ALL</strong> below to confirm:
+        </div>
+        <input id="swal-confirmation-input" class="swal2-input" placeholder="DELETE ALL"
+          style="text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: 2px;
+                 width: 80%; max-width: 300px; padding: 12px;
+                 border: 2px solid #ef4444; border-radius: 8px;
+                 background: #1e293b; color: #f1f5f9;">
+      </div>
+    `,
+        icon: null,
+        showCancelButton: true,
+        confirmButtonColor: "#ef4444",
+        confirmButtonText: "Yes, delete all",
+        cancelButtonText: "Cancel",
+        background: "#1e293b",
+        color: "#f1f5f9",
+        customClass: {
+          popup: "premium-confirm-popup",
+          title: "swal2-title-delete",
+          htmlContainer: "swal2-html-container-delete",
+        },
+        preConfirm: () => {
+          const input = document.getElementById(
+            "swal-confirmation-input"
+          ).value;
+          if (input !== "DELETE ALL") {
+            Swal.showValidationMessage("You must type DELETE ALL exactly");
+            return false;
+          }
+          return true;
+        },
+        didOpen: () => {
+          const style = document.createElement("style");
+          style.textContent = `
+        .premium-confirm-popup {
+          border-radius: 32px !important;
+          padding: 30px 24px !important;
+          max-width: 480px !important;
+          width: 90% !important;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.5) !important;
+          border: 1px solid rgba(239,68,68,0.3) !important;
+        }
+        .swal2-title-delete {
+          font-size: 1.5rem !important;
+          font-weight: 700 !important;
+          color: #ef4444 !important;
+          text-align: center !important;
+        }
+        .swal2-html-container-delete {
+          display: flex !important;
+          justify-content: center !important;
+          align-items: center !important;
+          padding: 8px 0 !important;
+        }
+        #swal-confirmation-input:focus {
+          outline: none;
+          border-color: #fbbf24;
+          box-shadow: 0 0 8px rgba(245,158,11,0.5);
+        }
+      `;
+          document.head.appendChild(style);
+          Swal.getPopup().addEventListener(
+            "animationend",
+            () => style.remove(),
+            {
+              once: true,
+            }
+          );
+        },
+      });
+
+      if (!firstConfirm.isConfirmed) return;
+
+      // Prevent stray overlay click
+      lastModalOpenTime = Date.now();
+
+      // Second confirmation
+      const secondConfirm = await originalSwalFire.call(Swal, {
+        title: "Are you absolutely sure?",
+        html: `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+        <div style="font-size: 2.5rem; color: #ef4444;">⚠️</div>
+        <div style="font-size: 1rem; color: #f1f5f9; text-align: center;">
+          All tenants and their payment history will be <strong style="color: #ef4444;">permanently lost</strong>.
+        </div>
+      </div>
+    `,
+        icon: null,
+        showCancelButton: true,
+        confirmButtonColor: "#7f1d1d",
+        confirmButtonText: "Yes, delete everything",
+        cancelButtonText: "Cancel",
+        background: "#1e293b",
+        color: "#f1f5f9",
+        customClass: {
+          popup: "premium-confirm-popup",
+        },
+      });
+
+      if (!secondConfirm.isConfirmed) return;
+
+      // Prevent stray overlay click again
+      lastModalOpenTime = Date.now();
+
+      setButtonLoading(document.getElementById("delete-all-tenants-btn"), true);
+      try {
+        const response = await fetchWithTimeout("/tenants/delete-all", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+        const data = await response.json();
+        if (response.ok) {
+          await loadTenants();
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "success",
+            title: `Deleted ${data.deletedCount} tenants.`,
+          });
+        } else {
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: data.message || "Failed to delete",
+          });
+        }
+      } catch (err) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: err.message,
+        });
+      } finally {
+        setButtonLoading(
+          document.getElementById("delete-all-tenants-btn"),
+          false
+        );
+      }
+    });
+
+  document
     .getElementById("bulk-add-tenants-btn")
     ?.addEventListener("click", showBulkAddTenantsModal);
 

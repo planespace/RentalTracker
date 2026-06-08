@@ -52,6 +52,7 @@ import {
   bulkAddMeterReadings,
   bulkAddTenants,
   updateExtraCharge,
+  deleteAllTenants,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -74,8 +75,10 @@ router.post("/send-sms", smsEmailLimiter, sendManualSms);
 router.post("/send-emails", smsEmailLimiter, sendManualEmails);
 router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
 router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+router.delete("/delete-all", deleteAllTenants);
 
 router.patch("/:id/restore", restoreTenant);
+
 router.delete("/:id/permanent", permanentlyDeleteTenant);
 // ----- PARAMETERIZED ROUTES (specific patterns) -----
 router.get("/payment-status/:month", getPaymentStatusByMonth);

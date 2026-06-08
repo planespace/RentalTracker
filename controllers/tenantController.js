@@ -2561,6 +2561,16 @@ async function updateExtraCharge(req, res) {
   }
 }
 
+async function deleteAllTenants(req, res) {
+  try {
+    const userId = req.userId;
+    const result = await Tenant.deleteMany({ userId, active: true });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 // ========================
 //   EXPORTS
 // ========================
@@ -2606,4 +2616,5 @@ export {
   bulkAddMeterReadings,
   bulkAddTenants,
   updateExtraCharge,
+  deleteAllTenants,
 };

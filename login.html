@@ -100,7 +100,7 @@
     </div>
 
     <script>
-      // Toggle between forms (existing)
+      // Toggle between forms
       document.getElementById("show-register").addEventListener("click", () => {
         document.getElementById("login-form").style.display = "none";
         document.getElementById("register-form").style.display = "block";
@@ -110,21 +110,121 @@
         document.getElementById("login-form").style.display = "block";
       });
 
-      // Register (existing)
+      // ---------- REGISTER ----------
       document
         .getElementById("register-btn")
         .addEventListener("click", async () => {
-          // … keep your existing register code …
+          const name = document.getElementById("reg-name").value.trim();
+          const email = document.getElementById("reg-email").value.trim();
+          const password = document.getElementById("reg-password").value;
+          const errorDiv = document.getElementById("register-error");
+          errorDiv.textContent = "";
+
+          if (!name) {
+            errorDiv.textContent = "Name is required.";
+            return;
+          }
+          if (!email || !password) {
+            errorDiv.textContent = "Email and password are required";
+            return;
+          }
+          if (password.length < 6) {
+            errorDiv.textContent = "Password must be at least 6 characters.";
+            return;
+          }
+
+          try {
+            const res = await fetch("/auth/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name, email, password }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              Swal.fire({
+                icon: "success",
+                title: "Account Created",
+                text: "Please login to continue.",
+                timer: 2000,
+                showConfirmButton: false,
+                background: "#1e293b",
+                color: "#f1f5f9",
+                iconColor: "#10b981",
+              });
+              // Switch to login form
+              document.getElementById("register-form").style.display = "none";
+              document.getElementById("login-form").style.display = "block";
+              document.getElementById("reg-name").value = "";
+              document.getElementById("reg-email").value = "";
+              document.getElementById("reg-password").value = "";
+            } else {
+              errorDiv.textContent = data.message || "Registration failed";
+            }
+          } catch (err) {
+            errorDiv.textContent = "Network error";
+          }
         });
 
-      // Login (existing)
+      // ---------- LOGIN ----------
       document
         .getElementById("login-btn")
         .addEventListener("click", async () => {
-          // … keep your existing login code …
+          const email = document.getElementById("login-email").value.trim();
+          const password = document.getElementById("login-password").value;
+          const errorDiv = document.getElementById("login-error");
+          errorDiv.textContent = "";
+
+          if (!email || !password) {
+            errorDiv.textContent = "Email and password are required";
+            return;
+          }
+
+          try {
+            const res = await fetch("/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              localStorage.setItem("token", data.token);
+
+              // Prefetch tenants in the background (optional, but nice)
+              fetch("/tenants", {
+                headers: { Authorization: `Bearer ${data.token}` },
+              })
+                .then((r) => r.ok && r.json())
+                .then((tenants) => {
+                  if (tenants) {
+                    sessionStorage.setItem(
+                      "prefetchedTenants",
+                      JSON.stringify(tenants)
+                    );
+                  }
+                })
+                .catch(() => {});
+
+              Swal.fire({
+                icon: "success",
+                title: "Welcome back!",
+                text: "Loading your dashboard...",
+                timer: 1500,
+                showConfirmButton: false,
+                background: "#1e293b",
+                color: "#f1f5f9",
+                iconColor: "#10b981",
+              }).then(() => {
+                window.location.replace("mainPage.html");
+              });
+            } else {
+              errorDiv.textContent = data.message || "Login failed";
+            }
+          } catch (err) {
+            errorDiv.textContent = "Network error";
+          }
         });
 
-      // ---------- NEW: Forgot Password handler ----------
+      // ---------- FORGOT PASSWORD ----------
       document
         .getElementById("forgot-password-link")
         .addEventListener("click", async () => {

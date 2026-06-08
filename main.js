@@ -1260,18 +1260,9 @@ async function saveExtraChargesForMonth(tenantId, entryId, month) {
     const t = tenantArray.find((t) => t._id === tenantId);
     if (t && data.paymentHistory) {
       t.paymentHistory = data.paymentHistory;
-      console.log(
-        "✅ Updated tenantArray, first entry extraCharges:",
-        t.paymentHistory[0]?.extraCharges
-      );
-      console.log(
-        "✅ Updated tenantArray, first entry remainingBalance:",
-        t.paymentHistory[0]?.remainingBalance
-      );
-      console.log(
-        "✅ Updated tenantArray, first entry totalDue:",
-        t.paymentHistory[0]?.totalDue
-      );
+      // Refresh main tenant list so balance/overdue updates immediately
+      applyFiltersAndSort();
+      updateStats(tenantArray);
     } else {
       console.warn(
         "⚠️ Could not update tenantArray – tenant not found or missing paymentHistory in response"
@@ -1810,10 +1801,14 @@ function renderPaymentModal(tenantId) {
       list.appendChild(editRow);
 
       const cancelBtn = editRow.querySelector(".cancel-extra-btn");
-      cancelBtn.addEventListener("click", () => editRow.remove());
+      cancelBtn.addEventListener("click", () => {
+        e.stopPropagation();
+        editRow.remove();
+      });
 
       const saveBtn = editRow.querySelector(".save-extra-btn");
       saveBtn.addEventListener("click", async () => {
+        e.stopPropagation();
         const amount =
           parseFloat(editRow.querySelector(".edit-amount").value) || 0;
         const description = editRow.querySelector(".edit-desc").value.trim();
@@ -1851,6 +1846,7 @@ function renderPaymentModal(tenantId) {
 
     // Edit / Delete via event delegation
     list.addEventListener("click", async (e) => {
+      e.stopPropagation();
       const line = e.target.closest(".extra-charge-line");
       if (!line) return;
 
@@ -1868,6 +1864,8 @@ function renderPaymentModal(tenantId) {
           color: "#f1f5f9",
         });
         if (!confirmResult.isConfirmed) return;
+
+        e.stopPropagation();
 
         lastModalOpenTime = Date.now();
         line.remove();
@@ -1899,10 +1897,14 @@ function renderPaymentModal(tenantId) {
         line.replaceWith(editForm);
 
         const cancelBtn = editForm.querySelector(".cancel-extra-btn");
-        cancelBtn.addEventListener("click", () => editForm.replaceWith(line));
+        cancelBtn.addEventListener("click", () => {
+          e.stopPropagation();
+          editForm.replaceWith(line);
+        });
 
         const saveBtn = editForm.querySelector(".save-extra-btn");
         saveBtn.addEventListener("click", async () => {
+          e.stopPropagation();
           const newAmount =
             parseFloat(editForm.querySelector(".edit-amount").value) || 0;
           const newDesc = editForm.querySelector(".edit-desc").value.trim();
@@ -2194,8 +2196,8 @@ async function showUtilitiesModal(tenantId) {
             );
             if (resp.ok) {
               tenantArray = await resp.json();
-                   applyFiltersAndSort();
-                   updateStats(tenantArray);
+              applyFiltersAndSort();
+              updateStats(tenantArray);
               const paymentModal = document.getElementById("payment-modal");
               if (paymentModal && paymentModal.style.display === "block") {
                 renderPaymentModal(window.currentActionsTenantId);
@@ -5473,7 +5475,7 @@ async function showBulkWaterReadingModal() {
   `;
   document.head.appendChild(styleTag);
 
-  const { isConfirmed } = await Swal.fire({
+  const result = await Swal.fire({
     title: "📋 Bulk Water Reading",
     html: `
       <div style="display:flex; flex-direction:column; gap:16px;">
@@ -5505,41 +5507,10 @@ async function showBulkWaterReadingModal() {
           const tableDiv = document.getElementById("bulk-reading-table");
           if (tableDiv) tableDiv.innerHTML = renderTable(newMonth);
         });
-
-      // Live highlight as user types
-      document.addEventListener("input", (e) => {
-        if (
-          !e.target.classList.contains("bulk-reading-input") &&
-          !e.target.classList.contains("bulk-override-input")
-        )
-          return;
-        const row = e.target.closest("tr");
-        if (!row) return;
-        const readingInput = row.querySelector(".bulk-reading-input");
-        const overrideInput = row.querySelector(".bulk-override-input");
-        if (!readingInput) return;
-
-        const readingVal = parseFloat(readingInput.value);
-        const prevAutoText = row.querySelector("td:nth-child(3)")?.textContent; // "Prev" column
-        const prevAuto = prevAutoText ? parseFloat(prevAutoText) : 0;
-        const overrideVal = overrideInput
-          ? parseFloat(overrideInput.value)
-          : NaN;
-        const effectivePrevious = !isNaN(overrideVal) ? overrideVal : prevAuto;
-
-        if (
-          !isNaN(readingVal) &&
-          !isNaN(effectivePrevious) &&
-          readingVal < effectivePrevious
-        ) {
-          row.classList.add("bulk-invalid-row");
-        } else {
-          row.classList.remove("bulk-invalid-row");
-        }
-      });
     },
-    preConfirm: async () => {
+    preConfirm: () => {
       const selectedMonth = document.getElementById("bulk-reading-month").value;
+      // Force a blur on any focused input so its value is committed
       if (document.activeElement) document.activeElement.blur();
 
       const readingInputs = document.querySelectorAll(".bulk-reading-input");
@@ -5574,21 +5545,6 @@ async function showBulkWaterReadingModal() {
         );
         return false;
       }
-
-      // Confirmation before save
-      const confirmResult = await originalSwalFire.call(Swal, {
-        title: "Save Water Readings?",
-        html: `You are about to save <strong>${readings.length}</strong> reading(s) for <strong>${selectedMonth}</strong>.`,
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonColor: "#10b981",
-        cancelButtonColor: "#ef4444",
-        confirmButtonText: "Yes, save all",
-        background: "#1e293b",
-        color: "#f1f5f9",
-      });
-
-      if (!confirmResult.isConfirmed) return false; // cancel the main save
       return readings;
     },
     willClose: () => {
@@ -5596,9 +5552,9 @@ async function showBulkWaterReadingModal() {
     },
   });
 
-  if (!isConfirmed) return;
+  if (!result.isConfirmed) return;
 
-  const readingsArray = isConfirmed;
+  const readingsArray = result.value;
   setButtonLoading(document.getElementById("bulk-water-btn"), true);
   try {
     const response = await fetchWithTimeout("/tenants/bulk-meter-reading", {
@@ -8042,8 +7998,8 @@ function closeDropdownIfOpen() {
     if (menuBtn) menuBtn.blur();
 
     // Remove the dropdown's history entry safely
-    window.ignoreNextPopstate = true;
-    window.history.back(); // pops the dropdown's state
+    window.ignoreNextPopstate = true; // <-- prevents the popstate handler from firing
+    popModalState(); // <-- pops the dropdown's entry
   }
 }
 

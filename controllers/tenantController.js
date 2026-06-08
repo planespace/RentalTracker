@@ -1366,6 +1366,7 @@ async function addMeterReading(req, res) {
     const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
     if (!tenant) return res.status(404).json({ message: "Tenant not found" });
 
+    // Determine the auto‑calculated previous reading
     const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
       a.month.localeCompare(b.month)
     );
@@ -1384,16 +1385,23 @@ async function addMeterReading(req, res) {
     const settings = await getGlobalSettings(tenant.userId);
     const rate = settings.waterRatePerUnit;
 
+    // Calculate units and cost immediately (same logic as updateMeterReading)
+    const effectivePrevious =
+      previousOverride != null ? Number(previousOverride) : prevReading;
+    let unitsUsed = reading - effectivePrevious;
+    const exempt = exemptUnits ? Number(exemptUnits) : 0;
+    if (exempt > 0) unitsUsed = Math.max(0, unitsUsed - exempt);
+
+    // Update or create the reading
     let existing = tenant.waterMeterReadings.find((r) => r.month === month);
     if (existing) {
       existing.reading = reading;
       existing.rate = rate;
       existing.previousOverride =
-        previousOverride != null
-          ? Number(previousOverride)
-          : existing.previousOverride;
-      existing.exemptUnits =
-        exemptUnits !== undefined ? Number(exemptUnits) : existing.exemptUnits;
+        previousOverride != null ? Number(previousOverride) : null;
+      existing.exemptUnits = exempt;
+      existing.unitsUsed = unitsUsed;
+      existing.cost = unitsUsed * rate;
     } else {
       tenant.waterMeterReadings.push({
         month,
@@ -1401,13 +1409,21 @@ async function addMeterReading(req, res) {
         rate,
         previousOverride:
           previousOverride != null ? Number(previousOverride) : null,
-        exemptUnits: exemptUnits ? Number(exemptUnits) : 0,
+        exemptUnits: exempt,
+        unitsUsed,
+        cost: unitsUsed * rate,
       });
     }
 
+    // Mark the water‑reading array as modified so the changes are persisted
+    tenant.markModified("waterMeterReadings");
+
+    // Save the reading first, then recalculate future months
     await tenant.save();
     await recalcFutureMonths(tenant, month);
     tenant.markModified("paymentHistory");
+    // waterMeterReadings might have been updated inside recalcFutureMonths too,
+    // so mark it again just in case
     tenant.markModified("waterMeterReadings");
     await tenant.save();
 
@@ -1659,6 +1675,12 @@ async function importTenants(req, res) {
 async function bulkAddMeterReadings(req, res) {
   try {
     const { readings } = req.body;
+
+    console.log("📥 bulk meter readings received:", readings);
+
+    console.log("📥 req.body:", req.body);
+    console.log("📥 readings:", readings);
+
     if (!Array.isArray(readings) || readings.length === 0) {
       return res.status(400).json({ message: "No readings provided" });
     }

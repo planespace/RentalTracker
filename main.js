@@ -5156,7 +5156,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   const segments = Math.max(1, Math.ceil(message.length / 160));
   const cost = segments * 0.8;
 
-  const confirm = await Swal.fire({
+  const confirmResult = await Swal.fire({
     title: "📨 Confirm SMS",
     html: `
       <div style="text-align: center;">
@@ -5184,39 +5184,30 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     cancelButtonText: "Cancel",
     background: "#1e293b",
     color: "#f1f5f9",
+    showLoaderOnConfirm: true,
+    preConfirm: async () => {
+      // This code runs inside the Swal and will show a loading spinner on the confirm button
+      const response = await fetchWithTimeout(
+        window.location.origin + "/tenants/send-sms",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({ tenantIds: [tenantId], message }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok || !(data.results || [])[0]?.success) {
+        throw new Error(data.message || "Failed to send SMS");
+      }
+      return data;
+    },
   });
 
-  if (!confirm.isConfirmed) return;
-
-  const btn = document.getElementById("modal-send-sms");
-  setButtonLoading(btn, true);
-  try {
-    const response = await fetchWithTimeout(
-      window.location.origin + "/tenants/send-sms",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({ tenantIds: [tenantId], message }),
-      }
-    );
-    const data = await response.json();
-    if (response.ok) {
-      const success = (data.results || [])[0]?.success;
-      if (success) {
-        Toast.fire({ icon: "success", title: "SMS sent successfully" });
-      } else {
-        Toast.fire({ icon: "error", title: "Failed to send SMS" });
-      }
-    } else {
-      Toast.fire({ icon: "error", title: data.message || "Failed to send" });
-    }
-  } catch (err) {
-    Toast.fire({ icon: "error", title: err.message });
-  } finally {
-    setButtonLoading(btn, false);
+  if (confirmResult.isConfirmed) {
+    Toast.fire({ icon: "success", title: "SMS sent successfully" });
   }
 }
 function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {

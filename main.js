@@ -4382,7 +4382,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   }
 }
 function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
-  const logoUrl = "https://i.ibb.co/jKbRCvq/logo1.png";
+  const logoUrl = window.LOGO_BASE64;
   const today = getAppToday();
   const overdue = getTenantPastDueAmount(tenant, today); // total overdue (respects initialPastDue)
   const totalOutstanding = getTenantTotalOutstanding(tenant);

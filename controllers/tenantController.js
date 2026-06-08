@@ -15,7 +15,7 @@ import https from "https";
 import { sendOverdueEmailRemindersForUser } from "../services/emailService.js";
 import EmailLog from "../models/EmailLog.js";
 import { sendBulkEmails } from "../services/emailService.js";
-
+import LOGO_BASE64 from "../logoConfig.js";
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -607,7 +607,7 @@ async function getExportStatement(req, res) {
     const user = await User.findById(req.userId);
     const landlordDisplay = user.landlordName || user.name || "Landlord";
     const todayDateStr = today.toLocaleDateString();
-    const logoUrl = "https://i.ibb.co/jKbRCvq/logo1.png";
+    const logoUrl = LOGO_BASE64;
 
     // ---------- HTML with logo and escaped content ----------
     let html = `
@@ -1695,7 +1695,7 @@ async function getTenantStatement(req, res) {
     }
 
     const overdueBalance = getPastDueAmount(tenant);
-    const logoUrl = "https://i.ibb.co/jKbRCvq/logo1.png";
+    const logoUrl = LOGO_BASE64;
     // ---------- HTML with escaped dynamic content ----------
     let html = `
 <!DOCTYPE html>

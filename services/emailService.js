@@ -1,9 +1,9 @@
-//services/emailService.js
+// services/emailService.js
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import EmailLog from "../models/EmailLog.js";
 import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
-import User from "../models/User.js"; // ✅ static import
+import User from "../models/User.js";
 import { getOverdueTenants } from "./smsService.js";
 
 // Configure Brevo client
@@ -100,7 +100,11 @@ export async function sendEmail(
 }
 
 // Send overdue reminder emails for a user
-export async function sendOverdueEmailRemindersForUser(userId, force = false) {
+export async function sendOverdueEmailRemindersForUser(
+  userId,
+  todayOverride,
+  force = false
+) {
   // Load settings
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {
@@ -110,118 +114,220 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
       waterRatePerUnit: 0,
       defaultDueDay: 1,
       autoRemindersEnabled: true,
-      autoEmailRemindersEnabled: true, // 👈 ensure it exists
+      autoEmailRemindersEnabled: true,
     });
     await settings.save();
   }
 
-  // Respect the email‑reminder toggle
-  if (!settings.autoEmailRemindersEnabled) {
+  // Respect the email‑reminder toggle, unless forced (manual resend)
+  if (!force && !settings.autoEmailRemindersEnabled) {
     console.log(
       `[Email Reminder] Auto email reminders disabled for user ${userId}`
     );
     return [];
   }
 
-  const overdueTenants = await getOverdueTenants(userId);
+  // Use the provided date to find overdue tenants
+  const overdueTenants = await getOverdueTenants(userId, todayOverride);
   const results = [];
 
   // Fetch landlord info once
-  const User = (await import("../models/User.js")).default;
   const user = await User.findById(userId);
   const landlordName = user?.landlordName || user?.name || "Landlord";
+
+  // The date used for all comparisons inside the loop
+  const refDate = todayOverride || new Date();
 
   for (const tenant of overdueTenants) {
     if (!tenant.email) continue;
 
-    // ---------- Build list of overdue months ----------
-    const months = [
-      ...new Set(tenant.paymentHistory.map((e) => e.month)),
-    ].sort();
-    const overdueMonths = [];
-    let prevCumulative = 0;
+    // ---------- Build structured data for all months up to the current billing month ----------
+    const allEntries = [...tenant.paymentHistory].sort((a, b) => {
+      if (a.month !== b.month) return a.month.localeCompare(b.month);
+      const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
+      const bDate = b.datePaid ? new Date(b.datePaid).getTime() : 0;
+      if (aDate !== bDate) return aDate - bDate;
+      return a._id.toString().localeCompare(b._id.toString());
+    });
 
-    for (const month of months) {
-      const chargeEntry = tenant.paymentHistory.find(
+    const allMonths = [...new Set(allEntries.map((e) => e.month))].sort();
+    const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
+
+    // Determine deposit period range
+    let depositEndMonth = null;
+    if (
+      firstMonth &&
+      tenant.deposit &&
+      tenant.depositPeriod &&
+      tenant.depositPeriod > 0
+    ) {
+      const [fy, fm] = firstMonth.split("-").map(Number);
+      const endDate = new Date(Date.UTC(fy, fm - 1 + tenant.depositPeriod, 0));
+      depositEndMonth = `${endDate.getUTCFullYear()}-${String(
+        endDate.getUTCMonth() + 1
+      ).padStart(2, "0")}`;
+    }
+
+    // Compute standalone left for each month (same as frontend)
+    const leftByMonth = new Map();
+    let prevCumulative = 0;
+    for (const month of allMonths) {
+      const chargeEntry = allEntries.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
-      if (!chargeEntry?.dueDate) continue;
-      const due = new Date(chargeEntry.dueDate);
-      if (due >= new Date()) continue;
-
+      if (!chargeEntry) continue;
       const cumulative = chargeEntry.remainingBalance;
-      const standalone = cumulative - prevCumulative;
+      const monthLeft = Math.max(0, cumulative) - Math.max(0, prevCumulative);
+      leftByMonth.set(month, monthLeft);
       prevCumulative = cumulative;
-      if (standalone > 0) {
-        const rent = chargeEntry.baseRent || tenant.rent;
-        const water = chargeEntry.waterCharge || 0;
-        const garbage = chargeEntry.garbageCharge || 0;
-        overdueMonths.push({
-          month,
-          standalone,
-          total: chargeEntry.totalDue || rent + water + garbage,
-          rent,
-          water,
-          garbage,
-        });
+    }
+
+    // Determine current billing month (first month with due date >= refDate)
+    let currentBillingMonth = allMonths[allMonths.length - 1];
+    for (const month of allMonths) {
+      const chargeEntry = allEntries.find(
+        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      if (chargeEntry?.dueDate) {
+        const due = new Date(chargeEntry.dueDate);
+        if (due >= refDate) {
+          currentBillingMonth = month;
+          break;
+        }
       }
     }
 
-    if (overdueMonths.length === 0) continue;
-
-    // ---------- Once‑per‑month guard ----------
-    const newestOverdueMonth = overdueMonths[overdueMonths.length - 1]?.month;
-    if (!newestOverdueMonth) continue;
-
-    if (
-      !force &&
-      tenant.emailReminderSentMonths &&
-      tenant.emailReminderSentMonths.includes(newestOverdueMonth)
-    ) {
-      console.log(
-        `[Email Reminder] Already sent for ${tenant.name} (${newestOverdueMonth}), skipping`
+    // Build table rows for all months up to current billing month
+    let tableRows = "";
+    for (const month of allMonths) {
+      const chargeEntry = allEntries.find(
+        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
-      continue;
+      if (!chargeEntry) continue;
+      if (month > currentBillingMonth) break;
+
+      const rentAmount = tenant.rent;
+      let depositInstalment = 0;
+      if (
+        firstMonth &&
+        tenant.deposit &&
+        tenant.depositPeriod &&
+        month >= firstMonth &&
+        month <= depositEndMonth
+      ) {
+        depositInstalment = Math.round(tenant.rent / tenant.depositPeriod);
+      }
+
+      const waterCharge = chargeEntry.waterCharge || 0;
+      const garbageCharge = chargeEntry.garbageCharge || 0;
+      const totalDue =
+        chargeEntry.totalDue ||
+        rentAmount + depositInstalment + waterCharge + garbageCharge;
+
+      const paymentsThisMonth = allEntries.filter(
+        (e) => e.month === month && e.amountPaid > 0
+      );
+      const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
+
+      const monthLeft = leftByMonth.get(month) || 0;
+      const dueDate = chargeEntry.dueDate
+        ? new Date(chargeEntry.dueDate)
+        : null;
+      const isPastDueByDate = dueDate && dueDate < refDate && monthLeft > 0;
+      const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
+      const isOverdue = isPastDueByDate || isInitialPastDue;
+
+      const balance = chargeEntry.remainingBalance;
+      let status = "";
+      if (balance <= 0) status = "Paid";
+      else if (isOverdue) status = "Overdue";
+      else status = "Pending";
+
+      const rowBg = isOverdue ? "#fff5f5" : "transparent";
+      const statusColor = isOverdue ? "#d32f2f" : "#2e7d32";
+
+      tableRows += `
+        <tr style="background:${rowBg};">
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${escapeHtml(
+            month
+          )}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${rentAmount.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
+            depositInstalment > 0 ? depositInstalment.toLocaleString() : "—"
+          }</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${waterCharge.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${garbageCharge.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${totalDue.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
+            paid > 0 ? paid.toLocaleString() : "—"
+          }</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; ${
+            monthLeft > 0 ? "color:#d32f2f;" : "color:#2e7d32;"
+          }">${monthLeft.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; color:${statusColor};">${status}</td>
+        </tr>`;
     }
 
-    const totalOverdue = overdueMonths.reduce(
-      (sum, m) => sum + m.standalone,
-      0
-    );
+    // Compute total overdue (sum of standalone balances of overdue months)
+    const totalOverdue = Array.from(leftByMonth.keys())
+      .filter((month) => {
+        const entry = allEntries.find(
+          (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+        );
+        if (!entry?.dueDate) return false;
+        const due = new Date(entry.dueDate);
+        return due < refDate && (leftByMonth.get(month) || 0) > 0;
+      })
+      .reduce((sum, month) => sum + (leftByMonth.get(month) || 0), 0);
 
-    // ---------- Build HTML content ----------
-    let htmlBody = `
-      <p style="font-size:16px; color:#1e293b;">Dear ${escapeHtml(
+    // Note at the bottom
+    let note = "";
+    if (totalOverdue > 0) {
+      note = `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+                <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+                <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
+              </div>`;
+    } else {
+      note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+                <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
+              </div>`;
+    }
+
+    // Build the inner HTML for the premium wrapper
+    const innerHtml = `
+      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
         tenant.name
       )},</p>
-      <p style="font-size:15px; color:#475569;">You have the following overdue rent:</p>
-      <table style="width:100%; border-collapse:collapse; margin:20px 0; font-size:15px;">
+      <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
+
+      <table style="width:100%; border-collapse:collapse; font-size:16px;">
         <thead>
           <tr style="background:#f1f5f9;">
-            <th style="padding:10px; text-align:left;">Month</th>
-            <th style="padding:10px; text-align:right;">Amount Owed</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
           </tr>
         </thead>
         <tbody>
-    `;
-    overdueMonths.forEach((m) => {
-      htmlBody += `
-        <tr>
-          <td style="padding:10px; border-bottom:1px solid #e0e0e0;">${escapeHtml(
-            m.month
-          )}</td>
-          <td style="padding:10px; text-align:right; border-bottom:1px solid #e0e0e0;">KES ${m.standalone.toLocaleString()}</td>
-        </tr>
-      `;
-    });
-    htmlBody += `
+          ${tableRows}
         </tbody>
       </table>
-      <p style="font-size:16px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
-      <p style="font-size:15px; color:#475569; margin-top:20px;">Please pay at your earliest convenience. Thank you!</p>
+
+      ${note}
+
+      <p style="font-size:15px; color:#64748b; margin-top:35px; text-align:center; line-height:1.6;">
+        If you have any questions, please contact your landlord.<br>
+        This statement was generated on ${refDate.toLocaleDateString()}.
+      </p>
     `;
 
-    const wrappedHtml = wrapPremiumEmail(htmlBody, landlordName);
+    const wrappedHtml = wrapPremiumEmail(innerHtml, landlordName);
 
     // ---------- Send and record ----------
     try {
@@ -234,7 +340,20 @@ export async function sendOverdueEmailRemindersForUser(userId, force = false) {
       );
 
       // Remember that we sent the email for this month
-      if (!force) {
+      const newestOverdueMonth = allMonths
+        .filter((month) => {
+          const entry = allEntries.find(
+            (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+          );
+          if (!entry?.dueDate) return false;
+          return (
+            new Date(entry.dueDate) < refDate &&
+            (leftByMonth.get(month) || 0) > 0
+          );
+        })
+        .pop();
+
+      if (!force && newestOverdueMonth) {
         if (!tenant.emailReminderSentMonths)
           tenant.emailReminderSentMonths = [];
         tenant.emailReminderSentMonths.push(newestOverdueMonth);

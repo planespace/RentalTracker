@@ -1506,6 +1506,7 @@ async function importTenants(req, res) {
     const errors = [];
 
     for (const t of tenants) {
+      // Basic required fields
       if (!t.name || !t.phoneNumber || !t.houseNumber || !t.rent) {
         errors.push(
           `Skipped row: missing required fields - ${JSON.stringify(t)}`
@@ -1519,6 +1520,7 @@ async function importTenants(req, res) {
         continue;
       }
 
+      // Duplicate check
       const existing = await Tenant.findOne({
         userId,
         $or: [{ houseNumber: t.houseNumber }, { name: t.name }],
@@ -1528,6 +1530,7 @@ async function importTenants(req, res) {
         continue;
       }
 
+      // dueDay – from CSV, fallback to global default
       let dueDayNum = settings.defaultDueDay || 1;
       if (t.dueDay !== undefined && t.dueDay !== "") {
         const parsed = parseInt(t.dueDay);
@@ -1536,6 +1539,7 @@ async function importTenants(req, res) {
         }
       }
 
+      // Deposit logic
       let deposit = false;
       let depositPeriod = 1;
       if (t.depositPeriod !== undefined && t.depositPeriod !== "") {
@@ -1546,7 +1550,39 @@ async function importTenants(req, res) {
         }
       }
 
+      // New tenant flag
+      const newTenant =
+        t.newTenant === true ||
+        t.newTenant === "true" ||
+        t.newTenant === "TRUE";
+
+      // Entry date
       const entryDate = t.entryDate ? new Date(t.entryDate) : new Date();
+      entryDate.setHours(0, 0, 0, 0);
+
+      // Determine first month and due date using the same rules as createTenant
+      const referenceDate = entryDate > today ? entryDate : today;
+      const { month: startMonth } = getNextDueDateAndMonth(
+        { dueDay: dueDayNum },
+        referenceDate
+      );
+
+      let firstDueDate;
+      let initialPastDue = false;
+
+      if (newTenant) {
+        // New tenant – rent due on entry
+        firstDueDate = entryDate;
+        initialPastDue = true;
+      } else {
+        // Existing tenant – normal next due date
+        const { dueDate: computedDueDate } = getNextDueDateAndMonth(
+          { dueDay: dueDayNum },
+          referenceDate
+        );
+        firstDueDate = computedDueDate;
+      }
+
       const depositInstalment = deposit
         ? Math.round(rentNum / depositPeriod)
         : 0;
@@ -1556,7 +1592,25 @@ async function importTenants(req, res) {
       const totalDue =
         baseRent + depositInstalment + waterCharge + garbageCharge;
 
-      const newTenant = new Tenant({
+      const paymentEntry = {
+        month: startMonth,
+        baseRent: baseRent + depositInstalment,
+        waterCharge,
+        garbageCharge,
+        totalDue,
+        amountPaid: 0,
+        remainingBalance: totalDue,
+        paid: false,
+        datePaid: null,
+        dueDate: firstDueDate,
+        mpesaRef: "",
+      };
+
+      if (initialPastDue) {
+        paymentEntry.initialPastDue = true;
+      }
+
+      const newTenantDoc = new Tenant({
         userId,
         name: t.name,
         rent: rentNum,
@@ -1569,25 +1623,11 @@ async function importTenants(req, res) {
         deposit,
         depositPeriod,
         active: true,
-        paymentHistory: [
-          {
-            month: currentMonth,
-            baseRent: baseRent + depositInstalment,
-            waterCharge,
-            garbageCharge,
-            totalDue,
-            amountPaid: 0,
-            remainingBalance: totalDue,
-            paid: false,
-            datePaid: null,
-            dueDate: getDueDateForMonth(dueDayNum, currentMonth, today),
-            mpesaRef: "",
-          },
-        ],
+        paymentHistory: [paymentEntry],
       });
 
-      await newTenant.save();
-      created.push(newTenant);
+      await newTenantDoc.save();
+      created.push(newTenantDoc);
     }
 
     res.json({
@@ -1595,6 +1635,200 @@ async function importTenants(req, res) {
       created: created.length,
       errors: errors.length > 0 ? errors : undefined,
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+async function bulkAddMeterReadings(req, res) {
+  try {
+    const { readings } = req.body;
+    if (!Array.isArray(readings) || readings.length === 0) {
+      return res.status(400).json({ message: "No readings provided" });
+    }
+
+    const settings = await getGlobalSettings(req.userId);
+    const rate = settings.waterRatePerUnit;
+    let saved = 0;
+    let errors = [];
+
+    for (const r of readings) {
+      const tenant = await Tenant.findOne({
+        _id: r.tenantId,
+        userId: req.userId,
+      });
+      if (!tenant) continue;
+
+      // Determine auto previous reading
+      const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
+        a.month.localeCompare(b.month)
+      );
+      let prevAuto = 0;
+      for (const wr of allReadings) {
+        if (wr.month < r.month) prevAuto = wr.reading;
+        else break;
+      }
+
+      const effectivePrevious =
+        r.previousOverride != null ? r.previousOverride : prevAuto;
+      if (r.reading < effectivePrevious) {
+        errors.push(
+          `${tenant.name}: reading (${r.reading}) is less than previous (${effectivePrevious})`
+        );
+        continue;
+      }
+
+      let unitsUsed = r.reading - effectivePrevious;
+      if (r.exemptUnits) unitsUsed = Math.max(0, unitsUsed - r.exemptUnits);
+      const cost = unitsUsed * rate;
+
+      let existing = tenant.waterMeterReadings.find(
+        (wr) => wr.month === r.month
+      );
+      if (existing) {
+        existing.reading = r.reading;
+        existing.rate = rate;
+        existing.previousOverride =
+          r.previousOverride != null ? r.previousOverride : null;
+        existing.exemptUnits = r.exemptUnits || 0;
+        existing.unitsUsed = unitsUsed;
+        existing.cost = cost;
+      } else {
+        tenant.waterMeterReadings.push({
+          month: r.month,
+          reading: r.reading,
+          rate,
+          previousOverride:
+            r.previousOverride != null ? r.previousOverride : null,
+          exemptUnits: r.exemptUnits || 0,
+          unitsUsed,
+          cost,
+        });
+      }
+
+      tenant.markModified("waterMeterReadings");
+      await recalcFutureMonths(tenant, r.month);
+      tenant.markModified("paymentHistory");
+      await tenant.save();
+      saved++;
+    }
+
+    res.json({ success: true, saved, errors });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+async function bulkAddTenants(req, res) {
+  try {
+    const { tenants } = req.body;
+    const userId = req.userId;
+    const today = getEffectiveToday(req);
+    const settings = await getGlobalSettings(req.userId);
+
+    if (!Array.isArray(tenants) || tenants.length === 0) {
+      return res.status(400).json({ message: "No tenants provided" });
+    }
+
+    const created = [];
+    const errors = [];
+
+    for (const t of tenants) {
+      if (!t.name || !t.phoneNumber || !t.houseNumber || !t.rent || !t.dueDay) {
+        errors.push(`${t.name || "Unknown"}: missing required fields`);
+        continue;
+      }
+
+      const rentNum = Number(t.rent);
+      if (isNaN(rentNum) || rentNum <= 0) {
+        errors.push(`${t.name}: invalid rent`);
+        continue;
+      }
+
+      // Duplicate check
+      const existing = await Tenant.findOne({
+        userId,
+        $or: [{ houseNumber: t.houseNumber }, { name: t.name }],
+      });
+      if (existing) {
+        errors.push(`${t.name}: duplicate name or house number`);
+        continue;
+      }
+
+      let dueDayNum = Number(t.dueDay);
+      if (!dueDayNum || dueDayNum < 1 || dueDayNum > 31) {
+        dueDayNum = settings.defaultDueDay || 1;
+      }
+
+      const entryDate = t.entryDate ? new Date(t.entryDate) : new Date();
+      entryDate.setHours(0, 0, 0, 0);
+
+      const referenceDate = entryDate > today ? entryDate : today;
+      const { month: startMonth } = getNextDueDateAndMonth(
+        { dueDay: dueDayNum },
+        referenceDate
+      );
+
+      let firstDueDate;
+      let initialPastDue = false;
+
+      if (t.newTenant) {
+        firstDueDate = entryDate;
+        initialPastDue = true;
+      } else {
+        const { dueDate: computedDueDate } = getNextDueDateAndMonth(
+          { dueDay: dueDayNum },
+          referenceDate
+        );
+        firstDueDate = computedDueDate;
+      }
+
+      const depPeriod =
+        t.depositPeriod !== undefined ? Number(t.depositPeriod) : 1;
+      const deposit = depPeriod > 0;
+      const depositInstalment = deposit ? Math.round(rentNum / depPeriod) : 0;
+      const baseRent = rentNum;
+      const waterCharge = 0;
+      const garbageCharge = settings.garbageFee;
+      const totalDue =
+        baseRent + depositInstalment + waterCharge + garbageCharge;
+
+      const paymentEntry = {
+        amountPaid: 0,
+        remainingBalance: totalDue,
+        month: startMonth,
+        paid: false,
+        datePaid: null,
+        dueDate: firstDueDate,
+        baseRent: baseRent + depositInstalment,
+        waterCharge,
+        garbageCharge,
+        totalDue,
+        mpesaRef: "",
+      };
+      if (initialPastDue) paymentEntry.initialPastDue = true;
+
+      const newTenantDoc = new Tenant({
+        userId,
+        name: t.name,
+        rent: rentNum,
+        phoneNumber: t.phoneNumber,
+        houseNumber: t.houseNumber,
+        email: t.email || "",
+        notes: t.notes || "",
+        entryDate,
+        dueDay: dueDayNum,
+        deposit,
+        depositPeriod: depPeriod,
+        active: true,
+        paymentHistory: [paymentEntry],
+      });
+
+      await newTenantDoc.save();
+      created.push(newTenantDoc);
+    }
+
+    res.json({ success: true, created: created.length, errors });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -1963,11 +2197,21 @@ async function sendManualSms(req, res) {
 
 async function triggerAutomaticReminders(req, res) {
   try {
-    let today = new Date();
+    let today;
     if (req.query.devDate) {
-      const devDate = new Date(req.query.devDate);
-      if (!isNaN(devDate.getTime())) today = devDate;
+      const [y, m, d] = req.query.devDate.split("-").map(Number);
+      today = new Date(Date.UTC(y, m - 1, d));
+    } else {
+      today = new Date();
+      today = new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate()
+        )
+      );
     }
+
     const force = req.query.force === "true";
     const results = await sendOverdueRemindersForUser(req.userId, today, force);
     const safeResults = Array.isArray(results) ? results : [];
@@ -1980,8 +2224,27 @@ async function triggerAutomaticReminders(req, res) {
 
 async function triggerEmailReminders(req, res) {
   try {
+    let today;
+    if (req.query.devDate) {
+      const [y, m, d] = req.query.devDate.split("-").map(Number);
+      today = new Date(Date.UTC(y, m - 1, d));
+    } else {
+      today = new Date();
+      today = new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate()
+        )
+      );
+    }
+
     const force = req.query.force === "true";
-    const results = await sendOverdueEmailRemindersForUser(req.userId, force);
+    const results = await sendOverdueEmailRemindersForUser(
+      req.userId,
+      today,
+      force
+    );
     res.json({ success: true, results });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -2268,4 +2531,6 @@ export {
   clearEmailLogs,
   triggerEmailReminders,
   getEmailUsage,
+  bulkAddMeterReadings,
+  bulkAddTenants,
 };

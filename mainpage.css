@@ -5131,3 +5131,27 @@ body.bulk-mode-active .due-date-cell {
     background: var(--bg-surface); /* match modal background, hide any gap */
   }
 }
+
+@media (min-width: 769px) {
+  .sms-table-wrapper {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+}
+
+/* Bulk Add Tenants modal – scroll normally, no sticky footer */
+.fullscreen-sms-modal.bulk-add-tenants-popup {
+  display: block !important;
+  overflow-y: auto !important;
+  height: 100vh !important;
+}
+.fullscreen-sms-modal.bulk-add-tenants-popup .swal2-html-container {
+  flex: none !important;
+  overflow-y: visible !important;
+  max-height: none !important;
+}
+.fullscreen-sms-modal.bulk-add-tenants-popup .swal2-actions {
+  position: static !important;
+  margin-top: 16px !important;
+  padding-bottom: calc(30px + env(safe-area-inset-bottom, 16px)) !important;
+}

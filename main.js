@@ -2517,16 +2517,52 @@ function showGlobalSettingsModal() {
       const btn = e.target;
       setButtonLoading(btn, true);
       try {
-        const response = await fetchWithTimeout(
+        // Count overdue tenants (with devDate if simulating)
+        let countUrl = window.location.origin + "/tenants/overdue-count";
+        if (currentDevDate) countUrl += `?devDate=${currentDevDate}`;
+        const countRes = await fetchWithTimeout(countUrl, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+        const countData = await countRes.json();
+        const overdueCount = countData.count || 0;
+
+        if (overdueCount === 0) {
+          Toast.fire({ icon: "info", title: "No overdue tenants with email." });
+          setButtonLoading(btn, false);
+          return;
+        }
+
+        const confirm = await Swal.fire({
+          title: "📧 Resend Overdue Emails",
+          html: `
+        <div style="text-align: center;">
+          <div style="font-size: 1.1rem; margin-bottom: 16px;">Send email reminders to <strong>${overdueCount}</strong> tenant(s)?</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">Emails will be sent to overdue tenants who have an email address.</div>
+        </div>
+      `,
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonColor: "#f59e0b",
+          cancelButtonColor: "#ef4444",
+          confirmButtonText: `Yes, send`,
+          background: "#1e293b",
+          color: "#f1f5f9",
+        });
+
+        if (!confirm.isConfirmed) {
+          setButtonLoading(btn, false);
+          return;
+        }
+
+        let url =
           window.location.origin +
-            "/tenants/trigger-email-reminders?force=true",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
+          "/tenants/trigger-email-reminders?force=true";
+        if (currentDevDate) url += `&devDate=${currentDevDate}`;
+
+        const response = await fetchWithTimeout(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
         const data = await response.json();
         if (response.ok) {
           const sent = (data.results || []).filter((r) => r.success).length;
@@ -3777,6 +3813,401 @@ window.addEventListener("resize", () => {
   }
 });
 
+async function showBulkAddTenantsModal() {
+  closeDropdownIfOpen();
+  const todayStr = new Date().toISOString().split("T")[0];
+  const settings = globalSettings;
+  let tenantCounter = 0;
+
+  // Helper to check and mark duplicates for a single row/card
+  function attachDuplicateCheck(container) {
+    const nameInput = container.querySelector(".bulk-name");
+    const houseInput = container.querySelector(".bulk-house");
+    const nameErrorEl = container.querySelector(".bulk-name-error");
+    const houseErrorEl = container.querySelector(".bulk-house-error");
+
+    function check() {
+      const nameVal = nameInput?.value.trim().toLowerCase() || "";
+      const houseVal = houseInput?.value.trim().toLowerCase() || "";
+
+      let nameDup = false;
+      let houseDup = false;
+
+      if (nameVal) {
+        nameDup = tenantArray.some((t) => t.name.toLowerCase() === nameVal);
+      }
+      if (houseVal) {
+        houseDup = tenantArray.some(
+          (t) => (t.houseNumber || "").toLowerCase() === houseVal
+        );
+      }
+
+      if (nameInput) {
+        if (nameDup) {
+          nameInput.style.borderColor = "#ef4444";
+          if (nameErrorEl)
+            nameErrorEl.textContent = "This name is already taken";
+        } else {
+          nameInput.style.borderColor = "";
+          if (nameErrorEl) nameErrorEl.textContent = "";
+        }
+      }
+
+      if (houseInput) {
+        if (houseDup) {
+          houseInput.style.borderColor = "#ef4444";
+          if (houseErrorEl)
+            houseErrorEl.textContent = "This house number is already taken";
+        } else {
+          houseInput.style.borderColor = "";
+          if (houseErrorEl) houseErrorEl.textContent = "";
+        }
+      }
+    }
+
+    nameInput?.addEventListener("input", check);
+    houseInput?.addEventListener("input", check);
+    // Initial check in case field was pre-filled
+    check();
+  }
+
+  function addEmptyRow() {
+    const isMobile = window.innerWidth <= 600;
+
+    if (isMobile) {
+      tenantCounter++;
+      const container = document.getElementById("bulk-add-container");
+      const card = document.createElement("div");
+      card.className = "bulk-add-card";
+      card.style.cssText = `
+        background: var(--bg-elevated);
+        border-radius: 14px;
+        padding: 14px;
+        margin-bottom: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        border: 1px solid var(--border);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        position: relative;
+      `;
+
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="text-align: center; font-weight: 700; color: var(--accent-cyan); font-size: 1rem; flex: 1;">
+            👤 Tenant #${tenantCounter}
+          </div>
+          <button class="bulk-delete-btn" style="background:none; border:none; color:var(--danger); font-size:1.3rem; cursor:pointer; padding:0 4px;" title="Delete this tenant">🗑️</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Name *</label>
+          <input type="text" class="bulk-name" placeholder="e.g. John Doe" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          <div class="bulk-name-error" style="font-size:0.7rem; color:#ef4444; min-height:14px;"></div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Phone *</label>
+          <input type="tel" class="bulk-phone" placeholder="0712 345 678" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">House *</label>
+          <input type="text" class="bulk-house" placeholder="e.g. Flat 2B" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          <div class="bulk-house-error" style="font-size:0.7rem; color:#ef4444; min-height:14px;"></div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+            <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Rent *</label>
+            <input type="number" step="any" class="bulk-rent" placeholder="0.00" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          </div>
+          <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+            <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Due Day *</label>
+            <input type="number" min="1" max="31" class="bulk-due-day" placeholder="1-31" value="${
+              settings.defaultDueDay || 1
+            }" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Entry Date *</label>
+          <input type="date" class="bulk-entry-date" value="${todayStr}" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+        </div>
+
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" class="bulk-new-tenant" checked style="width:22px; height:22px; accent-color:#10b981;">
+          <span style="color: var(--text-primary); font-size: 0.9rem;">New tenant – rent due on entry</span>
+        </label>
+
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" class="bulk-deposit-check" style="width:22px; height:22px; accent-color:#f59e0b;">
+          <span style="color: var(--text-primary); font-size: 0.9rem;">💰 Deposit</span>
+        </label>
+
+        <div class="bulk-deposit-wrapper" style="display:none; flex-direction:column; gap:4px;">
+          <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Deposit Period (months)</label>
+          <input type="number" min="1" max="12" class="bulk-deposit-period" placeholder="e.g. 3" value="1" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+            <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Email (optional)</label>
+            <input type="email" class="bulk-email" placeholder="tenant@email.com" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          </div>
+          <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+            <label style="color: var(--text-secondary); font-size: 0.8rem; font-weight:500;">Notes (optional)</label>
+            <input type="text" class="bulk-notes" placeholder="Any extra info..." style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); font-size:0.95rem;">
+          </div>
+        </div>
+      `;
+
+      card.querySelector(".bulk-entry-date").value = todayStr;
+      card.querySelector(".bulk-delete-btn").addEventListener("click", () => {
+        card.remove();
+      });
+
+      const depositCheck = card.querySelector(".bulk-deposit-check");
+      const wrapper = card.querySelector(".bulk-deposit-wrapper");
+      depositCheck.addEventListener("change", () => {
+        wrapper.style.display = depositCheck.checked ? "flex" : "none";
+      });
+
+      container.appendChild(card);
+      // Attach real‑time duplicate checks
+      attachDuplicateCheck(card);
+    } else {
+      const tbody = document.getElementById("bulk-add-tbody");
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td style="padding:8px 4px; text-align:center; vertical-align:top;">
+          <input type="text" class="bulk-name" placeholder="Name" style="width:100px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          <div class="bulk-name-error" style="font-size:0.65rem; color:#ef4444; min-height:12px;"></div>
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="tel" class="bulk-phone" placeholder="0712 345 678" style="width:110px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center; vertical-align:top;">
+          <input type="text" class="bulk-house" placeholder="e.g. B2" style="width:90px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          <div class="bulk-house-error" style="font-size:0.65rem; color:#ef4444; min-height:12px;"></div>
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="number" step="any" class="bulk-rent" placeholder="0.00" style="width:90px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="number" min="1" max="31" class="bulk-due-day" placeholder="1-31" value="${
+            settings.defaultDueDay || 1
+          }" style="width:60px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="date" class="bulk-entry-date" value="${todayStr}" style="width:110px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="checkbox" class="bulk-new-tenant" checked style="width:20px; height:20px; accent-color:#10b981;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="number" min="0" max="12" class="bulk-deposit-period" placeholder="0" value="0" style="width:60px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="email" class="bulk-email" placeholder="Email" style="width:140px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <input type="text" class="bulk-notes" placeholder="Notes" style="width:120px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+        </td>
+        <td style="padding:8px 4px; text-align:center;">
+          <button class="bulk-delete-btn" style="background:none; border:none; color:var(--danger); font-size:1.2rem; cursor:pointer;" title="Delete this tenant">🗑️</button>
+        </td>
+      `;
+      row.querySelector(".bulk-entry-date").value = todayStr;
+      row.querySelector(".bulk-delete-btn").addEventListener("click", () => {
+        row.remove();
+      });
+      tbody.appendChild(row);
+      attachDuplicateCheck(row);
+    }
+  }
+
+  // Responsive CSS
+  const styleTag = document.createElement("style");
+  styleTag.textContent = `
+    .bulk-add-table { display: table; }
+    #bulk-add-container { display: none; }
+
+    @media (max-width: 600px) {
+      .bulk-add-table { display: none; }
+      #bulk-add-container { display: block; }
+    }
+  `;
+  document.head.appendChild(styleTag);
+
+  const result = await Swal.fire({
+    title: "🧑‍🤝‍🧑 Bulk Add Tenants",
+    html: `
+      <div style="display:flex; flex-direction:column; gap:16px; padding-bottom: calc(30px + env(safe-area-inset-bottom, 16px));">
+        <p style="text-align:center; font-size:0.85rem; color:var(--text-muted);">Fill the form below. Click <strong>+ Add Tenant</strong> to add another.</p>
+        <!-- Desktop table -->
+        <div class="bulk-add-table" style="max-height:60vh; overflow-y:auto;">
+          <table style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:0.9rem;">
+            <thead>
+              <tr style="background:var(--bg-elevated);">
+                <th style="padding:10px 4px; text-align:center;">Name</th>
+                <th style="padding:10px 4px; text-align:center;">Phone</th>
+                <th style="padding:10px 4px; text-align:center;">House</th>
+                <th style="padding:10px 4px; text-align:center;">Rent</th>
+                <th style="padding:10px 4px; text-align:center;">Due Day</th>
+                <th style="padding:10px 4px; text-align:center;">Entry Date</th>
+                <th style="padding:10px 4px; text-align:center;">New?</th>
+                <th style="padding:10px 4px; text-align:center;">Dep. Period</th>
+                <th style="padding:10px 4px; text-align:center;">Email</th>
+                <th style="padding:10px 4px; text-align:center;">Notes</th>
+                <th style="padding:10px 4px; text-align:center;"></th>
+              </tr>
+            </thead>
+            <tbody id="bulk-add-tbody">
+            </tbody>
+          </table>
+        </div>
+        <!-- Mobile cards -->
+        <div id="bulk-add-container" style="padding:4px;">
+        </div>
+        <button id="bulk-add-row-btn" class="modal-action-btn" style="align-self:center; margin-top:8px;">+ Add Tenant</button>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: "💾 Save All",
+    confirmButtonColor: "#10b981",
+    cancelButtonColor: "#ef4444",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: window.innerWidth > 600 ? "95%" : "100%",
+    customClass: {
+      popup: "fullscreen-sms-modal bulk-add-tenants-popup",
+    },
+    didOpen: () => {
+      for (let i = 0; i < 3; i++) addEmptyRow();
+      document
+        .getElementById("bulk-add-row-btn")
+        .addEventListener("click", () => {
+          addEmptyRow();
+        });
+    },
+    preConfirm: async () => {
+      const nameEls = document.querySelectorAll(".bulk-name");
+      const phoneEls = document.querySelectorAll(".bulk-phone");
+      const houseEls = document.querySelectorAll(".bulk-house");
+      const rentEls = document.querySelectorAll(".bulk-rent");
+      const dueDayEls = document.querySelectorAll(".bulk-due-day");
+      const entryDateEls = document.querySelectorAll(".bulk-entry-date");
+      const newTenantEls = document.querySelectorAll(".bulk-new-tenant");
+      const depPeriodEls = document.querySelectorAll(".bulk-deposit-period");
+      const emailEls = document.querySelectorAll(".bulk-email");
+      const notesEls = document.querySelectorAll(".bulk-notes");
+
+      const tenants = [];
+      for (let i = 0; i < nameEls.length; i++) {
+        const name = nameEls[i].value.trim();
+        if (!name) continue;
+
+        const phone = phoneEls[i].value.trim();
+        const house = houseEls[i].value.trim();
+        const rentStr = rentEls[i].value.trim();
+        const dueDayStr = dueDayEls[i].value.trim();
+        const entryDate = entryDateEls[i].value || todayStr;
+        const newTenant = newTenantEls[i].checked;
+
+        let depositPeriodStr;
+        const depositCheckbox = document.querySelectorAll(
+          ".bulk-deposit-check"
+        )[i];
+        if (depositCheckbox && !depositCheckbox.checked) {
+          depositPeriodStr = "0";
+        } else {
+          depositPeriodStr = depPeriodEls[i].value.trim() || "0";
+        }
+
+        const email = emailEls[i].value.trim();
+        const notes = notesEls[i].value.trim();
+
+        if (!phone || !house || !rentStr || !dueDayStr || !entryDate) continue;
+
+        const rent = Number(rentStr);
+        const dueDay = parseInt(dueDayStr);
+        const depositPeriod = parseInt(depositPeriodStr) || 0;
+
+        tenants.push({
+          name,
+          phoneNumber: phone,
+          houseNumber: house,
+          rent,
+          dueDay,
+          entryDate,
+          newTenant,
+          depositPeriod,
+          email,
+          notes,
+        });
+      }
+
+      if (tenants.length === 0) {
+        Swal.showValidationMessage(
+          "No valid tenants found. Fill at least one complete row."
+        );
+        return false;
+      }
+
+      const confirmResult = await originalSwalFire.call(Swal, {
+        title: "Save Tenants?",
+        html: `Add <strong>${tenants.length}</strong> tenant(s)?`,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#10b981",
+        cancelButtonColor: "#ef4444",
+        confirmButtonText: "Yes, add all",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+      if (!confirmResult.isConfirmed) return false;
+      return tenants;
+    },
+    willClose: () => styleTag.remove(),
+  });
+
+  if (!result.isConfirmed) return;
+  const tenantsArray = result.value;
+
+  setButtonLoading(document.getElementById("bulk-add-tenants-btn"), true);
+  try {
+    const response = await fetchWithTimeout("/tenants/bulk-add", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ tenants: tenantsArray }),
+    });
+    const data = await response.json();
+
+    if (response.ok) {
+      await loadTenants();
+      let msg = `Added ${data.created} tenants.`;
+      if (data.errors && data.errors.length > 0) {
+        msg += ` Skipped: ${data.errors.join(", ")}.`;
+      }
+      Toast.fire({ icon: "success", title: msg });
+    } else {
+      Toast.fire({
+        icon: "error",
+        title: "Failed to add tenant",
+        text: data.message || data.error || "Unknown error",
+      });
+    }
+  } catch (err) {
+    Toast.fire({ icon: "error", title: "Network error", text: err.message });
+  } finally {
+    setButtonLoading(document.getElementById("bulk-add-tenants-btn"), false);
+  }
+}
+
 function importTenantsFromCSV() {
   const fileInput = document.createElement("input");
   fileInput.type = "file";
@@ -3794,19 +4225,35 @@ function importTenantsFromCSV() {
           Toast.fire({ icon: "warning", title: "CSV file is empty" });
           return;
         }
-        let previewHtml = `<div style="max-height: 300px; overflow-y: auto;"><table style="width:100%; border-collapse: collapse;"><tr style="border-bottom: 1px solid var(--border);"><th>Name</th><th>Phone</th><th>House</th><th>Rent</th><th>Due Date</th></tr>`;
+
+        // Preview table – includes Name, Phone, House, Rent, Email, New Tenant, Due Date
+        let previewHtml = `<div style="max-height: 300px; overflow-y: auto;">
+          <table style="width:100%; border-collapse: collapse;">
+            <tr style="border-bottom: 1px solid var(--border);">
+              <th>Name</th><th>Phone</th><th>House</th><th>Rent</th><th>Email</th><th>New Tenant</th><th>Due Date</th>
+            </tr>`;
+
         tenants.slice(0, 10).forEach((t) => {
-          previewHtml += `<tr><td>${t.name || ""}</td><td>${
-            t.phoneNumber || ""
-          }</td><td>${t.houseNumber || ""}</td><td>${t.rent || ""}</td><td>${
-            t.dueDate || ""
-          }</td></tr>`;
+          previewHtml += `<tr>
+            <td>${t.name || ""}</td>
+            <td>${t.phoneNumber || ""}</td>
+            <td>${t.houseNumber || ""}</td>
+            <td>${t.rent || ""}</td>
+            <td>${t.email || ""}</td>
+            <td>${
+              t.newTenant === "true" || t.newTenant === "TRUE" ? "✅" : "—"
+            }</td>
+            <td>${t.dueDate || ""}</td>
+          </tr>`;
         });
+
         if (tenants.length > 10)
-          previewHtml += `<tr><td colspan="5" style="text-align:center;">... and ${
+          previewHtml += `<tr><td colspan="7" style="text-align:center;">... and ${
             tenants.length - 10
           } more</td></tr>`;
+
         previewHtml += `</table></div>`;
+
         const result = await Swal.fire({
           title: `Import ${tenants.length} tenants?`,
           html: previewHtml,
@@ -3817,8 +4264,15 @@ function importTenantsFromCSV() {
           background: "#1e293b",
           color: "#f1f5f9",
         });
+
         if (result.isConfirmed) {
           try {
+            // Convert newTenant strings to boolean before sending
+            const cleanTenants = tenants.map((t) => ({
+              ...t,
+              newTenant:
+                t.newTenant === "true" || t.newTenant === "TRUE" ? true : false,
+            }));
             const response = await fetchWithTimeout(
               window.location.origin + "/tenants/import",
               {
@@ -3827,7 +4281,7 @@ function importTenantsFromCSV() {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${localStorage.getItem("token")}`,
                 },
-                body: JSON.stringify({ tenants }),
+                body: JSON.stringify({ tenants: cleanTenants }),
               }
             );
             const data = await response.json();
@@ -4062,7 +4516,9 @@ document.addEventListener("DOMContentLoaded", () => {
   } else {
     console.error("Button #data-import-export-btn not found!");
   }
-
+  document
+    .getElementById("bulk-water-btn")
+    ?.addEventListener("click", showBulkWaterReadingModal);
   const closeBtns = ["close-import-export-modal", "close-import-export-footer"];
   closeBtns.forEach((id) => {
     const btn = document.getElementById(id);
@@ -4081,6 +4537,10 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal();
     });
   }
+
+  document
+    .getElementById("bulk-add-tenants-btn")
+    ?.addEventListener("click", showBulkAddTenantsModal);
 
   const exportLateBtn = document.getElementById("export-late-data-btn");
   if (exportLateBtn) {
@@ -4188,6 +4648,292 @@ if (window.location.search.includes("dev=true")) {
   document.querySelector(".set-month-row").style.display = "flex";
 } else {
   document.querySelector(".set-month-row").style.display = "none";
+}
+
+async function showBulkWaterReadingModal() {
+  closeDropdownIfOpen();
+  const currentMonth = getCurrentMonth();
+  const waterRate = globalSettings.waterRatePerUnit || 0;
+
+  let monthsSet = new Set();
+  tenantArray.forEach((tenant) => {
+    tenant.paymentHistory.forEach((record) => monthsSet.add(record.month));
+  });
+  monthsSet.add(currentMonth);
+  let uniqueMonths = Array.from(monthsSet).sort().reverse();
+
+  let monthOptions = "";
+  uniqueMonths.forEach((month) => {
+    monthOptions += `<option value="${month}" ${
+      month === currentMonth ? "selected" : ""
+    }>${month}</option>`;
+  });
+
+  function renderTable(selectedMonth) {
+    const activeTenants = tenantArray
+      .filter((t) => t.active !== false)
+      .sort((a, b) => {
+        const ha = (a.houseNumber || "").trim();
+        const hb = (b.houseNumber || "").trim();
+        return ha.localeCompare(hb, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+
+    if (activeTenants.length === 0) {
+      return '<p style="text-align:center; padding:40px; font-size:1.1rem; color:var(--text-muted);">No active tenants.</p>';
+    }
+
+    let html = `
+      <table class="bulk-water-table" style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:1rem;">
+        <thead>
+          <tr style="background:var(--bg-elevated);">
+            <th style="padding:10px 4px; text-align:center; border-radius:8px 0 0 8px;">Tenant</th>
+            <th style="padding:10px 4px; text-align:center;">House</th>
+            <th style="padding:10px 4px; text-align:center;">Prev</th>
+            <th style="padding:10px 4px; text-align:center;">Override</th>
+            <th style="padding:10px 4px; text-align:center;">Reading</th>
+            <th style="padding:10px 4px; text-align:center; border-radius:0 8px 8px 0;">Exempt</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    activeTenants.forEach((tenant, index) => {
+      const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
+        a.month.localeCompare(b.month)
+      );
+      let prevAuto = 0;
+      for (const r of allReadings) {
+        if (r.month < selectedMonth) prevAuto = r.reading;
+        else break;
+      }
+
+      const existing = allReadings.find((r) => r.month === selectedMonth);
+      const currentReading = existing ? existing.reading : "";
+      const currentOverride = existing ? existing.previousOverride || "" : "";
+      const currentExempt = existing ? existing.exemptUnits || "" : "";
+
+      const rowBg =
+        index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
+
+      // Determine if the row is currently invalid (reading < effective previous)
+      // We'll use a class `bulk-invalid-row` to highlight via CSS
+      let invalidClass = "";
+      if (currentReading !== "") {
+        const readingVal = parseFloat(currentReading);
+        const effectivePrevious =
+          currentOverride !== "" ? parseFloat(currentOverride) : prevAuto;
+        if (
+          !isNaN(readingVal) &&
+          !isNaN(effectivePrevious) &&
+          readingVal < effectivePrevious
+        ) {
+          invalidClass = "bulk-invalid-row";
+        }
+      }
+
+      html += `
+        <tr class="${invalidClass}" style="background:${rowBg};">
+          <td style="padding:8px 4px; text-align:center; font-weight:500; border-radius:8px 0 0 8px;">${escapeHtml(
+            tenant.name
+          )}</td>
+          <td style="padding:8px 4px; text-align:center;">${escapeHtml(
+            tenant.houseNumber || "—"
+          )}</td>
+          <td style="padding:8px 4px; text-align:center; color:var(--accent-cyan); font-weight:500;">${prevAuto}</td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="number" step="0.1" class="bulk-override-input" data-tenant-id="${
+              tenant._id
+            }" value="${currentOverride}" placeholder="Auto" style="width:80px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="number" step="0.1" class="bulk-reading-input" data-tenant-id="${
+              tenant._id
+            }" value="${currentReading}" placeholder="Reading" style="width:90px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+          <td style="padding:8px 4px; text-align:center; border-radius:0 8px 8px 0;">
+            <input type="number" step="0.1" class="bulk-exempt-input" data-tenant-id="${
+              tenant._id
+            }" value="${currentExempt}" placeholder="0" style="width:70px; padding:8px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+        </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    return html;
+  }
+
+  // Inject responsive and invalid‑row styles
+  const styleTag = document.createElement("style");
+  styleTag.textContent = `
+    @media (max-width: 600px) {
+      .bulk-water-table { font-size: 0.65rem !important; }
+      .bulk-water-table th, .bulk-water-table td { padding: 4px 2px !important; }
+      .bulk-override-input, .bulk-reading-input, .bulk-exempt-input {
+        width: 50px !important; padding: 5px 2px !important; font-size: 0.65rem !important;
+      }
+    }
+    /* Highlight invalid rows */
+    .bulk-invalid-row td {
+      background: rgba(239,68,68,0.15) !important;
+    }
+    .bulk-invalid-row td:first-child { border-left: 3px solid #ef4444; }
+  `;
+  document.head.appendChild(styleTag);
+
+  const { isConfirmed } = await Swal.fire({
+    title: "📋 Bulk Water Reading",
+    html: `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="display:flex; justify-content:center; gap:12px; align-items:center;">
+          <label style="color:var(--text-secondary); font-size:1rem;">Month:</label>
+          <select id="bulk-reading-month" style="padding:10px 16px; border-radius:40px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); font-size:1rem;">
+            ${monthOptions}
+          </select>
+        </div>
+        <p style="text-align:center; font-size:0.9rem; color:var(--text-muted);">Water Rate: <strong style="color:var(--accent-cyan);">KES ${waterRate.toLocaleString()} / unit</strong></p>
+        <div id="bulk-reading-table" style="padding:4px;">
+          ${renderTable(currentMonth)}
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: "💾 Save All",
+    confirmButtonColor: "#10b981",
+    cancelButtonColor: "#ef4444",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "90%",
+    customClass: { popup: "fullscreen-sms-modal" },
+    didOpen: () => {
+      document
+        .getElementById("bulk-reading-month")
+        .addEventListener("change", (e) => {
+          const newMonth = e.target.value;
+          const tableDiv = document.getElementById("bulk-reading-table");
+          if (tableDiv) tableDiv.innerHTML = renderTable(newMonth);
+        });
+
+      // Live highlight as user types
+      document.addEventListener("input", (e) => {
+        if (
+          !e.target.classList.contains("bulk-reading-input") &&
+          !e.target.classList.contains("bulk-override-input")
+        )
+          return;
+        const row = e.target.closest("tr");
+        if (!row) return;
+        const readingInput = row.querySelector(".bulk-reading-input");
+        const overrideInput = row.querySelector(".bulk-override-input");
+        if (!readingInput) return;
+
+        const readingVal = parseFloat(readingInput.value);
+        const prevAutoText = row.querySelector("td:nth-child(3)")?.textContent; // "Prev" column
+        const prevAuto = prevAutoText ? parseFloat(prevAutoText) : 0;
+        const overrideVal = overrideInput
+          ? parseFloat(overrideInput.value)
+          : NaN;
+        const effectivePrevious = !isNaN(overrideVal) ? overrideVal : prevAuto;
+
+        if (
+          !isNaN(readingVal) &&
+          !isNaN(effectivePrevious) &&
+          readingVal < effectivePrevious
+        ) {
+          row.classList.add("bulk-invalid-row");
+        } else {
+          row.classList.remove("bulk-invalid-row");
+        }
+      });
+    },
+    preConfirm: async () => {
+      const selectedMonth = document.getElementById("bulk-reading-month").value;
+      if (document.activeElement) document.activeElement.blur();
+
+      const readingInputs = document.querySelectorAll(".bulk-reading-input");
+      const readings = [];
+      readingInputs.forEach((inp) => {
+        const tenantId = inp.dataset.tenantId;
+        const readingStr = inp.value.trim();
+        if (readingStr !== "") {
+          const reading = parseFloat(readingStr);
+          if (isNaN(reading) || reading < 0) return;
+          const overrideInput = document.querySelector(
+            `.bulk-override-input[data-tenant-id="${tenantId}"]`
+          );
+          const exemptInput = document.querySelector(
+            `.bulk-exempt-input[data-tenant-id="${tenantId}"]`
+          );
+          const override = overrideInput ? overrideInput.value.trim() : "";
+          const exempt = exemptInput ? exemptInput.value.trim() : "";
+          readings.push({
+            tenantId,
+            month: selectedMonth,
+            reading,
+            previousOverride: override !== "" ? Number(override) : null,
+            exemptUnits: exempt !== "" ? Number(exempt) : 0,
+          });
+        }
+      });
+
+      if (readings.length === 0) {
+        Swal.showValidationMessage(
+          "No valid readings entered. Make sure you typed a number in at least one Reading field."
+        );
+        return false;
+      }
+
+      // Confirmation before save
+      const confirmResult = await originalSwalFire.call(Swal, {
+        title: "Save Water Readings?",
+        html: `You are about to save <strong>${readings.length}</strong> reading(s) for <strong>${selectedMonth}</strong>.`,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#10b981",
+        cancelButtonColor: "#ef4444",
+        confirmButtonText: "Yes, save all",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+
+      if (!confirmResult.isConfirmed) return false; // cancel the main save
+      return readings;
+    },
+    willClose: () => {
+      styleTag.remove();
+    },
+  });
+
+  if (!isConfirmed) return;
+
+  const readingsArray = isConfirmed;
+  setButtonLoading(document.getElementById("bulk-water-btn"), true);
+  try {
+    const response = await fetchWithTimeout("/tenants/bulk-meter-reading", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ readings: readingsArray }),
+    });
+    const data = await response.json();
+    if (response.ok) {
+      await loadTenants();
+      let msg = `Saved ${data.saved} readings.`;
+      if (data.errors && data.errors.length > 0) {
+        msg += ` Skipped: ${data.errors.join(", ")}.`;
+      }
+      Toast.fire({ icon: "success", title: msg });
+    } else {
+      Toast.fire({ icon: "error", title: data.message || "Save failed" });
+    }
+  } catch (err) {
+    Toast.fire({ icon: "error", title: err.message });
+  } finally {
+    setButtonLoading(document.getElementById("bulk-water-btn"), false);
+  }
 }
 
 function updateAllTimeStats(tenantArray) {
@@ -4340,6 +5086,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   const templates = {
     thanks: `Dear ${tenant.name}, thank you for your payment. Have a great day!`,
     quickBalance: generateShortBalanceMessage(tenant),
+    waterBill: generateWaterBillSms(tenant),
   };
 
   const { value: message } = await Swal.fire({
@@ -4350,6 +5097,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
           <option value="custom">✏️ Custom message</option>
           <option value="thanks">🙏 Thank you</option>
           <option value="quickBalance">⚡ Quick Balance (short)</option>
+          <option value="waterBill">💧 Water Bill</option>
         </select>
         <textarea id="individual-message" rows="5" placeholder="Type your message here..." style="padding: 12px; border-radius: 20px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); width: 100%;">${escapeHtml(
           prefillMessage
@@ -4393,6 +5141,8 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
           textarea.value = "";
         } else if (val === "quickBalance") {
           textarea.value = templates.quickBalance;
+        } else if (val === "waterBill") {
+          textarea.value = templates.waterBill;
         } else {
           textarea.value = templates[val] || "";
         }
@@ -4678,6 +5428,10 @@ async function showEmailModal(tenantId) {
       tenant,
       userProfile.landlordName || userProfile.name || "Your Landlord"
     ),
+    waterBill: generateWaterBillEmail(
+      tenant,
+      userProfile.landlordName || userProfile.name || "Landlord"
+    ),
   };
 
   const { value: formValues } = await Swal.fire({
@@ -4689,6 +5443,7 @@ async function showEmailModal(tenantId) {
           <option value="thanks">🙏 Thank you</option>
           <option value="quickBalance">⚡ Quick Balance</option>
           <option value="detailedBalance">📋 Detailed Balance</option>
+          <option value="waterBill">💧 Water Bill</option>
         </select>
         <input id="email-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
         <textarea id="email-body" rows="6" placeholder="Type your message..." style="padding:12px; border-radius:20px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); width:100%;"></textarea>
@@ -4725,6 +5480,9 @@ async function showEmailModal(tenantId) {
         } else if (val === "detailedBalance") {
           subjectInput.value = "Your Rent Statement";
           bodyArea.value = templates.detailedBalance;
+        } else if (val === "waterBill") {
+          subjectInput.value = "Water Bill";
+          bodyArea.value = templates.waterBill;
         } else if (val === "thanks") {
           subjectInput.value = "Thank You";
           bodyArea.value = templates.thanks;
@@ -4741,14 +5499,13 @@ async function showEmailModal(tenantId) {
     let subject = formValues.subject;
     let htmlMessage;
 
-    // Decide how to build the HTML based on template type
     const templateValue = document.getElementById("email-template").value;
 
     if (templateValue === "detailedBalance") {
-      // Already HTML
       htmlMessage = formValues.message;
+    } else if (templateValue === "waterBill") {
+      htmlMessage = formValues.message; // already HTML
     } else if (templateValue === "quickBalance") {
-      // Wrap the plain text quick balance
       const landlordName =
         userProfile.landlordName || userProfile.name || "Landlord";
       htmlMessage = wrapPremiumEmail(
@@ -4764,7 +5521,6 @@ async function showEmailModal(tenantId) {
       );
       subject = "Rent Balance";
     } else {
-      // Custom or Thanks – wrap plain text
       const landlordName =
         userProfile.landlordName || userProfile.name || "Landlord";
       htmlMessage = wrapPremiumEmail(
@@ -4791,7 +5547,7 @@ async function showEmailModal(tenantId) {
         body: JSON.stringify({
           tenantIds: [tenantId],
           subject: subject,
-          message: htmlMessage, // always send HTML
+          message: htmlMessage,
         }),
       }
     );
@@ -4836,13 +5592,13 @@ function showBulkEmailModal() {
         <option value="thanks">🙏 Thank you</option>
         <option value="quickBalance">⚡ Quick Balance</option>
         <option value="detailedBalance">📋 Detailed Balance</option>
+        <option value="waterBill">💧 Water Bill</option>
       </select>
       <input id="email-bulk-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
       <textarea id="email-bulk-body" rows="5" placeholder="Type your message..." style="padding:10px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);width:100%;resize:vertical;"></textarea>
       <div id="email-bulk-note" style="display:none;background:rgba(6,182,212,0.1);border-left:3px solid var(--accent-cyan);padding:10px;border-radius:8px;color:var(--text-secondary);font-size:0.85rem;">
         Each tenant will receive a personalised balance email.
       </div>
-      <!-- Select All / Select Late buttons -->
       <div style="display: flex; gap: 12px; justify-content: flex-start; padding: 0 4px;">
         <button id="email-select-all" style="background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">✓ Select All</button>
         <button id="email-select-late" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.1s;">⚠️ Select Late</button>
@@ -4898,7 +5654,6 @@ function showBulkEmailModal() {
     width: "auto",
     customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
-      // Select All / Select Late logic
       const selectAllBtn = document.getElementById("email-select-all");
       const selectLateBtn = document.getElementById("email-select-late");
       const checkboxes = () =>
@@ -4935,7 +5690,6 @@ function showBulkEmailModal() {
         });
       }
 
-      // Template dropdown logic
       const templateSelect = document.getElementById("email-bulk-template");
       const subjectInput = document.getElementById("email-bulk-subject");
       const bodyArea = document.getElementById("email-bulk-body");
@@ -4959,7 +5713,7 @@ function showBulkEmailModal() {
           bodyArea.style.display = "none";
           subjectInput.style.display = "none";
           balanceNote.style.display = "block";
-        } else if (val === "detailedBalance") {
+        } else if (val === "detailedBalance" || val === "waterBill") {
           bodyArea.style.display = "none";
           subjectInput.style.display = "none";
           balanceNote.style.display = "block";
@@ -4987,12 +5741,19 @@ function showBulkEmailModal() {
         message: body,
         isBalanceMode: templateValue === "quickBalance",
         isDetailed: templateValue === "detailedBalance",
+        isWaterBillMode: templateValue === "waterBill",
       };
     },
   }).then(async (result) => {
     if (!result.isConfirmed) return;
-    const { tenantIds, subject, message, isBalanceMode, isDetailed } =
-      result.value;
+    const {
+      tenantIds,
+      subject,
+      message,
+      isBalanceMode,
+      isDetailed,
+      isWaterBillMode,
+    } = result.value;
 
     const btn = document.getElementById("bulk-email-btn");
     setButtonLoading(btn, true);
@@ -5002,7 +5763,6 @@ function showBulkEmailModal() {
         userProfile.landlordName || userProfile.name || "Landlord";
 
       if (isBalanceMode) {
-        // Quick Balance – personalised short messages
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
@@ -5048,7 +5808,6 @@ function showBulkEmailModal() {
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
       } else if (isDetailed) {
-        // Detailed Balance – professional HTML emails (already wrapped by generateDetailedBalanceHtml)
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
@@ -5085,8 +5844,41 @@ function showBulkEmailModal() {
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
+      } else if (isWaterBillMode) {
+        const selectedTenants = tenants.filter((t) =>
+          tenantIds.includes(t._id)
+        );
+        let successCount = 0;
+        const failedNames = [];
+        for (const tenant of selectedTenants) {
+          const personalisedMsg = generateWaterBillEmail(tenant, landlordName);
+          try {
+            const res = await fetchWithTimeout(
+              window.location.origin + "/tenants/send-emails",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                  tenantIds: [tenant._id],
+                  subject: "Water Bill",
+                  message: personalisedMsg,
+                }),
+              }
+            );
+            const data = await res.json();
+            if (data.results?.[0]?.success) successCount++;
+            else failedNames.push(tenant.name);
+          } catch (err) {
+            failedNames.push(tenant.name);
+          }
+        }
+        summary = `Sent to ${successCount} tenant(s).`;
+        if (failedNames.length)
+          summary += ` Failed for: ${failedNames.join(", ")}.`;
       } else {
-        // Custom / Thanks – wrap the plain text
         const htmlMessage = wrapPremiumEmail(
           `
           <p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
@@ -5552,15 +6344,16 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   let html = `
   <div style="display: flex; flex-direction: column; gap: 16px;">
     <div>
-<select id="sms-template-bulk" style="width: 100%; padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); margin-bottom: 8px;">
-  <option value="custom">✏️ Custom message</option>
-  <option value="thanks">🙏 Thank you (after payment)</option>
-  <option value="quickBalance">⚡ Quick Balance (short)</option>
-</select>
+      <select id="sms-template-bulk" style="width: 100%; padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); margin-bottom: 8px;">
+        <option value="custom">✏️ Custom message</option>
+        <option value="thanks">🙏 Thank you (after payment)</option>
+        <option value="quickBalance">⚡ Quick Balance (short)</option>
+        <option value="waterBill">💧 Water Bill</option>
+      </select>
       <textarea id="sms-message" rows="4" placeholder="Type your message here..." style="width:100%; padding: 10px; font-size: 0.95rem; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); resize: vertical;"></textarea>
       <div id="balance-note" style="display:none; background: rgba(6,182,212,0.1); border-left: 3px solid var(--accent-cyan); padding: 10px; border-radius: 8px; color: var(--text-secondary); font-size: 0.85rem;">
-  Each tenant will receive a personalised balance message.
-</div>
+        Each tenant will receive a personalised balance message.
+      </div>
       <div id="sms-char-counter" style="text-align: right; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">0 characters</div>
     </div>
 
@@ -5570,7 +6363,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     </div>
 
     <div>
- <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
+      <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
         <table style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr style="border-bottom: 1px solid var(--border); background: var(--bg-elevated);">
@@ -5582,7 +6375,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
              </tr>
           </thead>
           <tbody>
-`;
+  `;
 
   tenants.forEach((tenant) => {
     const overdue = window.getTenantPastDueAmount
@@ -5593,24 +6386,24 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     const balance = formatCurrency(overdue);
     const house = tenant.houseNumber || "—";
     html += `
-    <tr style="border-bottom: 1px solid var(--border);">
-      <td data-label="Select" style="padding: 10px 4px; text-align: center;">
-        <input type="checkbox" class="sms-tenant-select" data-id="${
-          tenant._id
-        }" data-overdue="${overdue}" value="${
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td data-label="Select" style="padding: 10px 4px; text-align: center;">
+          <input type="checkbox" class="sms-tenant-select" data-id="${
+            tenant._id
+          }" data-overdue="${overdue}" value="${
       tenant.name
     }" style="width: 18px; height: 18px; accent-color: #10b981;">
-       </td>
-      <td data-label="House" style="padding: 10px 4px; text-align: center;">${escapeHtml(
-        house
-      )}</td>
-      <td data-label="Name" style="padding: 10px 4px; text-align: center;">${escapeHtml(
-        tenant.name
-      )}</td>
-      <td data-label="Status" style="padding: 10px 4px; text-align: center; color: ${statusColor};">${status}</td>
-      <td data-label="Owed" style="padding: 10px 4px; text-align: center;">${balance}</td>
-     </tr>
-  `;
+         </td>
+        <td data-label="House" style="padding: 10px 4px; text-align: center;">${escapeHtml(
+          house
+        )}</td>
+        <td data-label="Name" style="padding: 10px 4px; text-align: center;">${escapeHtml(
+          tenant.name
+        )}</td>
+        <td data-label="Status" style="padding: 10px 4px; text-align: center; color: ${statusColor};">${status}</td>
+        <td data-label="Owed" style="padding: 10px 4px; text-align: center;">${balance}</td>
+       </tr>
+    `;
   });
 
   html += `
@@ -5620,7 +6413,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     </div>
     <div id="sms-cost-estimate" style="text-align: center; font-size: 0.9rem; font-weight: bold; margin-top: 8px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; color: var(--text-primary);">Select tenants to see total cost</div>
   </div>
-`;
+  `;
 
   Swal.fire({
     title: "📱 Send SMS to Tenants",
@@ -5636,164 +6429,162 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     didOpen: () => {
       const style = document.createElement("style");
       style.textContent = `
-    /* ========== MOBILE (max 768px) ========== */
-    @media (max-width: 768px) {
-      .fullscreen-sms-modal {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100vw !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border-radius: 0 !important;
-        background: var(--bg-secondary, #0f172a) !important;
-        display: flex !important;
-        flex-direction: column !important;
-      }
-      .fullscreen-sms-modal .swal2-html-container {
-        flex: 1 !important;
-        overflow-y: auto !important;
-        padding: 8px 8px 16px 8px !important;
-        margin: 0 !important;
-      }
-      textarea#sms-message {
-        width: 100%;
-        font-size: 16px !important;
-        padding: 12px !important;
-        margin-bottom: 16px;
-        border-radius: 24px !important;
-        background: var(--bg-tertiary, #0f172a);
-        border: 1px solid var(--border, #334155);
-        color: var(--text-primary, #f1f5f9);
-      }
-      .fullscreen-sms-modal table {
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
-        font-size: 14px;
-        margin: 0;
-      }
-      .fullscreen-sms-modal th,
-      .fullscreen-sms-modal td {
-        padding: 10px 4px !important;
-        text-align: center !important;
-        vertical-align: middle !important;
-        word-break: break-word;
-      }
-      .fullscreen-sms-modal th {
-        font-size: 13px;
-        background: var(--bg-elevated, #1e293b);
-      }
-      .fullscreen-sms-modal input[type="checkbox"] {
-        width: 24px;
-        height: 24px;
-        transform: scale(1);
-        cursor: pointer;
-      }
-      #sms-cost-estimate {
-        margin: 12px 0 8px;
-        padding: 10px;
-        font-size: 14px;
-      }
-    }
-    /* ========== DESKTOP (min 769px) ========== */
-    @media (min-width: 769px) {
-      .fullscreen-sms-modal {
-        width: 85% !important;
-        max-width: 1100px !important;
-        height: auto !important;
-        max-height: 90vh !important;
-        padding: 20px 24px !important;
-        border-radius: 32px !important;
-        background: var(--bg-secondary, #0f172a) !important;
-      }
-      .fullscreen-sms-modal .swal2-html-container {
-        max-height: calc(90vh - 130px) !important;
-        overflow-y: auto !important;
-        padding: 8px 0 !important;
-      }
-      .fullscreen-sms-modal table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        background: var(--bg-tertiary, #111827);
-        border-radius: 20px;
-        overflow: hidden;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      }
-      .fullscreen-sms-modal th {
-        background: linear-gradient(135deg, #1e293b, #0f172a);
-        padding: 18px 12px;
-        font-size: 0.95rem;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        color: #e2e8f0;
-        font-weight: 700;
-        border-bottom: 2px solid #38bdf8;
-      }
-      .fullscreen-sms-modal td {
-        background: var(--bg-tertiary, #111827);
-        padding: 16px 12px;
-        border-bottom: 1px solid var(--border, #2d3a4e);
-        font-size: 1rem;
-        color: #f1f5f9;
-        transition: background 0.2s;
-      }
-      .fullscreen-sms-modal tr:last-child td {
-        border-bottom: none;
-      }
-      .fullscreen-sms-modal tr:hover td {
-        background: #1e2a3a;
-      }
-      .fullscreen-sms-modal th,
-      .fullscreen-sms-modal td {
-        border-radius: 0 !important;
-      }
-      textarea#sms-message {
-        font-size: 15px;
-        padding: 14px 16px;
-        border-radius: 28px;
-        background: var(--bg-tertiary, #0f172a);
-        border: 1px solid var(--border, #334155);
-        color: var(--text-primary, #f1f5f9);
-      }
-      .fullscreen-sms-modal input[type="checkbox"] {
-        width: 22px;
-        height: 22px;
-        transform: scale(1);
-        cursor: pointer;
-        accent-color: #10b981;
-      }
-      #sms-cost-estimate {
-        font-size: 1rem;
-        padding: 14px 20px;
-        background: linear-gradient(135deg, #1e293b, #0f172a);
-        border-radius: 60px;
-        margin-top: 20px;
-        font-weight: 600;
-        text-align: center;
-      }
-    }
-    textarea#sms-message {
-      width: 100%;
-      resize: vertical;
-      font-family: inherit;
-    }
-    .fullscreen-sms-modal th, 
-    .fullscreen-sms-modal td {
-      text-align: center !important;
-      vertical-align: middle !important;
-    }
-    #sms-cost-estimate {
-      font-weight: 600;
-    }
-    .fullscreen-sms-modal .swal2-html-container > div > div {
-      overflow-x: visible !important;
-    }
-  `;
+        @media (max-width: 768px) {
+          .fullscreen-sms-modal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            max-width: 100vw !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            background: var(--bg-secondary, #0f172a) !important;
+            display: flex !important;
+            flex-direction: column !important;
+          }
+          .fullscreen-sms-modal .swal2-html-container {
+            flex: 1 !important;
+            overflow-y: auto !important;
+            padding: 8px 8px 16px 8px !important;
+            margin: 0 !important;
+          }
+          textarea#sms-message {
+            width: 100%;
+            font-size: 16px !important;
+            padding: 12px !important;
+            margin-bottom: 16px;
+            border-radius: 24px !important;
+            background: var(--bg-tertiary, #0f172a);
+            border: 1px solid var(--border, #334155);
+            color: var(--text-primary, #f1f5f9);
+          }
+          .fullscreen-sms-modal table {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+            font-size: 14px;
+            margin: 0;
+          }
+          .fullscreen-sms-modal th,
+          .fullscreen-sms-modal td {
+            padding: 10px 4px !important;
+            text-align: center !important;
+            vertical-align: middle !important;
+            word-break: break-word;
+          }
+          .fullscreen-sms-modal th {
+            font-size: 13px;
+            background: var(--bg-elevated, #1e293b);
+          }
+          .fullscreen-sms-modal input[type="checkbox"] {
+            width: 24px;
+            height: 24px;
+            transform: scale(1);
+            cursor: pointer;
+          }
+          #sms-cost-estimate {
+            margin: 12px 0 8px;
+            padding: 10px;
+            font-size: 14px;
+          }
+        }
+        @media (min-width: 769px) {
+          .fullscreen-sms-modal {
+            width: 85% !important;
+            max-width: 1100px !important;
+            height: auto !important;
+            max-height: 90vh !important;
+            padding: 20px 24px !important;
+            border-radius: 32px !important;
+            background: var(--bg-secondary, #0f172a) !important;
+          }
+          .fullscreen-sms-modal .swal2-html-container {
+            max-height: calc(90vh - 130px) !important;
+            overflow-y: auto !important;
+            padding: 8px 0 !important;
+          }
+          .fullscreen-sms-modal table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: var(--bg-tertiary, #111827);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+          }
+          .fullscreen-sms-modal th {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            padding: 18px 12px;
+            font-size: 0.95rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #e2e8f0;
+            font-weight: 700;
+            border-bottom: 2px solid #38bdf8;
+          }
+          .fullscreen-sms-modal td {
+            background: var(--bg-tertiary, #111827);
+            padding: 16px 12px;
+            border-bottom: 1px solid var(--border, #2d3a4e);
+            font-size: 1rem;
+            color: #f1f5f9;
+            transition: background 0.2s;
+          }
+          .fullscreen-sms-modal tr:last-child td {
+            border-bottom: none;
+          }
+          .fullscreen-sms-modal tr:hover td {
+            background: #1e2a3a;
+          }
+          .fullscreen-sms-modal th,
+          .fullscreen-sms-modal td {
+            border-radius: 0 !important;
+          }
+          textarea#sms-message {
+            font-size: 15px;
+            padding: 14px 16px;
+            border-radius: 28px;
+            background: var(--bg-tertiary, #0f172a);
+            border: 1px solid var(--border, #334155);
+            color: var(--text-primary, #f1f5f9);
+          }
+          .fullscreen-sms-modal input[type="checkbox"] {
+            width: 22px;
+            height: 22px;
+            transform: scale(1);
+            cursor: pointer;
+            accent-color: #10b981;
+          }
+          #sms-cost-estimate {
+            font-size: 1rem;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border-radius: 60px;
+            margin-top: 20px;
+            font-weight: 600;
+            text-align: center;
+          }
+        }
+        textarea#sms-message {
+          width: 100%;
+          resize: vertical;
+          font-family: inherit;
+        }
+        .fullscreen-sms-modal th, 
+        .fullscreen-sms-modal td {
+          text-align: center !important;
+          vertical-align: middle !important;
+        }
+        #sms-cost-estimate {
+          font-weight: 600;
+        }
+        .fullscreen-sms-modal .swal2-html-container > div > div {
+          overflow-x: visible !important;
+        }
+      `;
       document.head.appendChild(style);
 
       const selectAllBtn = document.getElementById("sms-select-all");
@@ -5868,6 +6659,9 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
               newMsg = `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`;
             } else if (val === "thanks") {
               newMsg = "Thank you for your payment. Have a great day!";
+            } else if (val === "waterBill") {
+              // just leave textarea empty – will be filled per tenant
+              msgTextarea.value = "";
             } else if (val === "reminder") {
               newMsg = `Reminder: Rent is due on the scheduled date. Please pay on time to avoid penalties.`;
             } else if (val === "late") {
@@ -5915,13 +6709,14 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
       const message = document.getElementById("sms-message").value;
       const templateValue = document.getElementById("sms-template-bulk").value;
       const isBalanceMode = templateValue === "balance";
+      const isWaterBillMode = templateValue === "waterBill";
 
       if (selected.length === 0) {
         Swal.showValidationMessage("Select at least one tenant.");
         return false;
       }
 
-      if (!isBalanceMode && !message.trim()) {
+      if (!isBalanceMode && !isWaterBillMode && !message.trim()) {
         Swal.showValidationMessage("Message cannot be empty.");
         return false;
       }
@@ -5943,8 +6738,8 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         <div style="background: var(--bg-elevated, #1e293b); padding: 14px 18px; border-radius: 24px; width: 100%;">
           <div style="font-weight: 600; margin-bottom: 6px; color: var(--accent-cyan, #38bdf8);">Message preview:</div>
           <div style="font-size: 0.9rem; color: var(--text-primary, #f1f5f9); word-break: break-word;">${
-            isBalanceMode
-              ? "Each tenant will receive a personalised balance breakdown."
+            isBalanceMode || isWaterBillMode
+              ? "Each tenant will receive a personalised message."
               : `“${escapeHtml(message.substring(0, 100))}${
                   message.length > 100 ? "…" : ""
                 }”`
@@ -5976,11 +6771,12 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         Swal.showValidationMessage("Cancelled");
         return false;
       }
-      return { tenantIds: selected, message, isBalanceMode };
+      return { tenantIds: selected, message, isBalanceMode, isWaterBillMode };
     },
   }).then(async (result) => {
     if (result.isConfirmed) {
-      const { tenantIds, message, isBalanceMode } = result.value;
+      const { tenantIds, message, isBalanceMode, isWaterBillMode } =
+        result.value;
 
       setButtonLoading(btn, true);
       try {
@@ -5993,6 +6789,42 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
           const failedNames = [];
           for (const tenant of selectedTenants) {
             const personalisedMsg = generateShortBalanceMessage(tenant);
+            try {
+              const res = await fetchWithTimeout(
+                window.location.origin + "/tenants/send-sms",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                  },
+                  body: JSON.stringify({
+                    tenantIds: [tenant._id],
+                    message: personalisedMsg,
+                  }),
+                }
+              );
+              const data = await res.json();
+              if (data.results?.[0]?.success) {
+                successCount++;
+              } else {
+                failedNames.push(tenant.name);
+              }
+            } catch (err) {
+              failedNames.push(tenant.name);
+            }
+          }
+          summary = `Sent to ${successCount} tenant(s).`;
+          if (failedNames.length)
+            summary += ` Failed for: ${failedNames.join(", ")}.`;
+        } else if (isWaterBillMode) {
+          const selectedTenants = tenants.filter((t) =>
+            tenantIds.includes(t._id)
+          );
+          let successCount = 0;
+          const failedNames = [];
+          for (const tenant of selectedTenants) {
+            const personalisedMsg = generateWaterBillSms(tenant);
             try {
               const res = await fetchWithTimeout(
                 window.location.origin + "/tenants/send-sms",
@@ -6482,11 +7314,13 @@ function closeDropdownIfOpen() {
   const dropdown = document.getElementById("topbar-menu-dropdown");
   if (dropdown && dropdown.style.display !== "none") {
     dropdown.style.display = "none";
-    // Do NOT call popModalState() – the history entry remains, but the dropdown is hidden.
-    // The modal will push its own state, and the dropdown state will be popped later harmlessly.
     isDropdownOpen = false;
     const menuBtn = document.getElementById("topbar-menu-btn");
     if (menuBtn) menuBtn.blur();
+
+    // Remove the dropdown's history entry safely
+    window.ignoreNextPopstate = true;
+    window.history.back(); // pops the dropdown's state
   }
 }
 
@@ -6603,6 +7437,169 @@ Swal.fire = function (options) {
   swalInstance.then(cleanup).catch(cleanup);
   return swalInstance;
 };
+
+// ──────────────────────────────────────────────
+//   WATER BILL TEMPLATE HELPERS
+// ──────────────────────────────────────────────
+
+// Returns an object with current month’s water data, or null if no reading
+function getTenantWaterData(tenant) {
+  const currentMonth = getCurrentMonth();
+  const reading = (tenant.waterMeterReadings || []).find(
+    (r) => r.month === currentMonth
+  );
+  if (!reading) return null;
+
+  const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
+    a.month.localeCompare(b.month)
+  );
+  // Previous reading for display (the one just before current month)
+  let prevReading = 0;
+  for (const r of allReadings) {
+    if (r.month < currentMonth) prevReading = r.reading;
+    else break;
+  }
+
+  return {
+    month: currentMonth,
+    reading: reading.reading,
+    prevReading: prevReading,
+    unitsUsed: reading.unitsUsed,
+    cost: reading.cost,
+    rate: reading.rate,
+    dueDate: getTenantNextDueDate(tenant),
+  };
+}
+
+// Short SMS for water bill
+function generateWaterBillSms(tenant) {
+  const data = getTenantWaterData(tenant);
+  if (!data) {
+    return `Dear ${
+      tenant.name
+    }, no water reading has been recorded for ${getCurrentMonth()} yet.`;
+  }
+
+  const dueStr = data.dueDate
+    ? new Date(data.dueDate).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "long",
+      })
+    : "the due date";
+
+  return `Dear ${tenant.name}, your water bill for ${
+    data.month
+  } is KES ${data.cost.toLocaleString()}. You used ${
+    data.unitsUsed
+  } units at KES ${data.rate}/unit. Please pay by ${dueStr}. Thank you!`;
+}
+
+// Detailed HTML email for water bill (with history)
+function generateWaterBillEmail(tenant, landlordName) {
+  const data = getTenantWaterData(tenant);
+  if (!data) {
+    return wrapPremiumEmail(
+      `<p style="font-size:16px; color:#1e293b;">Dear ${escapeHtml(
+        tenant.name
+      )},</p>
+       <p style="font-size:15px; color:#475569;">No water reading has been recorded for ${escapeHtml(
+         getCurrentMonth()
+       )} yet.</p>`,
+      landlordName
+    );
+  }
+
+  // Build history table (all readings, newest first)
+  const allReadings = [...(tenant.waterMeterReadings || [])].sort((a, b) =>
+    b.month.localeCompare(a.month)
+  );
+
+  let historyRows = "";
+  allReadings.forEach((r) => {
+    historyRows += `
+      <tr>
+        <td style="padding:10px 8px; border-bottom:1px solid #e0e0e0; text-align:center;">${escapeHtml(
+          r.month
+        )}</td>
+        <td style="padding:10px 8px; border-bottom:1px solid #e0e0e0; text-align:right;">${
+          r.reading
+        }</td>
+        <td style="padding:10px 8px; border-bottom:1px solid #e0e0e0; text-align:right;">${
+          r.unitsUsed
+        }</td>
+        <td style="padding:10px 8px; border-bottom:1px solid #e0e0e0; text-align:right;">${r.rate.toLocaleString()}</td>
+        <td style="padding:10px 8px; border-bottom:1px solid #e0e0e0; text-align:right; font-weight:600;">${r.cost.toLocaleString()}</td>
+      </tr>`;
+  });
+
+  const dueStr = data.dueDate
+    ? new Date(data.dueDate).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "long",
+      })
+    : "the due date";
+
+  const innerHtml = `
+    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+      tenant.name
+    )},</p>
+    <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">
+      Here is your water bill for <strong>${escapeHtml(data.month)}</strong>.
+      Please pay by <strong>${escapeHtml(dueStr)}</strong>.
+    </p>
+
+    <!-- Current month summary -->
+    <table style="width:100%; border-collapse:collapse; font-size:16px; margin-bottom:30px;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:12px 8px; text-align:center;">Month</th>
+          <th style="padding:12px 8px; text-align:center;">Reading</th>
+          <th style="padding:12px 8px; text-align:center;">Previous</th>
+          <th style="padding:12px 8px; text-align:center;">Units</th>
+          <th style="padding:12px 8px; text-align:center;">Rate (KES)</th>
+          <th style="padding:12px 8px; text-align:center;">Cost (KES)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#e8f5e9;">
+          <td style="padding:12px 8px; text-align:center; font-weight:600;">${escapeHtml(
+            data.month
+          )}</td>
+          <td style="padding:12px 8px; text-align:right;">${data.reading}</td>
+          <td style="padding:12px 8px; text-align:right;">${
+            data.prevReading
+          }</td>
+          <td style="padding:12px 8px; text-align:right;">${data.unitsUsed}</td>
+          <td style="padding:12px 8px; text-align:right;">${data.rate.toLocaleString()}</td>
+          <td style="padding:12px 8px; text-align:right; font-weight:700; color:#d32f2f;">${data.cost.toLocaleString()}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- History -->
+    <p style="font-size:16px; color:#1e293b; font-weight:600;">Previous Water Bills</p>
+    <table style="width:100%; border-collapse:collapse; font-size:15px;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:10px 8px; text-align:center;">Month</th>
+          <th style="padding:10px 8px; text-align:center;">Reading</th>
+          <th style="padding:10px 8px; text-align:center;">Units</th>
+          <th style="padding:10px 8px; text-align:center;">Rate (KES)</th>
+          <th style="padding:10px 8px; text-align:center;">Cost (KES)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${historyRows}
+      </tbody>
+    </table>
+
+    <p style="font-size:15px; color:#64748b; margin-top:30px; text-align:center;">
+      If you have any questions, please contact your landlord.
+    </p>
+  `;
+
+  return wrapPremiumEmail(innerHtml, landlordName);
+}
 
 // ========================
 // CLEAN MODAL CLOSE (only when tapping outside – time guard applied)

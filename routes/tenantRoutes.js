@@ -49,6 +49,8 @@ import {
   clearEmailLogs,
   triggerEmailReminders,
   getEmailUsage,
+  bulkAddMeterReadings,
+  bulkAddTenants,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -61,11 +63,12 @@ router.get("/sms-balance", getSmsBalance);
 router.get("/sms-logs", getSmsLogs);
 router.delete("/sms-logs", clearSmsLogs);
 router.get("/email-usage", getEmailUsage);
+router.patch("/bulk-meter-reading", bulkAddMeterReadings);
 router.post("/trigger-email-reminders", triggerEmailReminders);
 router.post("/send-emails", sendManualEmails);
 router.get("/email-logs", getEmailLogs);
 router.delete("/email-logs", clearEmailLogs);
-
+router.post("/bulk-add", bulkAddTenants);
 router.post("/send-sms", smsEmailLimiter, sendManualSms);
 router.post("/send-emails", smsEmailLimiter, sendManualEmails);
 router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);

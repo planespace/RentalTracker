@@ -193,6 +193,8 @@
           <div id="settings-submenu" class="submenu">
             <button id="landlord-profile-btn">👤 Profile</button>
             <button id="global-settings-btn">⚙️ Global Settings</button>
+            <button id="bulk-water-btn">💧 Bulk Water Reading</button>
+            <button id="bulk-add-tenants-btn">🧑‍🤝‍🧑 Bulk Add Tenants</button>
           </div>
 
           <!-- Filter & Sort group -->
@@ -434,9 +436,9 @@
             text-align: center;
           "
         >
-          📄 CSV format: name, phoneNumber, houseNumber, rent, dueDay (1‑31),
-          entryDate (YYYY-MM-DD), notes (optional), depositPeriod (optional,
-          months)
+          📄 CSV format: name, phoneNumber, houseNumber, rent, email (optional),
+          newTenant (true/false), dueDay (1‑31), entryDate (YYYY-MM-DD), notes
+          (optional), depositPeriod (optional, months)
         </p>
         <button
           id="export-all-data-btn"

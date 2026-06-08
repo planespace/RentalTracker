@@ -293,6 +293,9 @@ document.querySelector("#modal-profile").addEventListener("click", () => {
       : ""
   }
 </div>
+    <div class="profile-field"><label>Email:</label> <span>${
+      tenant.email || "Not provided"
+    }</span></div>
     <div class="profile-field"><label>House:</label> <span id="display-house">${
       tenant.houseNumber || "Not provided"
     }</span></div>

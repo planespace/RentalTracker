@@ -51,6 +51,7 @@ import {
   getEmailUsage,
   bulkAddMeterReadings,
   bulkAddTenants,
+  updateExtraCharge,
 } from "../controllers/tenantController.js";
 
 // ----- STATIC ROUTES (no parameters) -----
@@ -82,6 +83,7 @@ router.get("/:id/statement", getTenantStatement);
 
 // ----- DYNAMIC ID ROUTES (must come last) -----
 router.get("/:id", getTenantById);
+router.patch("/:id/payment-history/:entryId/extra-charge", updateExtraCharge);
 router.get("/archived/count", getArchivedCount);
 router.post(
   "/sms-webhook",

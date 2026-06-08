@@ -105,7 +105,6 @@ export async function sendOverdueEmailRemindersForUser(
   todayOverride,
   force = false
 ) {
-  // Load settings
   let settings = await Settings.findById("global_" + userId);
   if (!settings) {
     settings = new Settings({
@@ -119,7 +118,6 @@ export async function sendOverdueEmailRemindersForUser(
     await settings.save();
   }
 
-  // Respect the email‑reminder toggle, unless forced (manual resend)
   if (!force && !settings.autoEmailRemindersEnabled) {
     console.log(
       `[Email Reminder] Auto email reminders disabled for user ${userId}`
@@ -127,21 +125,17 @@ export async function sendOverdueEmailRemindersForUser(
     return [];
   }
 
-  // Use the provided date to find overdue tenants
   const overdueTenants = await getOverdueTenants(userId, todayOverride);
   const results = [];
 
-  // Fetch landlord info once
   const user = await User.findById(userId);
   const landlordName = user?.landlordName || user?.name || "Landlord";
 
-  // The date used for all comparisons inside the loop
   const refDate = todayOverride || new Date();
 
   for (const tenant of overdueTenants) {
     if (!tenant.email) continue;
 
-    // ---------- Build structured data for all months up to the current billing month ----------
     const allEntries = [...tenant.paymentHistory].sort((a, b) => {
       if (a.month !== b.month) return a.month.localeCompare(b.month);
       const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;
@@ -153,7 +147,6 @@ export async function sendOverdueEmailRemindersForUser(
     const allMonths = [...new Set(allEntries.map((e) => e.month))].sort();
     const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
 
-    // Determine deposit period range
     let depositEndMonth = null;
     if (
       firstMonth &&
@@ -168,43 +161,36 @@ export async function sendOverdueEmailRemindersForUser(
       ).padStart(2, "0")}`;
     }
 
-    // Compute standalone left for each month (same as frontend)
     const leftByMonth = new Map();
     let prevCumulative = 0;
     for (const month of allMonths) {
-      const chargeEntry = allEntries.find(
+      const ce = allEntries.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
-      if (!chargeEntry) continue;
-      const cumulative = chargeEntry.remainingBalance;
+      if (!ce) continue;
+      const cumulative = ce.remainingBalance;
       const monthLeft = Math.max(0, cumulative) - Math.max(0, prevCumulative);
       leftByMonth.set(month, monthLeft);
       prevCumulative = cumulative;
     }
 
-    // Determine current billing month (first month with due date >= refDate)
     let currentBillingMonth = allMonths[allMonths.length - 1];
     for (const month of allMonths) {
-      const chargeEntry = allEntries.find(
+      const ce = allEntries.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
-      if (chargeEntry?.dueDate) {
-        const due = new Date(chargeEntry.dueDate);
-        if (due >= refDate) {
-          currentBillingMonth = month;
-          break;
-        }
+      if (ce?.dueDate && new Date(ce.dueDate) >= refDate) {
+        currentBillingMonth = month;
+        break;
       }
     }
 
-    // Build table rows for all months up to current billing month
     let tableRows = "";
     for (const month of allMonths) {
-      const chargeEntry = allEntries.find(
+      const ce = allEntries.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
-      if (!chargeEntry) continue;
-      if (month > currentBillingMonth) break;
+      if (!ce || month > currentBillingMonth) continue;
 
       const rentAmount = tenant.rent;
       let depositInstalment = 0;
@@ -218,11 +204,19 @@ export async function sendOverdueEmailRemindersForUser(
         depositInstalment = Math.round(tenant.rent / tenant.depositPeriod);
       }
 
-      const waterCharge = chargeEntry.waterCharge || 0;
-      const garbageCharge = chargeEntry.garbageCharge || 0;
+      const waterCharge = ce.waterCharge || 0;
+      const garbageCharge = ce.garbageCharge || 0;
+      const extraTotal = (ce.extraCharges || []).reduce(
+        (s, c) => s + c.amount,
+        0
+      );
       const totalDue =
-        chargeEntry.totalDue ||
-        rentAmount + depositInstalment + waterCharge + garbageCharge;
+        ce.totalDue ||
+        rentAmount +
+          depositInstalment +
+          waterCharge +
+          garbageCharge +
+          extraTotal;
 
       const paymentsThisMonth = allEntries.filter(
         (e) => e.month === month && e.amountPaid > 0
@@ -230,14 +224,12 @@ export async function sendOverdueEmailRemindersForUser(
       const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
 
       const monthLeft = leftByMonth.get(month) || 0;
-      const dueDate = chargeEntry.dueDate
-        ? new Date(chargeEntry.dueDate)
-        : null;
+      const dueDate = ce.dueDate ? new Date(ce.dueDate) : null;
       const isPastDueByDate = dueDate && dueDate < refDate && monthLeft > 0;
-      const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
+      const isInitialPastDue = ce.initialPastDue && monthLeft > 0;
       const isOverdue = isPastDueByDate || isInitialPastDue;
 
-      const balance = chargeEntry.remainingBalance;
+      const balance = ce.remainingBalance;
       let status = "";
       if (balance <= 0) status = "Paid";
       else if (isOverdue) status = "Overdue";
@@ -257,6 +249,9 @@ export async function sendOverdueEmailRemindersForUser(
           }</td>
           <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${waterCharge.toLocaleString()}</td>
           <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${garbageCharge.toLocaleString()}</td>
+          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; ${
+            extraTotal > 0 ? "color:#fbbf24; font-weight:600;" : ""
+          }">${extraTotal > 0 ? extraTotal.toLocaleString() : "—"}</td>
           <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${totalDue.toLocaleString()}</td>
           <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
             paid > 0 ? paid.toLocaleString() : "—"
@@ -268,32 +263,28 @@ export async function sendOverdueEmailRemindersForUser(
         </tr>`;
     }
 
-    // Compute total overdue (sum of standalone balances of overdue months)
     const totalOverdue = Array.from(leftByMonth.keys())
       .filter((month) => {
-        const entry = allEntries.find(
+        const ce = allEntries.find(
           (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
         );
-        if (!entry?.dueDate) return false;
-        const due = new Date(entry.dueDate);
-        return due < refDate && (leftByMonth.get(month) || 0) > 0;
+        if (!ce?.dueDate) return false;
+        return (
+          new Date(ce.dueDate) < refDate && (leftByMonth.get(month) || 0) > 0
+        );
       })
       .reduce((sum, month) => sum + (leftByMonth.get(month) || 0), 0);
 
-    // Note at the bottom
-    let note = "";
-    if (totalOverdue > 0) {
-      note = `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-                <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
-                <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
-              </div>`;
-    } else {
-      note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-                <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
-              </div>`;
-    }
+    let note =
+      totalOverdue > 0
+        ? `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+           <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+           <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
+         </div>`
+        : `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+           <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
+         </div>`;
 
-    // Build the inner HTML for the premium wrapper
     const innerHtml = `
       <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
         tenant.name
@@ -308,6 +299,7 @@ export async function sendOverdueEmailRemindersForUser(
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
+            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Extra</th>
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
             <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
@@ -329,7 +321,6 @@ export async function sendOverdueEmailRemindersForUser(
 
     const wrappedHtml = wrapPremiumEmail(innerHtml, landlordName);
 
-    // ---------- Send and record ----------
     try {
       await sendEmail(
         tenant.email,
@@ -339,16 +330,14 @@ export async function sendOverdueEmailRemindersForUser(
         userId
       );
 
-      // Remember that we sent the email for this month
       const newestOverdueMonth = allMonths
         .filter((month) => {
-          const entry = allEntries.find(
+          const ce = allEntries.find(
             (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
           );
-          if (!entry?.dueDate) return false;
+          if (!ce?.dueDate) return false;
           return (
-            new Date(entry.dueDate) < refDate &&
-            (leftByMonth.get(month) || 0) > 0
+            new Date(ce.dueDate) < refDate && (leftByMonth.get(month) || 0) > 0
           );
         })
         .pop();

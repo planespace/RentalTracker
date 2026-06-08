@@ -25,6 +25,13 @@ const paymentEntrySchema = new mongoose.Schema({
   garbageCharge: { type: Number, default: 0 },
   totalDue: { type: Number, required: true },
 
+  extraCharges: [
+    {
+      amount: { type: Number, default: 0 },
+      description: { type: String, default: "" },
+    },
+  ],
+
   // NEW: M‑Pesa reference (optional)
   mpesaRef: { type: String, default: "" },
   initialPastDue: { type: Boolean, default: false },

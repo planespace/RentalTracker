@@ -367,7 +367,19 @@ async function recalcFutureMonths(tenant, changedMonth) {
     }
 
     const garbageCharge = settings.garbageFee;
-    const totalDue = baseRent + waterCharge + garbageCharge;
+    let totalDue = baseRent + waterCharge + garbageCharge;
+
+    // ---- ADD EXTRA CHARGES from the month's charge entry ----
+    const chargeEntry = entries.find(
+      (e) => (e.amountPaid || 0) === 0 && !e.datePaid
+    );
+    if (chargeEntry) {
+      const extraTotal = (chargeEntry.extraCharges || []).reduce(
+        (sum, c) => sum + c.amount,
+        0
+      );
+      totalDue += extraTotal;
+    }
 
     if (!isBeforeChanged) {
       for (const entry of entries) {
@@ -378,13 +390,12 @@ async function recalcFutureMonths(tenant, changedMonth) {
       }
     }
 
-    const chargeEntry = entries.find(
-      (e) => (e.amountPaid || 0) === 0 && !e.datePaid
-    );
-    if (chargeEntry) {
-      const tDue = isBeforeChanged
-        ? chargeEntry.totalDue || totalDue
-        : totalDue;
+    // chargeEntry might already be defined above, but we ensure it is
+    const ce =
+      chargeEntry ||
+      entries.find((e) => (e.amountPaid || 0) === 0 && !e.datePaid);
+    if (ce) {
+      const tDue = isBeforeChanged ? ce.totalDue || totalDue : totalDue;
       if (month === months[0]) {
         runningBalance = tDue;
       } else {
@@ -402,13 +413,13 @@ async function recalcFutureMonths(tenant, changedMonth) {
       }
     }
 
-    if (chargeEntry) {
-      chargeEntry.remainingBalance = runningBalance;
-      chargeEntry.paid = runningBalance <= 0;
+    if (ce) {
+      ce.remainingBalance = runningBalance;
+      ce.paid = runningBalance <= 0;
     }
 
-    if (chargeEntry.initialPastDue && chargeEntry.remainingBalance <= 0) {
-      chargeEntry.initialPastDue = false;
+    if (ce.initialPastDue && ce.remainingBalance <= 0) {
+      ce.initialPastDue = false;
     }
   }
 }
@@ -1971,7 +1982,7 @@ async function getTenantStatement(req, res) {
 
     const overdueBalance = getPastDueAmount(tenant);
 
-    // ---------- HTML with escaped dynamic content ----------
+    // ---------- HTML with Extra column and extra‑charge rows ----------
     let html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -1982,7 +1993,6 @@ async function getTenantStatement(req, res) {
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
     .header { text-align:center; margin-bottom: 30px; }
-    .header img { height: 60px; margin-bottom: 15px; }
     .header h1 { font-size:2rem; color:#0f172a; }
     .header p { color:#475569; font-size:0.9rem; }
     .tenant-info { margin-bottom:25px; padding:12px; background:#f8fafc; border-radius:8px; text-align:center; }
@@ -1993,6 +2003,7 @@ async function getTenantStatement(req, res) {
     td { border-bottom:1px solid #e2e8f0; }
     .charge-row td { background:#f1f5f9; font-weight:600; }
     .payment-row td { color:#475569; }
+    .extra-charge-row td { background:#fef9e7; color:#92400e; font-style:italic; }
     .balance { font-weight:700; }
     .red-balance { color:#dc2626; font-weight:700; }
     .deposit-badge { font-size:0.7rem; color:#b45309; display:block; }
@@ -2006,7 +2017,8 @@ async function getTenantStatement(req, res) {
   <div class="header">
     <h1>${escapeHtml(landlordDisplay)}</h1>
     <p>Statement generated on ${escapeHtml(today.toLocaleDateString())}</p>
-  </div>  <div class="tenant-info">
+  </div>
+  <div class="tenant-info">
     <p><strong>Tenant:</strong> ${escapeHtml(tenant.name)}</p>
     <p><strong>House:</strong> ${escapeHtml(
       tenant.houseNumber
@@ -2017,11 +2029,10 @@ async function getTenantStatement(req, res) {
 
   <table>
     <thead>
-      <tr><th>Month</th><th>Rent</th><th>Water</th><th>Garbage</th><th>Total Due</th><th>Amount Paid</th><th>Balance</th><th>Date Paid</th><th>M‑Pesa Ref</th></tr>
+      <tr><th>Month</th><th>Rent</th><th>Water</th><th>Garbage</th><th>Extra</th><th>Total Due</th><th>Amount Paid</th><th>Balance</th><th>Date Paid</th><th>M‑Pesa Ref</th></tr>
     </thead>
     <tbody>
 `;
-    // the rest of the table generation remains the same...
 
     let currentMonth = null;
     for (const entry of allEntries) {
@@ -2043,12 +2054,16 @@ async function getTenantStatement(req, res) {
           } units × ${reading.rate.toLocaleString()})</span>`;
         }
 
+        const extraTotal = (entry.extraCharges || []).reduce(
+          (s, c) => s + c.amount,
+          0
+        );
+
         const monthIndex = allMonths.indexOf(entry.month);
         const previousMonth = monthIndex > 0 ? allMonths[monthIndex - 1] : null;
         const carryOver = previousMonth
           ? finalBalanceByMonth[previousMonth] || 0
           : 0;
-
         const monthBalance = (entry.totalDue || 0) + carryOver;
         const balanceClass = monthBalance > 0 ? "red-balance" : "balance";
 
@@ -2058,20 +2073,37 @@ async function getTenantStatement(req, res) {
             <td>${(entry.baseRent || 0).toLocaleString()}${depositText}</td>
             <td>${waterDisplay}</td>
             <td>${(entry.garbageCharge || 0).toLocaleString()}</td>
+            <td>${extraTotal > 0 ? extraTotal.toLocaleString() : "—"}</td>
             <td>${(entry.totalDue || 0).toLocaleString()}</td>
             <td></td>
             <td class="${balanceClass}">${monthBalance.toLocaleString()}</td>
             <td></td>
             <td></td>
-          </tr>
-        `;
+          </tr>`;
+
+        // Show individual extra charges as separate rows with a distinct style
+        (entry.extraCharges || []).forEach((ec) => {
+          if (ec.amount > 0) {
+            html += `
+          <tr class="extra-charge-row">
+            <td>↳ Extra charge</td>
+            <td colspan="3">${escapeHtml(ec.description) || "—"}</td>
+            <td>KES ${ec.amount.toLocaleString()}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>`;
+          }
+        });
       }
       if (!isOriginalCharge && entry.amountPaid > 0) {
         const balanceClass =
           entry.remainingBalance > 0 ? "red-balance" : "balance";
         html += `
           <tr class="payment-row">
-            <td>↳ Payment</td><td></td><td></td><td></td><td></td>
+            <td>↳ Payment</td><td></td><td></td><td></td><td></td><td></td>
             <td>${entry.amountPaid.toLocaleString()}</td>
             <td class="${balanceClass}">${entry.remainingBalance.toLocaleString()}</td>
             <td>${
@@ -2080,8 +2112,7 @@ async function getTenantStatement(req, res) {
                 : "—"
             }</td>
             <td>${escapeHtml(entry.mpesaRef || "—")}</td>
-          </tr>
-        `;
+          </tr>`;
       }
     }
 
@@ -2489,6 +2520,47 @@ async function getSmsLogs(req, res) {
   }
 }
 
+async function updateExtraCharge(req, res) {
+  try {
+    const { id, entryId } = req.params;
+    const { extraCharges } = req.body; // array of { amount, description }
+    const tenant = await Tenant.findOne({ _id: id, userId: req.userId });
+    if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+
+    const entry = tenant.paymentHistory.id(entryId);
+    if (!entry)
+      return res.status(404).json({ message: "Payment entry not found" });
+
+    if ((entry.amountPaid || 0) !== 0 || entry.datePaid) {
+      return res.status(400).json({
+        message: "Can only add extra charges to the month's charge entry.",
+      });
+    }
+
+    // Replace the whole array
+    entry.extraCharges = (extraCharges || []).map((c) => ({
+      amount: Number(c.amount) || 0,
+      description: c.description || "",
+    }));
+
+    // Recalculate totalDue for this month
+    const extraTotal = entry.extraCharges.reduce((sum, c) => sum + c.amount, 0);
+    entry.totalDue =
+      (entry.baseRent || tenant.rent) +
+      (entry.waterCharge || 0) +
+      (entry.garbageCharge || 0) +
+      extraTotal;
+
+    await recalcFutureMonths(tenant, entry.month);
+    tenant.markModified("paymentHistory");
+    await tenant.save();
+
+    res.json({ success: true, paymentHistory: tenant.paymentHistory });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 // ========================
 //   EXPORTS
 // ========================
@@ -2533,4 +2605,5 @@ export {
   getEmailUsage,
   bulkAddMeterReadings,
   bulkAddTenants,
+  updateExtraCharge,
 };

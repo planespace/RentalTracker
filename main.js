@@ -433,10 +433,30 @@ function showLandlordProfileModal() {
       setButtonLoading(e.target, true);
       try {
         await updateUserProfile(updates);
-        Toast.fire({ icon: "success", title: "Profile updated" });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Profile updated",
+        });
         closeModal();
       } catch (err) {
-        Toast.fire({ icon: "error", title: err.message || "Update failed" });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: err.message || "Update failed",
+        });
       } finally {
         setButtonLoading(e.target, false);
       }
@@ -451,6 +471,7 @@ function showLandlordProfileModal() {
     document.body.classList.remove("modal-open");
     document.removeEventListener("click", handler);
     window._landlordProfileHandler = null;
+    popModalState();
   };
 
   const closeBtn = document.getElementById("close-utilities-modal");
@@ -1179,6 +1200,99 @@ async function showHistoryModal(id) {
   document.getElementById("profile-modal").style.display = "none";
 }
 
+async function saveExtraChargesForMonth(tenantId, entryId, month) {
+  const section = document.querySelector(
+    `.extra-charges-section[data-entry-id="${entryId}"]`
+  );
+  if (!section) return;
+
+  const list = section.querySelector(".extra-charges-list");
+  if (!list) return;
+
+  const lines = list.querySelectorAll(".extra-charge-line");
+  const charges = [];
+  lines.forEach((line) => {
+    const text = line.querySelector(".extra-text").textContent;
+    const amountMatch = text.match(/[\d,]+/);
+    const amount = amountMatch ? parseInt(amountMatch[0].replace(/,/g, "")) : 0;
+    const descMatch = text.match(/\(([^)]+)\)/);
+    const description = descMatch ? descMatch[1] : "";
+    charges.push({ amount, description });
+  });
+
+  lastModalOpenTime = Date.now();
+
+  try {
+    const response = await fetchWithTimeout(
+      window.location.origin +
+        `/tenants/${tenantId}/payment-history/${entryId}/extra-charge`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ extraCharges: charges }),
+      }
+    );
+    const data = await response.json();
+    console.log("📥 Server response:", data);
+    if (!data.success) throw new Error(data.message || "Failed to save");
+
+    // Update local tenant data
+    const t = tenantArray.find((t) => t._id === tenantId);
+    if (t && data.paymentHistory) {
+      t.paymentHistory = data.paymentHistory;
+      console.log(
+        "✅ Updated tenantArray, first entry extraCharges:",
+        t.paymentHistory[0]?.extraCharges
+      );
+      console.log(
+        "✅ Updated tenantArray, first entry remainingBalance:",
+        t.paymentHistory[0]?.remainingBalance
+      );
+      console.log(
+        "✅ Updated tenantArray, first entry totalDue:",
+        t.paymentHistory[0]?.totalDue
+      );
+    } else {
+      console.warn(
+        "⚠️ Could not update tenantArray – tenant not found or missing paymentHistory in response"
+      );
+    }
+
+    // Force re-render
+    lastModalOpenTime = Date.now();
+    console.log("🔄 Re-rendering payment modal...");
+    renderPaymentModal(tenantId);
+
+    originalSwalFire.call(Swal, {
+      toast: true,
+      position: "bottom-end",
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+      background: "#1e293b",
+      color: "#f1f5f9",
+      icon: "success",
+      title: "Extra charges saved",
+    });
+  } catch (err) {
+    console.error("❌ Save error:", err);
+    originalSwalFire.call(Swal, {
+      toast: true,
+      position: "bottom-end",
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+      background: "#1e293b",
+      color: "#f1f5f9",
+      icon: "error",
+      title: err.message,
+    });
+  }
+}
+
 // ─────────────────────────────────────────────────────
 //   FULL PAYMENT MODAL (compact table with credit tags)
 // ─────────────────────────────────────────────────────
@@ -1232,53 +1346,14 @@ function renderPaymentModal(tenantId) {
 
   const html = `
     <style>
-      .payment-compact-table {
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: separate;
-        border-spacing: 0 6px;
-        background: transparent;
-        word-break: break-word;
-      }
-      .payment-compact-table thead th {
-        text-align: center;
-        padding: 12px 8px;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 0.4px;
-        color: #94a3b8;
-        border-bottom: 2px solid #334155;
-        text-transform: uppercase;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .payment-row-main {
-        cursor: pointer;
-        transition: background 0.15s;
-        background: #1e293b;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.25);
-      }
-      .payment-row-main:hover {
-        background: #273548;
-      }
-      .payment-row-main td {
-        padding: 14px 8px;
-        text-align: center;
-        font-size: 1rem;
-        font-weight: 500;
-        vertical-align: middle;
-        border: none;
-        overflow-wrap: break-word;
-      }
-      .payment-row-main td:first-child {
-        border-radius: 12px 0 0 12px;
-        font-weight: 700;
-      }
-      .payment-row-main td:last-child {
-        border-radius: 0 12px 12px 0;
-      }
+      /* ----- existing styles (unchanged) ----- */
+      .payment-compact-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0 6px; background: transparent; word-break: break-word; }
+      .payment-compact-table thead th { text-align: center; padding: 12px 8px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.4px; color: #94a3b8; border-bottom: 2px solid #334155; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .payment-row-main { cursor: pointer; transition: background 0.15s; background: #1e293b; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.25); }
+      .payment-row-main:hover { background: #273548; }
+      .payment-row-main td { padding: 14px 8px; text-align: center; font-size: 1rem; font-weight: 500; vertical-align: middle; border: none; overflow-wrap: break-word; }
+      .payment-row-main td:first-child { border-radius: 12px 0 0 12px; font-weight: 700; }
+      .payment-row-main td:last-child { border-radius: 0 12px 12px 0; }
       .amount-paid { color: #4ade80; font-weight: 700; }
       .amount-zero { color: #64748b; }
       .status-fully-paid { color: #4ade80; font-weight: 700; }
@@ -1287,105 +1362,32 @@ function renderPaymentModal(tenantId) {
       .balance-positive { color: #f87171; font-weight: 700; }
       .balance-zero { color: #4ade80; font-weight: 700; }
       .balance-negative { color: #c084fc; font-weight: 700; }
-      .left-net {
-        font-weight: 700;
-        display: block;
-      }
-      .left-credit-tag {
-        font-size: 0.7rem;
-        color: #38bdf8;
-        margin-top: 2px;
-        display: block;
-      }
-      .expand-arrow {
-        display: inline-block;
-        transition: transform 0.2s;
-        font-size: 1.3rem;
-        color: #94a3b8;
-      }
-      .credit-transfer-row td {
-        padding: 4px 0;
-        text-align: center;
-        font-size: 0.75rem;
-        color: #38bdf8;
-        background: transparent;
-        font-weight: 500;
-        border: none;
-        opacity: 0.85;
-      }
-      .payment-row-detail td {
-        padding: 0;
-        background: #0f172a;
-        border-radius: 0 0 12px 12px;
-        border-bottom: 2px solid #334155;
-        word-break: break-word;
-        overflow-x: hidden;
-      }
-      .detail-content {
-        padding: 16px 18px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        color: #cbd5e1;
-        font-size: 0.9rem;
-      }
-      .charge-line {
-        color: #f1f5f9;
-        font-weight: 600;
-        font-size: 0.95rem;
-        background: #1e293b;
-        padding: 8px 12px;
-        border-radius: 8px;
-      }
-      .credit-note {
-        color: #38bdf8;
-        font-weight: 500;
-        font-size: 0.85rem;
-        background: #38bdf815;
-        padding: 4px 10px;
-        border-radius: 20px;
-        display: inline-block;
-      }
-      .payment-detail-line {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-        padding: 8px 12px;
-        background: #1e293b;
-        border-radius: 8px;
-        font-size: 0.85rem;
-      }
-      .payment-detail-line span:first-child {
-        font-weight: 600;
-        color: #f1f5f9;
-      }
-      .payment-detail-line span.mp {
-        color: #38bdf8;
-        font-weight: 500;
-      }
-      .payment-detail-line span.balance {
-        font-weight: 600;
-      }
+      .left-net { font-weight: 700; display: block; }
+      .left-credit-tag { font-size: 0.7rem; color: #38bdf8; margin-top: 2px; display: block; }
+      .expand-arrow { display: inline-block; transition: transform 0.2s; font-size: 1.3rem; color: #94a3b8; }
+      .credit-transfer-row td { padding: 4px 0; text-align: center; font-size: 0.75rem; color: #38bdf8; background: transparent; font-weight: 500; border: none; opacity: 0.85; }
+      .payment-row-detail td { padding: 0; background: #0f172a; border-radius: 0 0 12px 12px; border-bottom: 2px solid #334155; word-break: break-word; overflow-x: hidden; }
+      .detail-content { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; color: #cbd5e1; font-size: 0.9rem; }
+      .charge-line { color: #f1f5f9; font-weight: 600; font-size: 0.95rem; background: #1e293b; padding: 8px 12px; border-radius: 8px; }
+      .credit-note { color: #38bdf8; font-weight: 500; font-size: 0.85rem; background: #38bdf815; padding: 4px 10px; border-radius: 20px; display: inline-block; }
+      .payment-detail-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #1e293b; border-radius: 8px; font-size: 0.85rem; }
+      .payment-detail-line span:first-child { font-weight: 600; color: #f1f5f9; }
+      .payment-detail-line span.mp { color: #38bdf8; font-weight: 500; }
+      .payment-detail-line span.balance { font-weight: 600; }
+      .payment-history-wrapper, .payment-history-scroll, #payment-history-list { max-height: none !important; overflow-y: visible !important; }
+      @media (max-width: 500px) { .payment-row-main td { font-size: 0.85rem; padding: 12px 4px; } .detail-content { padding: 12px 10px; } }
 
-      /* prevent inner scroll */
-      .payment-history-wrapper,
-      .payment-history-scroll,
-      #payment-history-list {
-        max-height: none !important;
-        overflow-y: visible !important;
-      }
-
-      @media (max-width: 500px) {
-        .payment-row-main td {
-          font-size: 0.85rem;
-          padding: 12px 4px;
-        }
-        .detail-content {
-          padding: 12px 10px;
-        }
-      }
+      /* ---------- Extra charges ---------- */
+      .extra-charge-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #1e293b; border-radius: 8px; font-size: 0.85rem; border-left: 3px solid #fbbf24; }
+      .extra-charge-line .extra-text { font-weight: 600; color: #fbbf24; }
+      .extra-charge-line button { background: none; border: none; cursor: pointer; font-size: 1rem; padding: 2px 6px; }
+      .extra-edit-btn { color: var(--accent-cyan); }
+      .extra-delete-btn { color: var(--danger); }
+      .extra-charge-edit-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #1e293b; padding: 6px 10px; border-radius: 8px; }
+      .extra-charge-edit-form input { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-deep); color: var(--text-primary); }
+      .save-extra-btn { background: var(--success); color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+      .cancel-extra-btn { background: var(--text-muted); color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+      .add-extra-btn { background: var(--accent-blue); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; align-self: flex-start; margin-top: 4px; }
     </style>
 
     ${warningBanner}
@@ -1507,24 +1509,27 @@ function renderPaymentModal(tenantId) {
     .sort()
     .reverse();
 
-  // monthsOrder must be oldest-first (chronological) so that
-  // the credit transfer row correctly identifies the older month
   const monthsOrder = [...uniqueMonths].reverse();
 
-  const leftByMonth = new Map();
-  let previousCumulative = 0;
-  for (const month of monthsOrder) {
-    const chargeEntry = sortedHistory.find(
-      (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
-    );
-    if (!chargeEntry) continue;
-    const cumulative = chargeEntry.remainingBalance;
-    const monthLeft = Math.max(0, cumulative) - Math.max(0, previousCumulative);
-    leftByMonth.set(month, monthLeft);
-    previousCumulative = cumulative;
+  // Helper: compute leftByMonth from a given paymentHistory array
+  function recomputeLeftByMonth(paymentHistory) {
+    const map = new Map();
+    let prevCum = 0;
+    for (const month of monthsOrder) {
+      const ce = paymentHistory.find(
+        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      if (!ce) continue;
+      const cum = ce.remainingBalance;
+      map.set(month, Math.max(0, cum) - Math.max(0, prevCum));
+      prevCum = cum;
+    }
+    return map;
   }
 
-  // Helper: charge breakdown
+  let leftByMonth = recomputeLeftByMonth(tenant.paymentHistory);
+
+  // Helper: charge breakdown – shows core charges only (extra charges listed separately)
   function getChargeBreakdown(month) {
     const chargeEntry = sortedHistory.find(
       (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
@@ -1577,7 +1582,8 @@ function renderPaymentModal(tenantId) {
       chargeEntry.totalDue ||
       (chargeEntry.baseRent || 0) +
         (chargeEntry.waterCharge || 0) +
-        (chargeEntry.garbageCharge || 0) ||
+        (chargeEntry.garbageCharge || 0) +
+        (chargeEntry.extraCharges || []).reduce((s, c) => s + c.amount, 0) ||
       0;
 
     const paymentsThisMonth = sortedHistory.filter(
@@ -1588,11 +1594,10 @@ function renderPaymentModal(tenantId) {
     const cumulative = chargeEntry.remainingBalance;
     const monthLeft = leftByMonth.get(month) || 0;
     const expectedLeft = totalDue - paid;
-
     const creditUsedAmount =
       paid < totalDue ? Math.max(0, expectedLeft - Math.max(0, monthLeft)) : 0;
 
-    // ---- Left cell ----
+    // Left cell
     let leftDisplay = "";
     let leftClass = "";
     if (paid >= totalDue) {
@@ -1616,7 +1621,7 @@ function renderPaymentModal(tenantId) {
       }
     }
 
-    // ---- Balance column ----
+    // Balance column
     let balanceClass = "";
     let balanceText = "";
     if (cumulative > 0) {
@@ -1694,6 +1699,29 @@ function renderPaymentModal(tenantId) {
                 ? `<div class="credit-note">${creditUsedAmount.toLocaleString()} credit from previous month</div>`
                 : ""
             }
+            <!-- Extra charges as individual lines -->
+            <div class="extra-charges-section" data-entry-id="${
+              chargeEntry._id
+            }" data-month="${month}">
+              <div class="extra-charges-list">
+                ${(chargeEntry.extraCharges || [])
+                  .map(
+                    (ec, idx) => `
+                  <div class="extra-charge-line" data-index="${idx}">
+                    <span class="extra-text">Extra: KES ${ec.amount.toLocaleString()}${
+                      ec.description ? ` (${escapeHtml(ec.description)})` : ""
+                    }</span>
+                    <div>
+                      <button class="extra-edit-btn" title="Edit">✎</button>
+                      <button class="extra-delete-btn" title="Delete">🗑️</button>
+                    </div>
+                  </div>
+                `
+                  )
+                  .join("")}
+              </div>
+              <button class="add-extra-btn">+ Add extra charge</button>
+            </div>
           </div>
         </td>
       </tr>`;
@@ -1742,6 +1770,146 @@ function renderPaymentModal(tenantId) {
       } else {
         detailRow.style.display = "none";
         arrow.style.transform = "rotate(0deg)";
+      }
+    });
+  });
+
+  // ---------- Extra charges management (calls global helper) ----------
+  container.querySelectorAll(".extra-charges-section").forEach((section) => {
+    const entryId = section.dataset.entryId;
+    const month = section.dataset.month;
+    const list = section.querySelector(".extra-charges-list");
+
+    // Add new charge
+    section.querySelector(".add-extra-btn").addEventListener("click", () => {
+      const editRow = document.createElement("div");
+      editRow.className = "extra-charge-edit-form";
+      editRow.innerHTML = `
+        <input type="number" step="any" class="edit-amount" placeholder="Amount">
+        <input type="text" class="edit-desc" placeholder="Description">
+        <button class="save-extra-btn">Save</button>
+        <button class="cancel-extra-btn">Cancel</button>
+      `;
+      list.appendChild(editRow);
+
+      const cancelBtn = editRow.querySelector(".cancel-extra-btn");
+      cancelBtn.addEventListener("click", () => editRow.remove());
+
+      const saveBtn = editRow.querySelector(".save-extra-btn");
+      saveBtn.addEventListener("click", async () => {
+        const amount =
+          parseFloat(editRow.querySelector(".edit-amount").value) || 0;
+        const description = editRow.querySelector(".edit-desc").value.trim();
+        if (amount === 0) {
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: "Amount must be greater than 0",
+          });
+          return;
+        }
+        const newLine = document.createElement("div");
+        newLine.className = "extra-charge-line";
+        newLine.innerHTML = `
+          <span class="extra-text">Extra: KES ${amount.toLocaleString()}${
+          description ? ` (${escapeHtml(description)})` : ""
+        }</span>
+          <div>
+            <button class="extra-edit-btn" title="Edit">✎</button>
+            <button class="extra-delete-btn" title="Delete">🗑️</button>
+          </div>
+        `;
+        list.insertBefore(newLine, editRow);
+        editRow.remove();
+        lastModalOpenTime = Date.now();
+        saveExtraChargesForMonth(tenantId, entryId, month);
+      });
+    });
+
+    // Edit / Delete via event delegation
+    list.addEventListener("click", async (e) => {
+      const line = e.target.closest(".extra-charge-line");
+      if (!line) return;
+
+      // Delete
+      if (e.target.classList.contains("extra-delete-btn")) {
+        const confirmResult = await originalSwalFire.call(Swal, {
+          title: "Delete extra charge?",
+          text: "This action cannot be undone.",
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonColor: "#ef4444",
+          cancelButtonColor: "#6b7280",
+          confirmButtonText: "Yes, delete",
+          background: "#1e293b",
+          color: "#f1f5f9",
+        });
+        if (!confirmResult.isConfirmed) return;
+
+        lastModalOpenTime = Date.now();
+        line.remove();
+        saveExtraChargesForMonth(tenantId, entryId, month);
+        return;
+      }
+
+      // Edit
+      if (e.target.classList.contains("extra-edit-btn")) {
+        const textSpan = line.querySelector(".extra-text");
+        const currentText = textSpan.textContent;
+        const amountMatch = currentText.match(/[\d,]+/);
+        const currentAmount = amountMatch
+          ? parseInt(amountMatch[0].replace(/,/g, ""))
+          : 0;
+        const descMatch = currentText.match(/\(([^)]+)\)/);
+        const currentDesc = descMatch ? descMatch[1] : "";
+
+        const editForm = document.createElement("div");
+        editForm.className = "extra-charge-edit-form";
+        editForm.innerHTML = `
+          <input type="number" step="any" class="edit-amount" value="${currentAmount}">
+          <input type="text" class="edit-desc" value="${escapeHtml(
+            currentDesc
+          )}">
+          <button class="save-extra-btn">Save</button>
+          <button class="cancel-extra-btn">Cancel</button>
+        `;
+        line.replaceWith(editForm);
+
+        const cancelBtn = editForm.querySelector(".cancel-extra-btn");
+        cancelBtn.addEventListener("click", () => editForm.replaceWith(line));
+
+        const saveBtn = editForm.querySelector(".save-extra-btn");
+        saveBtn.addEventListener("click", async () => {
+          const newAmount =
+            parseFloat(editForm.querySelector(".edit-amount").value) || 0;
+          const newDesc = editForm.querySelector(".edit-desc").value.trim();
+          if (newAmount === 0) {
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 2000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "error",
+              title: "Amount must be greater than 0",
+            });
+            return;
+          }
+          textSpan.textContent = `Extra: KES ${newAmount.toLocaleString()}${
+            newDesc ? ` (${escapeHtml(newDesc)})` : ""
+          }`;
+          editForm.replaceWith(line);
+          lastModalOpenTime = Date.now();
+          saveExtraChargesForMonth(tenantId, entryId, month);
+        });
       }
     });
   });
@@ -2027,12 +2195,32 @@ async function showUtilitiesModal(tenantId) {
               }
               showUtilitiesModal(tid);
             }
-            Toast.fire({ icon: "success", title: "Reading updated" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 2000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "success",
+              title: "Reading updated",
+            });
           } else {
             Toast.fire({ icon: "error", title: "Update failed" });
           }
         } catch (err) {
-          Toast.fire({ icon: "error", title: err.message });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: err.message,
+          });
         } finally {
           setButtonLoading(btn, false);
         }
@@ -2068,12 +2256,32 @@ async function showUtilitiesModal(tenantId) {
               renderPaymentModal(window.currentActionsTenantId);
             }
             showUtilitiesModal(tid);
-            Toast.fire({ icon: "success", title: "Reading deleted" });
+            originalSwalFire.call(Swal, {
+              toast: true,
+              position: "bottom-end",
+              showConfirmButton: false,
+              timer: 2000,
+              timerProgressBar: true,
+              background: "#1e293b",
+              color: "#f1f5f9",
+              icon: "success",
+              title: "Reading deleted",
+            });
           } else {
             Toast.fire({ icon: "error", title: "Delete failed" });
           }
         } catch (err) {
-          Toast.fire({ icon: "error", title: err.message });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: err.message,
+          });
         } finally {
           setButtonLoading(btn, false);
         }
@@ -2236,16 +2444,43 @@ function showGlobalSettingsModal() {
         );
         if (ok) {
           await fetchGlobalSettings();
-          Toast.fire({
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
             icon: "success",
             title: `SMS auto‑reminders ${isChecked ? "enabled" : "disabled"}`,
           });
         } else {
-          Toast.fire({ icon: "error", title: "Failed to save setting" });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: "Failed to save setting",
+          });
           e.target.checked = !isChecked;
         }
       } catch (err) {
-        Toast.fire({ icon: "error", title: err.message });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: err.message,
+        });
         e.target.checked = !isChecked;
       } finally {
         setButtonLoading(e.target, false);
@@ -2304,15 +2539,43 @@ function showGlobalSettingsModal() {
         );
         if (ok) {
           await fetchGlobalSettings();
-          Toast.fire({
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
             icon: "success",
             title: `Email auto‑reminders ${isChecked ? "enabled" : "disabled"}`,
           });
         } else {
-          Toast.fire({ icon: "error", title: "Failed to save setting" });
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: "Failed to save setting",
+          });
           e.target.checked = !isChecked;
         }
       } catch (err) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success", // or "error"
+          title: `Email auto‑reminders ${isChecked ? "enabled" : "disabled"}`, // use the matching title
+        });
         Toast.fire({ icon: "error", title: err.message });
         e.target.checked = !isChecked;
       } finally {
@@ -2613,7 +2876,18 @@ function showGlobalSettingsModal() {
         if (ok) {
           await fetchGlobalSettings();
           await loadTenants();
-          Toast.fire({ icon: "success", title: "Settings updated" });
+          // ✅ Success toast – does NOT close the modal
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "success",
+            title: "Settings updated",
+          });
           document.getElementById("global-garbage").value =
             globalSettings.garbageFee || 0;
           document.getElementById("global-waterrate").value =
@@ -2621,10 +2895,32 @@ function showGlobalSettingsModal() {
           document.getElementById("global-default-due-day").value =
             globalSettings.defaultDueDay || 1;
         } else {
-          Toast.fire({ icon: "error", title: "Update failed" });
+          // ✅ Error toast – does NOT close the modal
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: "Update failed",
+          });
         }
       } catch (err) {
-        Toast.fire({ icon: "error", title: err.message || "Update failed" });
+        // ✅ Error toast – does NOT close the modal
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: err.message || "Update failed",
+        });
       } finally {
         setButtonLoading(e.target, false);
       }
@@ -2846,19 +3142,30 @@ document.addEventListener("click", async (e) => {
     const mpesaRef = document.getElementById("pay-mpesa").value;
 
     if (isNaN(amount) || amount < 0) {
-      Toast.fire({ icon: "warning", title: "Invalid Amount" });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "warning",
+        title: "Invalid Amount",
+      });
       return;
     }
 
-    const confirm = await Swal.fire({
+    // Use originalSwalFire so no history entry is pushed
+    const confirm = await originalSwalFire.call(Swal, {
       title: "Confirm Payment",
       html: `
-      <div style="text-align: left;">
-        <p><strong>Amount:</strong> ${formatCurrency(amount)}</p>
-        <p><strong>Date Paid:</strong> ${date || "Today"}</p>
-        ${mpesaRef ? `<p><strong>M‑Pesa Ref:</strong> ${mpesaRef}</p>` : ""}
-      </div>
-    `,
+        <div style="text-align: left;">
+          <p><strong>Amount:</strong> ${formatCurrency(amount)}</p>
+          <p><strong>Date Paid:</strong> ${date || "Today"}</p>
+          ${mpesaRef ? `<p><strong>M‑Pesa Ref:</strong> ${mpesaRef}</p>` : ""}
+        </div>
+      `,
       icon: "question",
       showCancelButton: true,
       confirmButtonColor: "#10b981",
@@ -2892,17 +3199,50 @@ document.addEventListener("click", async (e) => {
         await loadTenants();
         scheduleChartUpdate();
         renderPaymentModal(tenantId);
-        Toast.fire({ icon: "success", title: "Payment Recorded" });
+
+        // Safe success toast
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Payment Recorded",
+        });
       } else {
         const error = await response.json();
-        Toast.fire({ icon: "error", title: error.message || "Payment failed" });
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: error.message || "Payment failed",
+        });
       }
     } catch (err) {
-      Toast.fire({ icon: "error", title: err.message });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: err.message,
+      });
     } finally {
       setButtonLoading(btn, false);
     }
   }
+
   if (e.target.classList.contains("ref-btn")) {
     const ref = e.target.dataset.ref;
     if (ref && ref.trim() !== "") {
@@ -4193,7 +4533,17 @@ async function showBulkAddTenantsModal() {
       if (data.errors && data.errors.length > 0) {
         msg += ` Skipped: ${data.errors.join(", ")}.`;
       }
-      Toast.fire({ icon: "success", title: msg });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "success",
+        title: msg,
+      });
     } else {
       Toast.fire({
         icon: "error",
@@ -4925,9 +5275,29 @@ async function showBulkWaterReadingModal() {
       if (data.errors && data.errors.length > 0) {
         msg += ` Skipped: ${data.errors.join(", ")}.`;
       }
-      Toast.fire({ icon: "success", title: msg });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "success",
+        title: msg,
+      });
     } else {
-      Toast.fire({ icon: "error", title: data.message || "Save failed" });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: data.message || "Save failed",
+      });
     }
   } catch (err) {
     Toast.fire({ icon: "error", title: err.message });
@@ -5220,7 +5590,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   const totalOutstanding = getTenantTotalOutstanding(tenant);
   const credit = totalOutstanding < 0 ? Math.abs(totalOutstanding) : 0;
 
-  // Build structured rows for all months
   const allMonths = [
     ...new Set(tenant.paymentHistory.map((e) => e.month)),
   ].sort();
@@ -5277,9 +5646,13 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
     const waterCharge = chargeEntry.waterCharge || 0;
     const garbageCharge = chargeEntry.garbageCharge || 0;
+    const extraTotal = (chargeEntry.extraCharges || []).reduce(
+      (s, c) => s + c.amount,
+      0
+    );
     const totalDue =
       chargeEntry.totalDue ||
-      rentAmount + depositInstalment + waterCharge + garbageCharge;
+      rentAmount + depositInstalment + waterCharge + garbageCharge + extraTotal;
 
     const paymentsThisMonth = tenant.paymentHistory.filter(
       (e) => e.month === month && e.amountPaid > 0
@@ -5309,6 +5682,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
       depositInstalment,
       waterCharge,
       garbageCharge,
+      extraTotal,
       totalDue,
       paid,
       balance: monthLeft,
@@ -5334,6 +5708,9 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
         }</td>
         <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.waterCharge.toLocaleString()}</td>
         <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.garbageCharge.toLocaleString()}</td>
+        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; ${
+          r.extraTotal > 0 ? "color:#fbbf24; font-weight:600;" : ""
+        }">${r.extraTotal > 0 ? r.extraTotal.toLocaleString() : "—"}</td>
         <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${r.totalDue.toLocaleString()}</td>
         <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
           r.paid > 0 ? r.paid.toLocaleString() : "—"
@@ -5366,7 +5743,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
             </div>`;
   }
 
-  // Build the inner content (everything that goes inside the white body area)
   const innerHtml = `
     <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
       tenant.name
@@ -5381,6 +5757,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
+          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Extra</th>
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
           <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
@@ -5555,7 +5932,17 @@ async function showEmailModal(tenantId) {
         Toast.fire({ icon: "error", title: "Failed to send email" });
       }
     } else {
-      Toast.fire({ icon: "error", title: data.message || "Failed to send" });
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: data.message || "Failed to send",
+      });
     }
   } catch (err) {
     Toast.fire({ icon: "error", title: err.message });

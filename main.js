@@ -165,6 +165,7 @@ function getAppTodayStr() {
 
 function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
   const today = getAppToday();
+  const landlordPhone = userProfile.phone || "";
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -175,12 +176,19 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 <body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
   <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
     
-    <!-- HEADER (dark, logo‑free) -->
+    <!-- HEADER -->
     <div style="background:#0f172a; padding:36px 24px; text-align:center;">
-      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">RENTAL TRACKER</h1>
+      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">PARADISE SUITES</h1>
       <p style="margin:10px 0 0; font-size:16px; color:#cbd5e1; font-weight:400;">Landlord: ${escapeHtml(
         landlordName
       )}</p>
+      ${
+        landlordPhone
+          ? `<p style="margin:6px 0 0; font-size:15px; color:#94a3b8;">Phone: ${escapeHtml(
+              landlordPhone
+            )}</p>`
+          : ""
+      }
     </div>
 
     <!-- BODY -->
@@ -190,7 +198,8 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 
     <!-- FOOTER -->
     <div style="background:#0f172a; padding:16px 24px; text-align:center;">
-      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Rental Tracker. All rights reserved.</p>
+      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Paradise Suites. All rights reserved.</p>
+      <p style="margin:8px 0 0; font-size:12px; color:#f87171;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
     </div>
   </div>
 </body>
@@ -420,6 +429,24 @@ function showLandlordProfileModal() {
           userProfile.landlordName || ""
         }" class="swal2-input" style="margin: 0;">
       </div>
+
+            <!-- 🔒 Change Password section -->
+      <hr style="border-color: var(--border); margin: 12px 0;">
+      <h4 style="margin-bottom: 0;">🔒 Change Password</h4>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="color: var(--text-secondary); font-size: 0.9rem;">Old Password</label>
+        <input type="password" id="old-password" class="swal2-input" style="margin: 0;" placeholder="Enter old password">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="color: var(--text-secondary); font-size: 0.9rem;">New Password</label>
+        <input type="password" id="new-password" class="swal2-input" style="margin: 0;" placeholder="Enter new password (min 6 characters)">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="color: var(--text-secondary); font-size: 0.9rem;">Confirm New Password</label>
+        <input type="password" id="confirm-password" class="swal2-input" style="margin: 0;" placeholder="Confirm new password">
+      </div>
+      <button id="change-password-btn" class="modal-action-btn" style="background: var(--accent-purple);">Update Password</button>
+
       <div class="utility-actions" style="margin-top: 8px;">
         <button id="save-landlord-profile" class="modal-action-btn">Save</button>
         <button id="cancel-landlord-profile" class="modal-action-btn danger">Cancel</button>
@@ -479,6 +506,111 @@ function showLandlordProfileModal() {
       }
     } else if (e.target.id === "cancel-landlord-profile") {
       closeModal();
+    } else if (e.target.id === "change-password-btn") {
+      const oldPassword = document.getElementById("old-password").value;
+      const newPassword = document.getElementById("new-password").value;
+      const confirmPassword = document.getElementById("confirm-password").value;
+
+      if (!oldPassword || !newPassword || !confirmPassword) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: "All password fields are required.",
+        });
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: "Passwords do not match.",
+        });
+        return;
+      }
+
+      if (newPassword.length < 6) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: "Password must be at least 6 characters.",
+        });
+        return;
+      }
+
+      setButtonLoading(e.target, true);
+      try {
+        const response = await fetchWithTimeout("/auth/change-password", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({ oldPassword, newPassword }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 2000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "success",
+            title: "Password updated",
+          });
+          // Clear fields
+          document.getElementById("old-password").value = "";
+          document.getElementById("new-password").value = "";
+          document.getElementById("confirm-password").value = "";
+        } else {
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: data.message || "Failed to update password",
+          });
+        }
+      } catch (err) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "error",
+          title: err.message,
+        });
+      } finally {
+        setButtonLoading(e.target, false);
+      }
     }
   };
 
@@ -6041,9 +6173,11 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   }
 
   const innerHtml = `
-    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-      tenant.name
-    )},</p>
+      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+        tenant.name
+      )}${
+    tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
+  },</p>
     <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
     <table style="width:100%; border-collapse:collapse; font-size:16px;">
@@ -8219,9 +8353,11 @@ function generateWaterBillEmail(tenant, landlordName) {
     : "the due date";
 
   const innerHtml = `
-    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-      tenant.name
-    )},</p>
+       <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+         tenant.name
+       )}${
+    tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
+  },</p>
     <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">
       Here is your water bill for <strong>${escapeHtml(data.month)}</strong>.
       Please pay by <strong>${escapeHtml(dueStr)}</strong>.

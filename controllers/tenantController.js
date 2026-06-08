@@ -2042,7 +2042,8 @@ async function getTenantStatement(req, res) {
 </head>
 <body>
   <div class="header">
-    <h1>${escapeHtml(landlordDisplay)}</h1>
+     <h1>${escapeHtml(landlordDisplay)}</h1>
+    ${user.phone ? `<p>Phone: ${escapeHtml(user.phone)}</p>` : ""}
     <p>Statement generated on ${escapeHtml(today.toLocaleDateString())}</p>
   </div>
   <div class="tenant-info">
@@ -2148,6 +2149,9 @@ async function getTenantStatement(req, res) {
   </table>
   <div style="margin-top:20px; text-align:center; font-size:1.2rem; font-weight:700;">
     Current Overdue Balance: KSH ${overdueBalance.toLocaleString()}
+  </div>
+  <div style="margin-top:20px; text-align:center; font-size:0.9rem; color:#92400e;">
+    🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.
   </div>
   <div class="print-btn">
     <button onclick="window.print()">🖨️ Save as PDF</button>

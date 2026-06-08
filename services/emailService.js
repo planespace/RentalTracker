@@ -25,7 +25,11 @@ function escapeHtml(str) {
 }
 
 // Premium email wrapper (logo‑free)
-function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
+function wrapPremiumEmail(
+  innerHtml,
+  landlordName = "Landlord",
+  landlordPhone = ""
+) {
   const today = new Date();
   return `
 <!DOCTYPE html>
@@ -36,16 +40,24 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 <body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
   <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
     <div style="background:#0f172a; padding:36px 24px; text-align:center;">
-      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">RENTAL TRACKER</h1>
+      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">PARADISE SUITES</h1>
       <p style="margin:10px 0 0; font-size:16px; color:#cbd5e1;">Landlord: ${escapeHtml(
         landlordName
       )}</p>
+      ${
+        landlordPhone
+          ? `<p style="margin:6px 0 0; font-size:15px; color:#94a3b8;">Phone: ${escapeHtml(
+              landlordPhone
+            )}</p>`
+          : ""
+      }
     </div>
     <div style="padding:32px 24px;">
       ${innerHtml}
     </div>
     <div style="background:#0f172a; padding:16px 24px; text-align:center;">
-      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${today.getFullYear()} Rental Tracker. All rights reserved.</p>
+      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${today.getFullYear()} Paradise Suites. All rights reserved.</p>
+      <p style="margin:8px 0 0; font-size:12px; color:#f87171;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
     </div>
   </div>
 </body>
@@ -286,9 +298,11 @@ export async function sendOverdueEmailRemindersForUser(
          </div>`;
 
     const innerHtml = `
-      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-        tenant.name
-      )},</p>
+        <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+          tenant.name
+        )}${
+      tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
+    },</p>
       <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
       <table style="width:100%; border-collapse:collapse; font-size:16px;">

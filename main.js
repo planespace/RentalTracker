@@ -2190,8 +2190,8 @@ function showGlobalSettingsModal() {
       const isChecked = e.target.checked;
 
       // Confirmation
-      window.ignoreNextPopstate = true;
-      const confirmResult = await Swal.fire({
+
+      const confirmResult = await originalSwalFire.call(Swal, {
         title: isChecked
           ? "Enable SMS auto‑reminders?"
           : "Disable SMS auto‑reminders?",
@@ -2258,8 +2258,8 @@ function showGlobalSettingsModal() {
   if (emailCheckbox) {
     emailCheckbox.addEventListener("change", async (e) => {
       const isChecked = e.target.checked;
-      window.ignoreNextPopstate = true;
-      const confirmResult = await Swal.fire({
+
+      const confirmResult = await originalSwalFire.call(Swal, {
         title: isChecked
           ? "Enable email auto‑reminders?"
           : "Disable email auto‑reminders?",
@@ -5420,31 +5420,102 @@ function showEmailLogsModal() {
         // Clear button
         const clearBtn = document.getElementById("clear-email-logs-btn");
         if (clearBtn) {
-          clearBtn.addEventListener("click", async () => {
-            const confirm = await Swal.fire({
-              title: "Clear all email logs?",
-              text: "This cannot be undone.",
-              icon: "warning",
-              showCancelButton: true,
-              confirmButtonColor: "#ef4444",
-              confirmButtonText: "Yes, clear all",
-              background: "#1e293b",
-              color: "#f1f5f9",
-            });
-            if (confirm.isConfirmed) {
-              try {
-                await fetchWithTimeout("/tenants/email-logs", {
-                  method: "DELETE",
-                  headers: {
-                    Authorization: `Bearer ${localStorage.getItem("token")}`,
-                  },
-                });
-                window.ignoreNextPopstate = true; // ✅ prevents closing the new modal
-                Swal.close();
-                showEmailLogsModal();
-              } catch (err) {
-                Toast.fire({ icon: "error", title: "Failed to clear logs" });
+          clearBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+
+            if (!confirm("Clear all email logs? This cannot be undone."))
+              return;
+
+            try {
+              await fetchWithTimeout("/tenants/email-logs", {
+                method: "DELETE",
+                headers: {
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+              });
+            } catch (err) {
+              Toast.fire({ icon: "error", title: "Failed to clear logs" });
+              return;
+            }
+
+            try {
+              const response = await fetchWithTimeout("/tenants/email-logs", {
+                headers: {
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+              });
+              if (!response.ok) throw new Error("Failed to fetch new logs");
+              let logs = await response.json();
+
+              logs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const yesterday = new Date(today);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const groups = [];
+              let currentLabel = "",
+                currentGroup = [];
+              for (const log of logs) {
+                const d = new Date(log.sentAt);
+                d.setHours(0, 0, 0, 0);
+                let label =
+                  d.getTime() === today.getTime()
+                    ? "Today"
+                    : d.getTime() === yesterday.getTime()
+                    ? "Yesterday"
+                    : d.toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      });
+                if (label !== currentLabel) {
+                  if (currentGroup.length)
+                    groups.push({ label: currentLabel, logs: currentGroup });
+                  currentLabel = label;
+                  currentGroup = [log];
+                } else currentGroup.push(log);
               }
+              if (currentGroup.length)
+                groups.push({ label: currentLabel, logs: currentGroup });
+
+              let tableRows =
+                groups.length === 0
+                  ? `<tr><td colspan="5" style="text-align:center;padding:40px;">📭 No email logs found</td></tr>`
+                  : groups
+                      .map(
+                        (g) => `
+          <tr class="sms-group-header"><td colspan="5">${g.label}</td></tr>
+          ${g.logs
+            .map((log) => {
+              const time = new Date(log.sentAt).toLocaleTimeString("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const shortSubj =
+                log.subject && log.subject.length > 40
+                  ? log.subject.substring(0, 40) + "…"
+                  : log.subject || "(no subject)";
+              return `<tr>
+              <td>${escapeHtml(log.tenantName)}</td>
+              <td>${escapeHtml(log.email)}</td>
+              <td class="msg-cell">${escapeHtml(shortSubj)}</td>
+              <td><span class="status-badge ${log.status}">${
+                log.status
+              }</span></td>
+              <td>${time}</td>
+            </tr>`;
+            })
+            .join("")}
+        `
+                      )
+                      .join("");
+
+              const tableBody = document.querySelector(".sms-logs-table tbody");
+              if (tableBody) tableBody.innerHTML = tableRows;
+              Toast.fire({ icon: "success", title: "Logs cleared" });
+            } catch (err) {
+              Toast.fire({ icon: "error", title: "Failed to refresh logs" });
             }
           });
         }
@@ -5499,7 +5570,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     </div>
 
     <div>
-    <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
+ <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
         <table style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr style="border-bottom: 1px solid var(--border); background: var(--bg-elevated);">
@@ -6294,31 +6365,107 @@ if (smsLogsBtn) {
           // Clear all logs button handler
           const clearBtn = document.getElementById("clear-sms-logs-btn");
           if (clearBtn) {
-            clearBtn.addEventListener("click", async () => {
-              const confirm = await Swal.fire({
-                title: "Clear all SMS logs?",
-                text: "This cannot be undone.",
-                icon: "warning",
-                showCancelButton: true,
-                confirmButtonColor: "#ef4444",
-                confirmButtonText: "Yes, clear all",
-                background: "#1e293b",
-                color: "#f1f5f9",
-              });
-              if (confirm.isConfirmed) {
-                try {
-                  await fetchWithTimeout("/tenants/sms-logs", {
-                    method: "DELETE",
-                    headers: {
-                      Authorization: `Bearer ${localStorage.getItem("token")}`,
-                    },
-                  });
-                  window.ignoreNextPopstate = true; // ✅ prevents closing the new modal
-                  Swal.close();
-                  smsLogsBtn.click(); // reopen with fresh data
-                } catch (err) {
-                  Toast.fire({ icon: "error", title: "Failed to clear logs" });
+            clearBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+
+              // Use browser confirm dialog – simple and reliable
+              if (!confirm("Clear all SMS logs? This cannot be undone."))
+                return;
+
+              try {
+                await fetchWithTimeout("/tenants/sms-logs", {
+                  method: "DELETE",
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                  },
+                });
+              } catch (err) {
+                Toast.fire({ icon: "error", title: "Failed to clear logs" });
+                return;
+              }
+
+              // Refresh the logs table without closing the modal
+              try {
+                const response = await fetchWithTimeout("/tenants/sms-logs", {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                  },
+                });
+                if (!response.ok) throw new Error("Failed to fetch new logs");
+                let logs = await response.json();
+
+                logs.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const groups = [];
+                let currentLabel = "",
+                  currentGroup = [];
+                for (const log of logs) {
+                  const d = new Date(log.sentAt);
+                  d.setHours(0, 0, 0, 0);
+                  let label =
+                    d.getTime() === today.getTime()
+                      ? "Today"
+                      : d.getTime() === yesterday.getTime()
+                      ? "Yesterday"
+                      : d.toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        });
+                  if (label !== currentLabel) {
+                    if (currentGroup.length)
+                      groups.push({ label: currentLabel, logs: currentGroup });
+                    currentLabel = label;
+                    currentGroup = [log];
+                  } else currentGroup.push(log);
                 }
+                if (currentGroup.length)
+                  groups.push({ label: currentLabel, logs: currentGroup });
+
+                let tableRows =
+                  groups.length === 0
+                    ? `<tr><td colspan="5" style="text-align:center;padding:40px;">📭 No SMS logs found</td></tr>`
+                    : groups
+                        .map(
+                          (g) => `
+          <tr class="sms-group-header"><td colspan="5">${g.label}</td></tr>
+          ${g.logs
+            .map((log) => {
+              const time = new Date(log.sentAt).toLocaleTimeString("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const shortMsg =
+                log.message.length > 50
+                  ? log.message.substring(0, 50) + "…"
+                  : log.message;
+              return `<tr>
+              <td>${escapeHtml(log.tenantName)}</td>
+              <td>${escapeHtml(log.phoneNumber)}</td>
+              <td class="msg-cell">${escapeHtml(shortMsg)}</td>
+              <td><span class="status-badge ${log.status}">${
+                log.status
+              }</span></td>
+              <td>${time}</td>
+            </tr>`;
+            })
+            .join("")}
+        `
+                        )
+                        .join("");
+
+                const tableBody = document.querySelector(
+                  ".sms-logs-table tbody"
+                );
+                if (tableBody) tableBody.innerHTML = tableRows;
+                Toast.fire({ icon: "success", title: "Logs cleared" });
+              } catch (err) {
+                Toast.fire({ icon: "error", title: "Failed to refresh logs" });
               }
             });
           }

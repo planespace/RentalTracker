@@ -2908,43 +2908,7 @@ body.bulk-mode-active .due-date-cell {
 }
 
 /* Desktop bulk mode (all columns visible) */
-@media (min-width: 769px) {
-  body.bulk-mode-active .tenant-info {
-    display: grid !important;
-    grid-template-columns: 30px 17% 12% 13% 12% 12% 18% !important;
-    gap: 0.5rem !important;
-    align-items: center !important;
-  }
-  body.bulk-mode-active .tenant-info:first-child {
-    display: grid !important;
-    grid-template-columns: 30px 17% 12% 13% 12% 12% 18% !important;
-  }
-  body.bulk-mode-active .tenant-info > :nth-child(n) {
-    display: block !important;
-  }
-  body.bulk-mode-active .tenant-info:first-child h2 {
-    text-align: center !important;
-  }
-  body.bulk-mode-active .tenant-info > :nth-child(2),
-  body.bulk-mode-active .tenant-info > :nth-child(3),
-  body.bulk-mode-active .tenant-info > :nth-child(4),
-  body.bulk-mode-active .tenant-info > :nth-child(5),
-  body.bulk-mode-active .tenant-info > :nth-child(6),
-  body.bulk-mode-active .tenant-info > :nth-child(7) {
-    text-align: center !important;
-  }
-  body.bulk-mode-active .actions-cell {
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-  }
-  body.bulk-mode-active .tenant-actions-btn {
-    margin: 0 auto !important;
-  }
-  body.bulk-mode-active .tenant-info .checkbox-cell {
-    text-align: center !important;
-  }
-}
+
 @media (max-width: 768px) {
   #enter-bulk-mode-btn {
     display: none !important;

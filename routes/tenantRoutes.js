@@ -79,43 +79,35 @@ router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
 router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
 router.delete("/delete-all", deleteAllTenants);
 
-// ✅ NEW ROUTE: remove garbage fee for current billing month
-router.post("/remove-current-garbage", async (req, res) => {
+// ✅ Remove garbage fee from ALL billing months for every active tenant
+router.post("/remove-all-garbage", async (req, res) => {
   try {
     const userId = req.userId;
-    const today = new Date();
-    const todayUTC = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
-    );
-
     const tenants = await Tenant.find({ userId, active: true });
     let updated = 0;
 
     for (const tenant of tenants) {
-      const months = [
-        ...new Set(tenant.paymentHistory.map((e) => e.month)),
-      ].sort();
-      let currentMonth = null;
-      for (const month of months) {
-        const entry = tenant.paymentHistory.find((e) => e.month === month);
-        if (entry?.dueDate) {
-          const due = new Date(entry.dueDate);
-          if (due >= todayUTC) {
-            currentMonth = month;
-            break;
+      let changed = false;
+      let earliestMonth = null;
+
+      for (const entry of tenant.paymentHistory) {
+        // Only process charge entries (not payment entries)
+        if (
+          (entry.amountPaid || 0) === 0 &&
+          !entry.datePaid &&
+          entry.garbageCharge > 0
+        ) {
+          entry.garbageCharge = 0;
+          changed = true;
+          if (!earliestMonth || entry.month < earliestMonth) {
+            earliestMonth = entry.month;
           }
         }
       }
-      if (!currentMonth) currentMonth = months[months.length - 1];
-      if (!currentMonth) continue;
 
-      const chargeEntry = tenant.paymentHistory.find(
-        (e) =>
-          e.month === currentMonth && (e.amountPaid || 0) === 0 && !e.datePaid
-      );
-      if (chargeEntry && chargeEntry.garbageCharge > 0) {
-        chargeEntry.garbageCharge = 0;
-        await recalcFutureMonths(tenant, currentMonth);
+      if (changed) {
+        // Recalculate from the earliest affected month onwards
+        await recalcFutureMonths(tenant, earliestMonth);
         tenant.markModified("paymentHistory");
         await tenant.save();
         updated++;

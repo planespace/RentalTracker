@@ -2508,7 +2508,7 @@ function showGlobalSettingsModal() {
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-rent-btn" class="modal-action-btn" style="background: var(--accent-cyan);">💰 Change Rent for All Tenants</button>
       </div>
-      <button id="remove-current-garbage-btn" class="modal-action-btn" style="background: #ef4444;">🗑️ Remove Garbage Fee for Current Month</button>
+<button id="remove-all-garbage-btn" class="modal-action-btn" style="background: #ef4444;">🗑️ Remove Garbage Fee (All Months)</button>
       <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
         <button id="save-global-settings" class="modal-action-btn">Save</button>
         <button id="cancel-global-settings" class="modal-action-btn danger">Cancel</button>
@@ -2776,12 +2776,12 @@ function showGlobalSettingsModal() {
       }
     }
 
-    if (e.target.id === "remove-current-garbage-btn") {
+    if (e.target.id === "remove-all-garbage-btn") {
       const btn = e.target;
       setButtonLoading(btn, true);
       try {
         const res = await fetchWithTimeout(
-          window.location.origin + "/tenants/remove-current-garbage",
+          window.location.origin + "/tenants/remove-all-garbage",
           {
             method: "POST",
             headers: {
@@ -2812,7 +2812,6 @@ function showGlobalSettingsModal() {
         setButtonLoading(btn, false);
       }
     }
-
     if (e.target.id === "change-rent-btn") {
       const { value: newRent } = await Swal.fire({
         title: "Change Rent for All Tenants",

@@ -65,6 +65,8 @@ function wrapPremiumEmail(
 }
 
 // Send a single email via Brevo
+// services/emailService.js
+// services/emailService.js
 export async function sendEmail(
   toEmail,
   tenantName,
@@ -86,29 +88,42 @@ export async function sendEmail(
   const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
   sendSmtpEmail.sender = {
     email: process.env.EMAIL_USER,
-    name: "Rental Tracker",
+    name: "Paradise Suites",
   };
   sendSmtpEmail.to = [{ email: toEmail }];
   sendSmtpEmail.subject = subject;
   sendSmtpEmail.htmlContent = htmlBody;
 
-  try {
-    const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    logEntry.messageId = response.messageId || null;
-    logEntry.status = "sent";
-    await logEntry.save();
-    console.log(
-      `✅ Email sent to ${toEmail} (Brevo ID: ${response.messageId})`
-    );
-    return response;
-  } catch (error) {
-    console.error(`❌ Brevo error for ${toEmail}:`, error.message);
-    logEntry.status = "failed";
-    logEntry.error = error.message;
-    logEntry.failedAt = new Date();
-    await logEntry.save();
-    throw error;
+  // ── Retry logic: up to 3 attempts, 1‑second delay between ──
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
+      logEntry.messageId = response.messageId || null;
+      logEntry.status = "sent";
+      await logEntry.save();
+      console.log(`✅ Email sent to ${toEmail} (attempt ${attempt})`);
+      return response;
+    } catch (error) {
+      lastError = error;
+      console.error(
+        `❌ Attempt ${attempt} failed for ${toEmail}: ${error.message}`
+      );
+      if (attempt < maxRetries) {
+        // wait 1 second before retrying
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
   }
+
+  // All attempts failed
+  logEntry.status = "failed";
+  logEntry.error = lastError.message;
+  logEntry.failedAt = new Date();
+  await logEntry.save();
+  throw lastError; // caught by the calling controller
 }
 
 // Send overdue reminder emails for a user
@@ -241,14 +256,22 @@ export async function sendOverdueEmailRemindersForUser(
       const isInitialPastDue = ce.initialPastDue && monthLeft > 0;
       const isOverdue = isPastDueByDate || isInitialPastDue;
 
-      const balance = ce.remainingBalance;
+      // FIXED: status based on monthLeft (standalone), not cumulative
       let status = "";
-      if (balance <= 0) status = "Paid";
-      else if (isOverdue) status = "Overdue";
-      else status = "Pending";
+      if (monthLeft <= 0) {
+        status = "Paid";
+      } else if (isOverdue) {
+        status = "Overdue";
+      } else {
+        status = "Pending";
+      }
 
       const rowBg = isOverdue ? "#fff5f5" : "transparent";
-      const statusColor = isOverdue ? "#d32f2f" : "#2e7d32";
+      const statusColor = isOverdue
+        ? "#d32f2f"
+        : status === "Paid"
+        ? "#2e7d32"
+        : "#b45309";
 
       tableRows += `
         <tr style="background:${rowBg};">
@@ -339,7 +362,7 @@ export async function sendOverdueEmailRemindersForUser(
       await sendEmail(
         tenant.email,
         tenant.name,
-        "Overdue Rent Reminder",
+        "Overdue Rent Reminder – Paradise Suites",
         wrappedHtml,
         userId
       );

@@ -11,13 +11,16 @@ import {
   resetPassword,
   forgotPassword,
   changePassword,
+  checkEmail,
 } from "../controllers/authController.js";
 
 router.post("/register", register);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+router.get("/check-email", checkEmail);
 router.post("/login", login);
 router.get("/profile", authMiddleware, getUserProfile);
 router.patch("/profile", authMiddleware, updateUserProfile);
 router.patch("/change-password", authMiddleware, changePassword);
+
 export default router;

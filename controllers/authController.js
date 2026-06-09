@@ -60,7 +60,7 @@ async function forgotPassword(req, res) {
       <p>If you didn't request this, ignore this email.</p>
     `;
 
-    // Use the existing email service (we'll import sendEmail directly)
+    // Use the existing email service
     const { sendEmail } = await import("../services/emailService.js");
     await sendEmail(
       user.email,
@@ -75,7 +75,11 @@ async function forgotPassword(req, res) {
       message: "If that email is registered, a reset link has been sent.",
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    // 🔁 FIX: Hide the raw error from the client
+    console.error("Forgot password error:", error); // keep detailed log for you
+    res
+      .status(500)
+      .json({ message: "Could not send reset email. Please try again later." });
   }
 }
 
@@ -141,6 +145,17 @@ async function getUserProfile(req, res) {
   }
 }
 
+async function checkEmail(req, res) {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: "Email required" });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    res.json({ exists: !!user });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 async function updateUserProfile(req, res) {
   try {
     const { name, email, phone, landlordName } = req.body;
@@ -199,4 +214,5 @@ export {
   forgotPassword,
   resetPassword,
   changePassword,
+  checkEmail,
 };

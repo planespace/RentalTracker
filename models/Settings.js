@@ -7,7 +7,7 @@ const settingsSchema = new mongoose.Schema({
   waterRatePerUnit: { type: Number, default: 0 },
   defaultDueDay: { type: Number, default: 1 },
   totalHouses: { type: Number, default: 0 },
-  autoRemindersEnabled: { type: Boolean, default: true },
+  autoRemindersEnabled: { type: Boolean, default: false },
   autoEmailRemindersEnabled: { type: Boolean, default: true },
   reminderTemplate: {
     type: String,

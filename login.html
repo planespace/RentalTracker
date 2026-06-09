@@ -9,7 +9,6 @@
     <title>Login / Register - Rental Tracker</title>
     <link rel="stylesheet" href="mainpage.css" />
     <style>
-      /* Additional auth-specific styles */
       .auth-container {
         max-width: 400px;
         margin: 100px auto;
@@ -22,6 +21,14 @@
       .auth-container h2 {
         margin-bottom: 20px;
         color: var(--text-primary);
+      }
+      .auth-container label {
+        display: block;
+        text-align: left;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+        margin-top: 12px;
       }
       .auth-container input {
         width: 100%;
@@ -62,6 +69,12 @@
         margin-top: -10px;
         margin-bottom: 10px;
       }
+      .email-check-message {
+        font-size: 0.75rem;
+        min-height: 16px;
+        margin-top: -10px;
+        margin-bottom: 6px;
+      }
     </style>
   </head>
   <body>
@@ -69,8 +82,14 @@
       <!-- Login Form -->
       <div id="login-form">
         <h2>Login</h2>
-        <input type="email" id="login-email" placeholder="Email" />
-        <input type="password" id="login-password" placeholder="Password" />
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" />
+        <label for="login-password">Password</label>
+        <input
+          type="password"
+          id="login-password"
+          placeholder="Your password"
+        />
         <div id="login-error" class="error-message"></div>
         <button id="login-btn">Login</button>
         <div class="toggle-link" id="show-register">
@@ -88,9 +107,17 @@
       <!-- Register Form (hidden initially) -->
       <div id="register-form" style="display: none">
         <h2>Register</h2>
-        <input type="text" id="reg-name" placeholder="Name" />
-        <input type="email" id="reg-email" placeholder="Email" />
-        <input type="password" id="reg-password" placeholder="Password" />
+        <label for="reg-name">Full Name</label>
+        <input type="text" id="reg-name" placeholder="John Doe" />
+        <label for="reg-email">Email</label>
+        <input type="email" id="reg-email" placeholder="you@example.com" />
+        <div id="email-check-message" class="email-check-message"></div>
+        <label for="reg-password">Password</label>
+        <input
+          type="password"
+          id="reg-password"
+          placeholder="Min 6 characters"
+        />
         <div id="register-error" class="error-message"></div>
         <button id="register-btn">Register</button>
         <div class="toggle-link" id="show-login">
@@ -100,17 +127,59 @@
     </div>
 
     <script>
-      // Toggle between forms
+      // ---- Toggle between forms (clear fields on switch) ----
       document.getElementById("show-register").addEventListener("click", () => {
         document.getElementById("login-form").style.display = "none";
         document.getElementById("register-form").style.display = "block";
+        document.getElementById("login-email").value = "";
+        document.getElementById("login-password").value = "";
+        document.getElementById("login-error").textContent = "";
       });
       document.getElementById("show-login").addEventListener("click", () => {
         document.getElementById("register-form").style.display = "none";
         document.getElementById("login-form").style.display = "block";
+        document.getElementById("reg-name").value = "";
+        document.getElementById("reg-email").value = "";
+        document.getElementById("reg-password").value = "";
+        document.getElementById("register-error").textContent = "";
+        document.getElementById("email-check-message").textContent = "";
       });
 
-      // ---------- REGISTER ----------
+      // ---- Live email check ----
+      let emailCheckTimeout;
+      document.getElementById("reg-email").addEventListener("input", () => {
+        clearTimeout(emailCheckTimeout);
+        const email = document.getElementById("reg-email").value.trim();
+        const msgDiv = document.getElementById("email-check-message");
+        if (!email) {
+          msgDiv.textContent = "";
+          return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          msgDiv.textContent = "Invalid email format";
+          msgDiv.style.color = "#ef4444";
+          return;
+        }
+        emailCheckTimeout = setTimeout(async () => {
+          try {
+            const res = await fetch(
+              `/auth/check-email?email=${encodeURIComponent(email)}`
+            );
+            const data = await res.json();
+            if (data.exists) {
+              msgDiv.textContent = "Email already registered";
+              msgDiv.style.color = "#ef4444";
+            } else {
+              msgDiv.textContent = "Email available";
+              msgDiv.style.color = "#10b981";
+            }
+          } catch (err) {
+            msgDiv.textContent = "";
+          }
+        }, 500);
+      });
+
+      // ---- REGISTER ----
       document
         .getElementById("register-btn")
         .addEventListener("click", async () => {
@@ -151,12 +220,12 @@
                 color: "#f1f5f9",
                 iconColor: "#10b981",
               });
-              // Switch to login form
               document.getElementById("register-form").style.display = "none";
               document.getElementById("login-form").style.display = "block";
               document.getElementById("reg-name").value = "";
               document.getElementById("reg-email").value = "";
               document.getElementById("reg-password").value = "";
+              document.getElementById("email-check-message").textContent = "";
             } else {
               errorDiv.textContent = data.message || "Registration failed";
             }
@@ -165,7 +234,7 @@
           }
         });
 
-      // ---------- LOGIN ----------
+      // ---- LOGIN ----
       document
         .getElementById("login-btn")
         .addEventListener("click", async () => {
@@ -188,22 +257,18 @@
             const data = await res.json();
             if (res.ok) {
               localStorage.setItem("token", data.token);
-
-              // Prefetch tenants in the background (optional, but nice)
               fetch("/tenants", {
                 headers: { Authorization: `Bearer ${data.token}` },
               })
                 .then((r) => r.ok && r.json())
                 .then((tenants) => {
-                  if (tenants) {
+                  if (tenants)
                     sessionStorage.setItem(
                       "prefetchedTenants",
                       JSON.stringify(tenants)
                     );
-                  }
                 })
                 .catch(() => {});
-
               Swal.fire({
                 icon: "success",
                 title: "Welcome back!",
@@ -224,61 +289,73 @@
           }
         });
 
-      // ---------- FORGOT PASSWORD ----------
+      // ---- FORGOT PASSWORD (revised – stays open while loading) ----
       document
         .getElementById("forgot-password-link")
         .addEventListener("click", async () => {
-          const { value: email } = await Swal.fire({
+          const currentEmail = document
+            .getElementById("login-email")
+            .value.trim();
+
+          // Step 1 – ask for email, stay open, show loader on confirm
+          const { isConfirmed } = await Swal.fire({
             title: "Reset Password",
             text: "Enter your registered email address.",
             input: "email",
+            inputValue: currentEmail,
             inputPlaceholder: "you@example.com",
             showCancelButton: true,
             confirmButtonText: "Send Reset Link",
             confirmButtonColor: "#3b82f6",
             background: "#1e293b",
             color: "#f1f5f9",
-            inputValidator: (value) => {
-              if (!value) return "Please enter your email.";
+            showLoaderOnConfirm: true, // ← spinner inside the popup
+            allowOutsideClick: () => !Swal.isLoading(),
+            preConfirm: async (email) => {
+              if (!email) {
+                Swal.showValidationMessage("Please enter your email.");
+                return false;
+              }
+
+              try {
+                const res = await fetch("/auth/forgot-password", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ email }),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                  throw new Error(
+                    data.message || "Could not send reset email."
+                  );
+                }
+                return data; // passed to the next .then()
+              } catch (err) {
+                Swal.showValidationMessage(err.message);
+                return false;
+              }
             },
           });
 
-          if (!email) return;
-
-          try {
-            const res = await fetch("/auth/forgot-password", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ email }),
-            });
-            const data = await res.json();
+          // Step 2 – show result (the email popup is still open as a loader)
+          if (isConfirmed) {
             Swal.fire({
               icon: "success",
               title: "Check your email",
-              text:
-                data.message ||
-                "If that email is registered, a reset link has been sent.",
+              text: "If that email is registered, a reset link has been sent.",
               confirmButtonColor: "#3b82f6",
               background: "#1e293b",
               color: "#f1f5f9",
             });
-          } catch (err) {
-            Swal.fire({
-              icon: "error",
-              title: "Error",
-              text: "Could not send reset email. Please try again.",
-              background: "#1e293b",
-              color: "#f1f5f9",
-            });
           }
+          // If validation or network error happened, Swal already shows the error message
         });
     </script>
     <script>
       (function () {
         const token = localStorage.getItem("token");
-        if (token) {
-          window.location.replace("mainPage.html");
-        }
+        if (token) window.location.replace("mainPage.html");
       })();
     </script>
   </body>

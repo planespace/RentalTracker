@@ -69,20 +69,29 @@ async function fetchAndDisplaySmsBalance() {
 }
 
 async function fetchAndDisplayEmailBalance() {
-  try {
-    const res = await fetchWithTimeout(
-      window.location.origin + "/tenants/email-usage",
-      {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(
+        window.location.origin + "/tenants/email-usage",
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        }
+      );
+      const data = await res.json();
+      const infoEl = document.getElementById("email-balance-info");
+      if (data.remaining !== undefined && data.remaining !== null && infoEl) {
+        infoEl.textContent = `✉️ ${data.remaining.toLocaleString()} emails left today`;
       }
-    );
-    const data = await res.json();
-    const infoEl = document.getElementById("email-balance-info");
-    if (data.remaining !== undefined && data.remaining !== null && infoEl) {
-      infoEl.textContent = `✉️ ${data.remaining.toLocaleString()} emails left today`;
+      return; // success – stop retrying
+    } catch (err) {
+      if (attempt === maxRetries) {
+        // All attempts failed – ignore silently (non‑critical)
+        return;
+      }
+      // Wait 1 second before retrying
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-  } catch (err) {
-    console.warn("Cannot fetch email balance");
   }
 }
 
@@ -393,7 +402,7 @@ function showLandlordProfileModal() {
   closeDropdownIfOpen();
   pushModalState();
   const html = `
-    <div class="utilities-section" style="display: flex; flex-direction: column; gap: 16px;">
+    <div class="utilities-section" style="display: flex; flex-direction: column; gap: 16px; padding-bottom: calc(30px + env(safe-area-inset-bottom, 16px));">
       <h4 style="margin-bottom: 0;">👤 Landlord Profile</h4>
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <label style="color: var(--text-secondary); font-size: 0.9rem;">Full Name</label>
@@ -420,7 +429,13 @@ function showLandlordProfileModal() {
         }" class="swal2-input" style="margin: 0;">
       </div>
 
-            <!-- 🔒 Change Password section -->
+      <!-- Save / Cancel ABOVE Change Password -->
+      <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
+        <button id="save-landlord-profile" class="modal-action-btn">Save</button>
+        <button id="cancel-landlord-profile" class="modal-action-btn danger">Cancel</button>
+      </div>
+
+      <!-- 🔒 Change Password section BELOW -->
       <hr style="border-color: var(--border); margin: 12px 0;">
       <h4 style="margin-bottom: 0;">🔒 Change Password</h4>
       <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -436,11 +451,6 @@ function showLandlordProfileModal() {
         <input type="password" id="confirm-password" class="swal2-input" style="margin: 0;" placeholder="Confirm new password">
       </div>
       <button id="change-password-btn" class="modal-action-btn" style="background: var(--accent-purple);">Update Password</button>
-
-      <div class="utility-actions" style="margin-top: 8px;">
-        <button id="save-landlord-profile" class="modal-action-btn">Save</button>
-        <button id="cancel-landlord-profile" class="modal-action-btn danger">Cancel</button>
-      </div>
     </div>
   `;
 
@@ -569,7 +579,6 @@ function showLandlordProfileModal() {
             icon: "success",
             title: "Password updated",
           });
-          // Clear fields
           document.getElementById("old-password").value = "";
           document.getElementById("new-password").value = "";
           document.getElementById("confirm-password").value = "";
@@ -1904,14 +1913,23 @@ function renderPaymentModal(tenantId) {
     });
   });
 
-  // ---------- Extra charges management (calls global helper) ----------
-  container.querySelectorAll(".extra-charges-section").forEach((section) => {
-    const entryId = section.dataset.entryId;
-    const month = section.dataset.month;
-    const list = section.querySelector(".extra-charges-list");
+  // ---------- Extra charges management (single delegated listener) ----------
+  const paymentList = document.getElementById("payment-history-list");
 
-    // Add new charge
-    section.querySelector(".add-extra-btn").addEventListener("click", () => {
+  // Remove old listener (if any) to prevent duplicates
+  if (paymentList._extraChargeHandler) {
+    paymentList.removeEventListener("click", paymentList._extraChargeHandler);
+  }
+
+  const extraChargeHandler = async (e) => {
+    const btn = e.target;
+
+    // "Add extra charge" button
+    if (btn.classList.contains("add-extra-btn")) {
+      e.stopPropagation();
+      const section = btn.closest(".extra-charges-section");
+      if (!section) return;
+      const list = section.querySelector(".extra-charges-list");
       const editRow = document.createElement("div");
       editRow.className = "extra-charge-edit-form";
       editRow.innerHTML = `
@@ -1921,139 +1939,119 @@ function renderPaymentModal(tenantId) {
         <button class="cancel-extra-btn">Cancel</button>
       `;
       list.appendChild(editRow);
+      return;
+    }
 
-      const cancelBtn = editRow.querySelector(".cancel-extra-btn");
-      cancelBtn.addEventListener("click", () => {
-        e.stopPropagation();
-        editRow.remove();
-      });
-
-      const saveBtn = editRow.querySelector(".save-extra-btn");
-      saveBtn.addEventListener("click", async () => {
-        e.stopPropagation();
-        const amount =
-          parseFloat(editRow.querySelector(".edit-amount").value) || 0;
-        const description = editRow.querySelector(".edit-desc").value.trim();
-        if (amount === 0) {
-          originalSwalFire.call(Swal, {
-            toast: true,
-            position: "bottom-end",
-            showConfirmButton: false,
-            timer: 2000,
-            timerProgressBar: true,
-            background: "#1e293b",
-            color: "#f1f5f9",
-            icon: "error",
-            title: "Amount must be greater than 0",
-          });
-          return;
-        }
-        const newLine = document.createElement("div");
-        newLine.className = "extra-charge-line";
-        newLine.innerHTML = `
-          <span class="extra-text">Extra: KES ${amount.toLocaleString()}${
-          description ? ` (${escapeHtml(description)})` : ""
-        }</span>
-          <div>
-            <button class="extra-edit-btn" title="Edit">✎</button>
-            <button class="extra-delete-btn" title="Delete">🗑️</button>
-          </div>
-        `;
-        list.insertBefore(newLine, editRow);
-        editRow.remove();
-        lastModalOpenTime = Date.now();
-        saveExtraChargesForMonth(tenantId, entryId, month);
-      });
-    });
-
-    // Edit / Delete via event delegation
-    list.addEventListener("click", async (e) => {
+    // "Save" button inside add/edit form
+    if (btn.classList.contains("save-extra-btn")) {
       e.stopPropagation();
-      const line = e.target.closest(".extra-charge-line");
-      if (!line) return;
+      const section = btn.closest(".extra-charges-section");
+      const entryId = section.dataset.entryId;
+      const month = section.dataset.month;
+      const editRow = btn.closest(".extra-charge-edit-form");
+      const amountInput = editRow.querySelector(".edit-amount");
+      const descInput = editRow.querySelector(".edit-desc");
+      const amount = parseFloat(amountInput.value) || 0;
+      const description = descInput.value.trim();
 
-      // Delete
-      if (e.target.classList.contains("extra-delete-btn")) {
-        const confirmResult = await originalSwalFire.call(Swal, {
-          title: "Delete extra charge?",
-          text: "This action cannot be undone.",
-          icon: "warning",
-          showCancelButton: true,
-          confirmButtonColor: "#ef4444",
-          cancelButtonColor: "#6b7280",
-          confirmButtonText: "Yes, delete",
+      if (amount === 0) {
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
           background: "#1e293b",
           color: "#f1f5f9",
+          icon: "error",
+          title: "Amount must be greater than 0",
         });
-        if (!confirmResult.isConfirmed) return;
-
-        e.stopPropagation();
-
-        lastModalOpenTime = Date.now();
-        line.remove();
-        saveExtraChargesForMonth(tenantId, entryId, month);
         return;
       }
 
-      // Edit
-      if (e.target.classList.contains("extra-edit-btn")) {
-        const textSpan = line.querySelector(".extra-text");
-        const currentText = textSpan.textContent;
-        const amountMatch = currentText.match(/[\d,]+/);
-        const currentAmount = amountMatch
-          ? parseInt(amountMatch[0].replace(/,/g, ""))
-          : 0;
-        const descMatch = currentText.match(/\(([^)]+)\)/);
-        const currentDesc = descMatch ? descMatch[1] : "";
+      // Replace the edit form with the new line
+      const newLine = document.createElement("div");
+      newLine.className = "extra-charge-line";
+      newLine.innerHTML = `
+        <span class="extra-text">Extra: KES ${amount.toLocaleString()}${
+        description ? ` (${escapeHtml(description)})` : ""
+      }</span>
+        <div>
+          <button class="extra-edit-btn" title="Edit">✎</button>
+          <button class="extra-delete-btn" title="Delete">🗑️</button>
+        </div>
+      `;
+      editRow.replaceWith(newLine);
+      lastModalOpenTime = Date.now();
+      saveExtraChargesForMonth(window.currentActionsTenantId, entryId, month);
+      return;
+    }
 
-        const editForm = document.createElement("div");
-        editForm.className = "extra-charge-edit-form";
-        editForm.innerHTML = `
-          <input type="number" step="any" class="edit-amount" value="${currentAmount}">
-          <input type="text" class="edit-desc" value="${escapeHtml(
-            currentDesc
-          )}">
-          <button class="save-extra-btn">Save</button>
-          <button class="cancel-extra-btn">Cancel</button>
-        `;
-        line.replaceWith(editForm);
+    // "Cancel" button inside add/edit form
+    if (btn.classList.contains("cancel-extra-btn")) {
+      e.stopPropagation();
+      const editRow = btn.closest(".extra-charge-edit-form");
+      if (editRow) editRow.remove();
+      return;
+    }
 
-        const cancelBtn = editForm.querySelector(".cancel-extra-btn");
-        cancelBtn.addEventListener("click", () => {
-          e.stopPropagation();
-          editForm.replaceWith(line);
-        });
+    // "Delete" extra charge line
+    if (btn.classList.contains("extra-delete-btn")) {
+      e.stopPropagation();
+      const line = btn.closest(".extra-charge-line");
+      if (!line) return;
+      const section = btn.closest(".extra-charges-section");
+      const entryId = section.dataset.entryId;
+      const month = section.dataset.month;
 
-        const saveBtn = editForm.querySelector(".save-extra-btn");
-        saveBtn.addEventListener("click", async () => {
-          e.stopPropagation();
-          const newAmount =
-            parseFloat(editForm.querySelector(".edit-amount").value) || 0;
-          const newDesc = editForm.querySelector(".edit-desc").value.trim();
-          if (newAmount === 0) {
-            originalSwalFire.call(Swal, {
-              toast: true,
-              position: "bottom-end",
-              showConfirmButton: false,
-              timer: 2000,
-              timerProgressBar: true,
-              background: "#1e293b",
-              color: "#f1f5f9",
-              icon: "error",
-              title: "Amount must be greater than 0",
-            });
-            return;
-          }
-          textSpan.textContent = `Extra: KES ${newAmount.toLocaleString()}${
-            newDesc ? ` (${escapeHtml(newDesc)})` : ""
-          }`;
-          editForm.replaceWith(line);
-          lastModalOpenTime = Date.now();
-          saveExtraChargesForMonth(tenantId, entryId, month);
-        });
-      }
-    });
-  });
+      const confirmResult = await originalSwalFire.call(Swal, {
+        title: "Delete extra charge?",
+        text: "This action cannot be undone.",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#ef4444",
+        cancelButtonColor: "#6b7280",
+        confirmButtonText: "Yes, delete",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+      if (!confirmResult.isConfirmed) return;
+
+      line.remove();
+      lastModalOpenTime = Date.now();
+      saveExtraChargesForMonth(window.currentActionsTenantId, entryId, month);
+      return;
+    }
+
+    // "Edit" extra charge line
+    if (btn.classList.contains("extra-edit-btn")) {
+      e.stopPropagation();
+      const line = btn.closest(".extra-charge-line");
+      if (!line) return;
+      const textSpan = line.querySelector(".extra-text");
+      const currentText = textSpan.textContent;
+      const amountMatch = currentText.match(/[\d,]+/);
+      const currentAmount = amountMatch
+        ? parseInt(amountMatch[0].replace(/,/g, ""))
+        : 0;
+      const descMatch = currentText.match(/\(([^)]+)\)/);
+      const currentDesc = descMatch ? descMatch[1] : "";
+
+      const editForm = document.createElement("div");
+      editForm.className = "extra-charge-edit-form";
+      editForm.innerHTML = `
+        <input type="number" step="any" class="edit-amount" value="${currentAmount}">
+        <input type="text" class="edit-desc" value="${escapeHtml(currentDesc)}">
+        <button class="save-extra-btn">Save</button>
+        <button class="cancel-extra-btn">Cancel</button>
+      `;
+      line.replaceWith(editForm);
+      return;
+    }
+  };
+
+  paymentList.addEventListener("click", extraChargeHandler);
+  paymentList._extraChargeHandler = extraChargeHandler;
 }
 // ─────────────────────────────────────────────────────
 
@@ -2229,7 +2227,7 @@ async function showUtilitiesModal(tenantId) {
     );
     const currentOverride = readingObj?.previousOverride ?? "";
     const currentExempt = readingObj?.exemptUnits ?? 0;
-
+    lastModalOpenTime = Date.now();
     const result = await originalSwalFire.call(Swal, {
       title: `Reading for ${month}`,
       text: "Choose an action:",
@@ -2247,6 +2245,7 @@ async function showUtilitiesModal(tenantId) {
 
     if (result.isConfirmed) {
       // ---- Edit with all fields ----
+      lastModalOpenTime = Date.now();
       const { value: formValues } = await originalSwalFire.call(Swal, {
         title: `Edit Reading for ${month}`,
         html: `
@@ -2368,6 +2367,7 @@ async function showUtilitiesModal(tenantId) {
       }
     } else if (result.isDenied) {
       // Delete
+      lastModalOpenTime = Date.now();
       const confirm = await originalSwalFire.call(Swal, {
         title: "Delete Reading?",
         text: `Delete meter reading for ${month}? This will affect water charges.`,
@@ -2550,7 +2550,7 @@ function showGlobalSettingsModal() {
       const isChecked = e.target.checked;
 
       // Confirmation
-
+      lastModalOpenTime = Date.now();
       const confirmResult = await originalSwalFire.call(Swal, {
         title: isChecked
           ? "Enable SMS auto‑reminders?"
@@ -2645,7 +2645,7 @@ function showGlobalSettingsModal() {
   if (emailCheckbox) {
     emailCheckbox.addEventListener("change", async (e) => {
       const isChecked = e.target.checked;
-
+      lastModalOpenTime = Date.now();
       const confirmResult = await originalSwalFire.call(Swal, {
         title: isChecked
           ? "Enable email auto‑reminders?"
@@ -2974,10 +2974,16 @@ function showGlobalSettingsModal() {
           "/tenants/trigger-email-reminders?force=true";
         if (currentDevDate) url += `&devDate=${currentDevDate}`;
 
-        const response = await fetchWithTimeout(url, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        });
+        const response = await fetchWithTimeout(
+          url,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          },
+          120000
+        );
         const data = await response.json();
         if (response.ok) {
           const sent = (data.results || []).filter((r) => r.success).length;
@@ -3273,6 +3279,7 @@ document.addEventListener("click", async (e) => {
     let id = window.currentActionsTenantId;
 
     // Confirmation popup – keeps the safety, but uses originalSwalFire
+    lastModalOpenTime = Date.now();
     const result = await originalSwalFire.call(Swal, {
       title: "Archive Tenant?",
       text: "The tenant will be hidden from the main list. You can restore them later.",
@@ -3375,6 +3382,7 @@ document.addEventListener("click", async (e) => {
     }
 
     // Use originalSwalFire so no history entry is pushed
+    lastModalOpenTime = Date.now();
     const confirm = await originalSwalFire.call(Swal, {
       title: "Confirm Payment",
       html: `
@@ -3464,6 +3472,7 @@ document.addEventListener("click", async (e) => {
   if (e.target.classList.contains("ref-btn")) {
     const ref = e.target.dataset.ref;
     if (ref && ref.trim() !== "") {
+      lastModalOpenTime = Date.now();
       originalSwalFire.call(Swal, {
         title: "M‑Pesa Reference",
         text: ref,
@@ -3503,6 +3512,8 @@ document.addEventListener("click", async (e) => {
       : "";
 
     // Action selection popup – safe
+    lastModalOpenTime = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const action = await originalSwalFire.call(Swal, {
       title: "Payment Actions",
       html: `
@@ -3530,6 +3541,7 @@ document.addEventListener("click", async (e) => {
         if (mpesaBtn) {
           mpesaBtn.addEventListener("click", () => {
             Swal.close();
+            lastModalOpenTime = Date.now();
             originalSwalFire.call(Swal, {
               title: "📱 M‑Pesa Reference",
               html: `<div style="background:rgba(59,130,246,0.1); border-left:4px solid #3b82f6; padding:14px; border-radius:6px; font-size:1.1rem; color:#e2e8f0; text-align:center;">${mpesa}</div>`,
@@ -3545,6 +3557,8 @@ document.addEventListener("click", async (e) => {
 
     if (action.isConfirmed) {
       // ---- Edit ----
+      lastModalOpenTime = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const { value: formValues } = await originalSwalFire.call(Swal, {
         title: "✏️ Edit Payment",
         html: `
@@ -3646,6 +3660,9 @@ document.addEventListener("click", async (e) => {
       }
     } else if (action.isDenied) {
       // ---- Delete ----
+
+      lastModalOpenTime = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const confirmDelete = await originalSwalFire.call(Swal, {
         title: "🗑️ Delete Payment?",
         text: `Delete the payment record for ${month}?`,
@@ -4768,14 +4785,41 @@ async function showBulkAddTenantsModal() {
   // Responsive CSS
   const styleTag = document.createElement("style");
   styleTag.textContent = `
-    .bulk-add-table { display: table; }
-    #bulk-add-container { display: none; }
+  /* Existing responsive rules */
+  .bulk-add-table { display: table; }
+  #bulk-add-container { display: none; }
+  @media (max-width: 600px) {
+    .bulk-add-table { display: none; }
+    #bulk-add-container { display: block; }
+  }
 
-    @media (max-width: 600px) {
-      .bulk-add-table { display: none; }
-      #bulk-add-container { display: block; }
-    }
-  `;
+  /* Full‑height modal with sticky footer */
+  .bulk-add-tenants-popup {
+    display: flex !important;
+    flex-direction: column !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+  }
+  .bulk-add-tenants-popup .swal2-html-container {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    padding: 8px 8px 16px 8px !important;
+    margin: 0 !important;
+  }
+  .bulk-add-tenants-popup .swal2-actions {
+    flex-shrink: 0;
+    padding: 12px 16px calc(30px + env(safe-area-inset-bottom, 20px)) 16px !important;
+    margin: 0 !important;
+    border-top: 1px solid var(--border, #334155);
+    background: var(--bg-secondary, #0f172a);
+    position: sticky;
+    bottom: 0;
+  }
+
+  #bulk-add-tbody, #bulk-add-container {
+    padding-bottom: 10px;
+  }
+`;
   document.head.appendChild(styleTag);
 
   const result = await Swal.fire({
@@ -4892,7 +4936,7 @@ async function showBulkAddTenantsModal() {
         );
         return false;
       }
-
+      lastModalOpenTime = Date.now();
       const confirmResult = await originalSwalFire.call(Swal, {
         title: "Save Tenants?",
         html: `Add <strong>${tenants.length}</strong> tenant(s)?`,
@@ -5147,6 +5191,8 @@ document.addEventListener("click", async (e) => {
   if (!tenant) return;
 
   // Main actions modal – uses originalSwalFire so no extra history
+  lastModalOpenTime = Date.now();
+  await new Promise((resolve) => setTimeout(resolve, 10));
   const action = await originalSwalFire.call(Swal, {
     title: `Actions for ${escapeHtml(tenant.name)}`,
     html: `
@@ -5186,11 +5232,12 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
-        window.location.origin + `/tenants/${tenantId}/restore`,
+        triggerUrl,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }
+        },
+        120000
       );
       if (response.ok) {
         await loadTenants();
@@ -5239,7 +5286,7 @@ document.addEventListener("click", async (e) => {
   if (action.isDenied) {
     // Prevent flicker: set the guard before showing the confirmation
     lastModalOpenTime = Date.now();
-
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const confirmDelete = await originalSwalFire.call(Swal, {
       title: "Permanently Delete?",
       html: `
@@ -5372,6 +5419,11 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("delete-all-tenants-btn")
     ?.addEventListener("click", async () => {
       // First confirmation – type DELETE ALL
+
+      lastModalOpenTime = Date.now();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       const firstConfirm = await originalSwalFire.call(Swal, {
         title: "⚠️ Delete All Tenants",
         html: `
@@ -5455,8 +5507,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Prevent stray overlay click
       lastModalOpenTime = Date.now();
-
       // Second confirmation
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const secondConfirm = await originalSwalFire.call(Swal, {
         title: "Are you absolutely sure?",
         html: `
@@ -5716,8 +5768,6 @@ async function showBulkWaterReadingModal() {
       const rowBg =
         index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
 
-      // Determine if the row is currently invalid (reading < effective previous)
-      // We'll use a class `bulk-invalid-row` to highlight via CSS
       let invalidClass = "";
       if (currentReading !== "") {
         const readingVal = parseFloat(currentReading);
@@ -5740,7 +5790,7 @@ async function showBulkWaterReadingModal() {
           <td style="padding:8px 4px; text-align:center;">${escapeHtml(
             tenant.houseNumber || "—"
           )}</td>
-          <td style="padding:8px 4px; text-align:center; color:var(--accent-cyan); font-weight:500;">${prevAuto}</td>
+          <td style="padding:8px 4px; text-align:center; color:var(--accent-cyan); font-weight:500;" class="bulk-prev-auto" data-prev="${prevAuto}">${prevAuto}</td>
           <td style="padding:8px 4px; text-align:center;">
             <input type="number" step="0.1" class="bulk-override-input" data-tenant-id="${
               tenant._id
@@ -5763,7 +5813,7 @@ async function showBulkWaterReadingModal() {
     return html;
   }
 
-  // Inject responsive and invalid‑row styles
+  // Inject styles
   const styleTag = document.createElement("style");
   styleTag.textContent = `
     @media (max-width: 600px) {
@@ -5773,11 +5823,34 @@ async function showBulkWaterReadingModal() {
         width: 50px !important; padding: 5px 2px !important; font-size: 0.65rem !important;
       }
     }
-    /* Highlight invalid rows */
     .bulk-invalid-row td {
       background: rgba(239,68,68,0.15) !important;
     }
     .bulk-invalid-row td:first-child { border-left: 3px solid #ef4444; }
+    #bulk-reading-errors {
+      display: none;
+      margin: 16px 0;
+      padding: 16px;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid #ef4444;
+      border-radius: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    #bulk-reading-errors .error-list {
+      color: #f87171;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    #bulk-reading-errors .error-list div {
+      margin-bottom: 6px;
+    }
+    #bulk-reading-errors .error-title {
+      font-weight: 700;
+      font-size: 1rem;
+      color: #ef4444;
+      margin-bottom: 8px;
+    }
   `;
   document.head.appendChild(styleTag);
 
@@ -5792,6 +5865,10 @@ async function showBulkWaterReadingModal() {
           </select>
         </div>
         <p style="text-align:center; font-size:0.9rem; color:var(--text-muted);">Water Rate: <strong style="color:var(--accent-cyan);">KES ${waterRate.toLocaleString()} / unit</strong></p>
+        <div id="bulk-reading-errors">
+          <div class="error-title">⚠️ Invalid Readings Found</div>
+          <div class="error-list" id="bulk-error-list"></div>
+        </div>
         <div id="bulk-reading-table" style="padding:4px;">
           ${renderTable(currentMonth)}
         </div>
@@ -5806,51 +5883,135 @@ async function showBulkWaterReadingModal() {
     width: "90%",
     customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
-      document
-        .getElementById("bulk-reading-month")
-        .addEventListener("change", (e) => {
-          const newMonth = e.target.value;
-          const tableDiv = document.getElementById("bulk-reading-table");
-          if (tableDiv) tableDiv.innerHTML = renderTable(newMonth);
+      const monthSelect = document.getElementById("bulk-reading-month");
+      monthSelect.addEventListener("change", (e) => {
+        const newMonth = e.target.value;
+        const tableDiv = document.getElementById("bulk-reading-table");
+        if (tableDiv) tableDiv.innerHTML = renderTable(newMonth);
+        // Re-attach validation
+        attachRowValidation();
+        // Hide error box when month changes
+        document.getElementById("bulk-reading-errors").style.display = "none";
+      });
+
+      function attachRowValidation() {
+        const readingInputs = document.querySelectorAll(".bulk-reading-input");
+        const overrideInputs = document.querySelectorAll(
+          ".bulk-override-input"
+        );
+
+        const updateRow = (row) => {
+          const readingInput = row.querySelector(".bulk-reading-input");
+          const overrideInput = row.querySelector(".bulk-override-input");
+          const prevCell = row.querySelector(".bulk-prev-auto");
+          const autoPrev = parseFloat(prevCell?.dataset.prev || 0);
+
+          const reading = parseFloat(readingInput?.value);
+          const override = overrideInput?.value.trim();
+          const effectivePrevious =
+            override !== "" ? parseFloat(override) : autoPrev;
+
+          if (
+            !isNaN(reading) &&
+            !isNaN(effectivePrevious) &&
+            reading < effectivePrevious
+          ) {
+            row.classList.add("bulk-invalid-row");
+          } else {
+            row.classList.remove("bulk-invalid-row");
+          }
+        };
+
+        readingInputs.forEach((inp) => {
+          const row = inp.closest("tr");
+          inp.addEventListener("input", () => updateRow(row));
         });
+        overrideInputs.forEach((inp) => {
+          const row = inp.closest("tr");
+          inp.addEventListener("input", () => updateRow(row));
+        });
+
+        // Initial update
+        document
+          .querySelectorAll(".bulk-water-table tbody tr")
+          .forEach((row) => {
+            updateRow(row);
+          });
+      }
+
+      attachRowValidation();
     },
     preConfirm: () => {
       const selectedMonth = document.getElementById("bulk-reading-month").value;
-      // Force a blur on any focused input so its value is committed
       if (document.activeElement) document.activeElement.blur();
 
       const readingInputs = document.querySelectorAll(".bulk-reading-input");
+      const errors = [];
       const readings = [];
+
       readingInputs.forEach((inp) => {
         const tenantId = inp.dataset.tenantId;
+        const row = inp.closest("tr");
+        const tenantName =
+          row?.querySelector("td:first-child")?.textContent.trim() || "Unknown";
+        const house =
+          row?.querySelector("td:nth-child(2)")?.textContent.trim() || "—";
+        const prevAuto = parseFloat(
+          row?.querySelector(".bulk-prev-auto")?.dataset.prev || 0
+        );
+
         const readingStr = inp.value.trim();
-        if (readingStr !== "") {
-          const reading = parseFloat(readingStr);
-          if (isNaN(reading) || reading < 0) return;
-          const overrideInput = document.querySelector(
-            `.bulk-override-input[data-tenant-id="${tenantId}"]`
-          );
-          const exemptInput = document.querySelector(
-            `.bulk-exempt-input[data-tenant-id="${tenantId}"]`
-          );
-          const override = overrideInput ? overrideInput.value.trim() : "";
-          const exempt = exemptInput ? exemptInput.value.trim() : "";
-          readings.push({
-            tenantId,
-            month: selectedMonth,
-            reading,
-            previousOverride: override !== "" ? Number(override) : null,
-            exemptUnits: exempt !== "" ? Number(exempt) : 0,
-          });
+        const overrideInput = row.querySelector(".bulk-override-input");
+        const exemptInput = row.querySelector(".bulk-exempt-input");
+        const override = overrideInput ? overrideInput.value.trim() : "";
+        const exempt = exemptInput ? exemptInput.value.trim() : "";
+
+        if (readingStr === "") return;
+
+        const reading = parseFloat(readingStr);
+        if (isNaN(reading) || reading < 0) {
+          errors.push(`${tenantName} (${house}): invalid reading value`);
+          return;
         }
+
+        const effectivePrevious =
+          override !== "" ? parseFloat(override) : prevAuto;
+        if (!isNaN(effectivePrevious) && reading < effectivePrevious) {
+          errors.push(
+            `${tenantName} (${house}): reading ${reading} is less than previous ${effectivePrevious}`
+          );
+          return;
+        }
+
+        readings.push({
+          tenantId,
+          month: selectedMonth,
+          reading,
+          previousOverride: override !== "" ? Number(override) : null,
+          exemptUnits: exempt !== "" ? Number(exempt) : 0,
+        });
       });
 
+      if (errors.length > 0) {
+        // Show error box inside the modal
+        const errorDiv = document.getElementById("bulk-reading-errors");
+        const errorList = document.getElementById("bulk-error-list");
+        errorList.innerHTML = errors
+          .map((err) => `<div>• ${escapeHtml(err)}</div>`)
+          .join("");
+        errorDiv.style.display = "block";
+        // Scroll to error box
+        errorDiv.scrollIntoView({ behavior: "smooth", block: "center" });
+        return false; // keep modal open
+      }
+
       if (readings.length === 0) {
-        Swal.showValidationMessage(
-          "No valid readings entered. Make sure you typed a number in at least one Reading field."
-        );
+        Swal.showValidationMessage("No valid readings entered.");
         return false;
       }
+
+      // Hide error box if previously shown
+      document.getElementById("bulk-reading-errors").style.display = "none";
       return readings;
     },
     willClose: () => {
@@ -6134,6 +6295,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
   const cost = segments * 0.8;
 
   // Use original Swal.fire to keep the history stack clean
+  lastModalOpenTime = Date.now();
   const confirmResult = await originalSwalFire.call(Swal, {
     title: "📨 Confirm SMS",
     html: `
@@ -6268,10 +6430,11 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
     const isOverdue = isPastDueByDate || isInitialPastDue;
 
-    const balance = chargeEntry.remainingBalance;
+    const cumulative = chargeEntry.remainingBalance;
 
+    // FIXED: status based on standalone (monthLeft), not cumulative
     let status = "";
-    if (balance <= 0) {
+    if (monthLeft <= 0) {
       status = "Paid";
     } else if (isOverdue) {
       status = "Overdue";
@@ -6289,7 +6452,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
       totalDue,
       paid,
       balance: monthLeft,
-      cumulative: balance,
+      cumulative: cumulative,
       status,
       isOverdue,
     });
@@ -6299,7 +6462,12 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   let tableRows = "";
   for (const r of rows) {
     const rowBg = r.isOverdue ? "#fff5f5" : "transparent";
-    const statusColor = r.isOverdue ? "#d32f2f" : "#2e7d32";
+    const statusColor =
+      r.status === "Overdue"
+        ? "#d32f2f"
+        : r.status === "Paid"
+        ? "#2e7d32"
+        : "#b45309";
     tableRows += `
       <tr style="background:${rowBg};">
         <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${
@@ -6526,7 +6694,8 @@ async function showEmailModal(tenantId) {
           subject: subject,
           message: htmlMessage,
         }),
-      }
+      },
+      60000 // ← 60 seconds
     );
     const data = await response.json();
     if (response.ok) {

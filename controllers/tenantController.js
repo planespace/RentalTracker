@@ -16,8 +16,6 @@ import { sendOverdueEmailRemindersForUser } from "../services/emailService.js";
 import EmailLog from "../models/EmailLog.js";
 import { sendBulkEmails } from "../services/emailService.js";
 
-import fetch from "node-fetch";
-
 // ========================
 //   HELPER FUNCTIONS
 // ========================
@@ -146,6 +144,9 @@ function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
   }
   const [year, month] = yearMonth.split("-").map(Number);
 
+  // Special case: a reference date is provided and it's before the due day.
+  // The billing month is actually the previous month, so the due date
+  // falls in that previous month.
   if (referenceDate) {
     const refDay = referenceDate.getUTCDate();
     if (refDay < dueDay) {
@@ -155,15 +156,11 @@ function getDueDateForMonth(tenantOrDueDay, yearMonth, referenceDate) {
     }
   }
 
-  let dueYear = year;
-  let dueMonth = month + 1;
-  if (dueMonth > 12) {
-    dueMonth = 1;
-    dueYear++;
-  }
-  const lastDay = new Date(Date.UTC(dueYear, dueMonth, 0)).getUTCDate();
+  // Normal case: the billing month IS the month given in yearMonth.
+  // The due date is the due day of that same month.
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const day = Math.min(dueDay, lastDay);
-  return new Date(Date.UTC(dueYear, dueMonth - 1, day));
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 async function getCurrentDate(req, res) {
@@ -1457,6 +1454,7 @@ async function getEmailUsage(req, res) {
     }
 
     const data = await response.json();
+    console.log("Brevo account response:", JSON.stringify(data));
     // Brevo returns plan info with credits and used emails
     const plan = data.plan || [];
     const currentPlan =

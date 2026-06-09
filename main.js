@@ -10,7 +10,7 @@ if (!loginToken) {
 
 // ----- GLOBAL VARIABLES -----
 let tenantInfoDiv = document.querySelector(".tenant-info-div");
-window.isBulkMode = false;
+
 let debtLineChart = null;
 let paidDonutChart = null;
 let trendLineChart = null;
@@ -1171,35 +1171,16 @@ function getCollectedForMonth(tenant, monthStr) {
 function updateTenantList(filteredList) {
   requestAnimationFrame(() => {
     let headerHtml = `<div class="tenant-info">`;
-    if (window.isBulkMode)
-      headerHtml += `<div class="checkbox-cell"><input type="checkbox" id="select-all-checkbox" title="Select all tenants"></div>`;
+
     headerHtml += `<h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2></div>`;
     tenantInfoDiv.innerHTML = headerHtml;
 
     filteredList.forEach((tenant) => {
       let rowDiv = renderTenant(tenant);
-      if (window.isBulkMode) {
-        const checkboxCell = document.createElement("div");
-        checkboxCell.className = "checkbox-cell";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.className = "tenant-select";
-        cb.dataset.id = tenant._id;
-        checkboxCell.appendChild(cb);
-        rowDiv.insertBefore(checkboxCell, rowDiv.firstChild);
-      }
+
       tenantInfoDiv.appendChild(rowDiv);
     });
 
-    if (window.isBulkMode) {
-      const selectAll = document.getElementById("select-all-checkbox");
-      if (selectAll)
-        selectAll.addEventListener("change", (e) => {
-          document
-            .querySelectorAll(".tenant-select")
-            .forEach((cb) => (cb.checked = e.target.checked));
-        });
-    }
     updateStats(tenantArray);
     if (filteredList.length === 0) {
       tenantInfoDiv.innerHTML = `
@@ -3946,78 +3927,6 @@ async function showAddTenantModal() {
   }
 }
 
-// ----- BULK MODE & CSV EXPORT -----
-const enterBulkModeBtn = document.getElementById("enter-bulk-mode-btn");
-const bulkModeButtons = document.getElementById("bulk-mode-buttons");
-const markSelectedBtn = document.getElementById("mark-selected-paid-btn");
-const cancelBulkBtn = document.getElementById("cancel-bulk-mode-btn");
-function enterBulkMode() {
-  if (window.isBulkMode) return;
-  window.isBulkMode = true;
-  updateTenantList(tenantArray);
-  enterBulkModeBtn.style.display = "none";
-  bulkModeButtons.style.display = "flex";
-}
-function exitBulkMode() {
-  if (!window.isBulkMode) return;
-  window.isBulkMode = false;
-  updateTenantList(tenantArray);
-  enterBulkModeBtn.style.display = "block";
-  bulkModeButtons.style.display = "none";
-}
-enterBulkModeBtn.addEventListener("click", enterBulkMode);
-cancelBulkBtn.addEventListener("click", exitBulkMode);
-window.exitBulkMode = exitBulkMode;
-markSelectedBtn.addEventListener("click", async (event) => {
-  const btn = event.target;
-  setButtonLoading(btn, true);
-  try {
-    const selected = Array.from(
-      document.querySelectorAll(".tenant-select:checked")
-    ).map((cb) => cb.dataset.id);
-    if (selected.length === 0) {
-      Toast.fire({ icon: "warning", title: "No tenants selected" });
-      return;
-    }
-    const result = await Swal.fire({
-      title: "Confirm Bulk Action",
-      text: `Mark ${
-        selected.length
-      } tenant(s) as paid for ${getCurrentMonth()}?`,
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonColor: "#3b82f6",
-      confirmButtonText: "Yes, mark paid",
-    });
-    if (!result.isConfirmed) return;
-    const response = await fetchWithTimeout(
-      window.location.origin + "/tenants/bulk-mark-paid",
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({ tenantIds: selected }),
-      }
-    );
-    if (response.ok) {
-      await loadTenants();
-      if (window.isBulkMode) {
-        enterBulkModeBtn.style.display = "none";
-        bulkModeButtons.style.display = "flex";
-      }
-      Toast.fire({ icon: "success", title: "Marked Paid" });
-    } else {
-      Toast.fire({ icon: "error", title: "Bulk mark failed" });
-    }
-  } catch (err) {
-    Toast.fire({ icon: "error", title: err.message });
-  } finally {
-    setButtonLoading(btn, false);
-  }
-});
-
 // CSV Export
 function convertToCSV(data) {
   const headers = Object.keys(data[0]);
@@ -5412,6 +5321,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document
+    .getElementById("bulk-payment-btn")
+    ?.addEventListener("click", showBulkPaymentModal);
+
+  document
     .getElementById("open-add-tenant-modal")
     ?.addEventListener("click", showAddTenantModal);
 
@@ -5699,6 +5612,220 @@ if (window.location.search.includes("dev=true")) {
   document.querySelector(".set-month-row").style.display = "flex";
 } else {
   document.querySelector(".set-month-row").style.display = "none";
+}
+
+// ----- BULK PAYMENT MODAL -----
+async function showBulkPaymentModal() {
+  closeDropdownIfOpen();
+  const todayStr = new Date().toISOString().split("T")[0];
+  let tenants = [...tenantArray].filter((t) => t.active !== false);
+
+  if (tenants.length === 0) {
+    Toast.fire({ icon: "warning", title: "No active tenants." });
+    return;
+  }
+
+  tenants.sort((a, b) => {
+    const ha = String(a.houseNumber || "").trim();
+    const hb = String(b.houseNumber || "").trim();
+    return ha.localeCompare(hb, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  // Build table rows
+  function renderTable() {
+    let html = "";
+    tenants.forEach((tenant, index) => {
+      const rowBg =
+        index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
+      html += `
+        <tr style="background:${rowBg};">
+          <td style="padding:8px 4px; text-align:center; color:var(--text-muted);">${escapeHtml(
+            tenant.houseNumber || "—"
+          )}</td>
+          <td style="padding:8px 4px; text-align:center; font-weight:500;">${escapeHtml(
+            tenant.name
+          )}</td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="number" step="any" class="bulk-pay-amount" data-tenant-id="${
+              tenant._id
+            }" placeholder="0.00" style="width:80px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="date" class="bulk-pay-date" data-tenant-id="${
+              tenant._id
+            }" value="${todayStr}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="text" class="bulk-pay-mpesa" data-tenant-id="${
+              tenant._id
+            }" placeholder="Optional" style="width:90px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+          </td>
+        </tr>
+      `;
+    });
+    return html;
+  }
+
+  const styleTag = document.createElement("style");
+  styleTag.textContent = `
+    @media (max-width: 600px) {
+      .bulk-pay-table { font-size: 0.7rem !important; }
+      .bulk-pay-table th, .bulk-pay-table td { padding: 4px 2px !important; }
+      .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
+        width: 60px !important; padding: 4px !important; font-size: 0.7rem !important;
+      }
+    }
+  `;
+  document.head.appendChild(styleTag);
+
+  const result = await Swal.fire({
+    title: "💳 Bulk Payment",
+    html: `
+      <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:calc(30px + env(safe-area-inset-bottom, 20px));">
+        <p style="text-align:center; font-size:0.85rem; color:var(--text-muted);">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
+        <div style="overflow-x:auto;">
+          <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:0.9rem;">
+            <thead>
+              <tr style="background:var(--bg-elevated);">
+                <th style="padding:10px 4px; text-align:center;">House</th>
+                <th style="padding:10px 4px; text-align:center;">Tenant</th>
+                <th style="padding:10px 4px; text-align:center;">Amount</th>
+                <th style="padding:10px 4px; text-align:center;">Date</th>
+                <th style="padding:10px 4px; text-align:center;">M‑Pesa Ref</th>
+              </tr>
+            </thead>
+            <tbody id="bulk-pay-tbody">
+              ${renderTable()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: "💰 Save All",
+    confirmButtonColor: "#10b981",
+    cancelButtonColor: "#ef4444",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "90%",
+    customClass: { popup: "fullscreen-sms-modal" },
+    didOpen: () => {
+      // Ensure the whole modal scrolls, not just the table
+      const popup = Swal.getPopup();
+      if (popup) {
+        popup.style.overflowY = "auto";
+        popup.style.maxHeight = "100vh";
+      }
+    },
+    preConfirm: () => {
+      // Collect rows with valid positive amounts
+      const amounts = document.querySelectorAll(".bulk-pay-amount");
+      const payments = [];
+      amounts.forEach((inp) => {
+        const tenantId = inp.dataset.tenantId;
+        const amountStr = inp.value.trim();
+        if (amountStr === "") return;
+        const amount = parseFloat(amountStr);
+        if (isNaN(amount) || amount <= 0) return;
+
+        const dateInput = document.querySelector(
+          `.bulk-pay-date[data-tenant-id="${tenantId}"]`
+        );
+        const mpesaInput = document.querySelector(
+          `.bulk-pay-mpesa[data-tenant-id="${tenantId}"]`
+        );
+        const date = dateInput ? dateInput.value : todayStr;
+        const mpesa = mpesaInput ? mpesaInput.value.trim() : "";
+
+        payments.push({ tenantId, amount, date, mpesa });
+      });
+
+      if (payments.length === 0) {
+        Swal.showValidationMessage("Enter at least one valid payment amount.");
+        return false;
+      }
+      return payments;
+    },
+    willClose: () => {
+      styleTag.remove();
+    },
+  });
+
+  if (!result.isConfirmed) return;
+  const paymentsArray = result.value;
+
+  setButtonLoading(document.getElementById("bulk-payment-btn"), true);
+  try {
+    let successCount = 0;
+    const failedNames = [];
+    const BATCH_SIZE = 5;
+
+    for (let i = 0; i < paymentsArray.length; i += BATCH_SIZE) {
+      const batch = paymentsArray.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.allSettled(
+        batch.map(async (p) => {
+          const tenant = tenants.find((t) => t._id === p.tenantId);
+          try {
+            const res = await fetchWithTimeout(
+              `${window.location.origin}/tenants/${p.tenantId}/payment-history`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                  amountPaid: p.amount,
+                  datePaid: p.date || null,
+                  mpesaRef: p.mpesa || "",
+                }),
+              }
+            );
+            const data = await res.json();
+            return {
+              tenant: tenant?.name || p.tenantId,
+              success: data?.success || res.ok,
+            };
+          } catch (err) {
+            return { tenant: tenant?.name || p.tenantId, success: false };
+          }
+        })
+      );
+      batchResults.forEach((res) => {
+        if (res.status === "fulfilled" && res.value.success) {
+          successCount++;
+        } else {
+          failedNames.push(
+            res.status === "fulfilled" ? res.value.tenant : "unknown"
+          );
+        }
+      });
+    }
+
+    await loadTenants();
+    scheduleChartUpdate();
+
+    let msg = `Payments recorded for ${successCount} tenant(s).`;
+    if (failedNames.length) msg += ` Failed for: ${failedNames.join(", ")}.`;
+    originalSwalFire.call(Swal, {
+      toast: true,
+      position: "bottom-end",
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+      background: "#1e293b",
+      color: "#f1f5f9",
+      icon: "success",
+      title: msg,
+    });
+  } catch (err) {
+    Toast.fire({ icon: "error", title: err.message });
+  } finally {
+    setButtonLoading(document.getElementById("bulk-payment-btn"), false);
+  }
 }
 
 async function showBulkWaterReadingModal() {

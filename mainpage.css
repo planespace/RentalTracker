@@ -5160,7 +5160,6 @@ body.bulk-mode-active .due-date-cell {
   .payment-compact-table td {
     color: var(--text-primary) !important;
   }
-  /* Ensure coloured classes still take effect */
   .payment-compact-table .amount-paid,
   .payment-compact-table .status-paid,
   .payment-compact-table .balance-positive,
@@ -5172,6 +5171,6 @@ body.bulk-mode-active .due-date-cell {
   .payment-compact-table .left-net,
   .payment-compact-table .balance-red,
   .payment-compact-table .balance-green {
-    color: inherit !important; /* they use their own colors */
+    color: inherit !important;
   }
 }

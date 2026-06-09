@@ -1,5 +1,6 @@
 // services/emailService.js
 import SibApiV3Sdk from "sib-api-v3-sdk";
+import https from "https";
 import EmailLog from "../models/EmailLog.js";
 import { Tenant } from "../models/Tenant.js";
 import Settings from "../models/Settings.js";
@@ -10,6 +11,10 @@ import { getOverdueTenants } from "./smsService.js";
 const defaultClient = SibApiV3Sdk.ApiClient.instance;
 const apiKey = defaultClient.authentications["api-key"];
 apiKey.apiKey = process.env.BREVO_API_KEY;
+
+// ── Keep‑alive agent – reuse TLS connections ──
+const agent = new https.Agent({ keepAlive: true });
+defaultClient.defaultAgent = agent;
 
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
@@ -64,9 +69,7 @@ function wrapPremiumEmail(
 </html>`;
 }
 
-// Send a single email via Brevo
-// services/emailService.js
-// services/emailService.js
+// Send a single email via Brevo (optimized)
 export async function sendEmail(
   toEmail,
   tenantName,
@@ -74,6 +77,7 @@ export async function sendEmail(
   htmlBody,
   userId
 ) {
+  // Fire and forget initial log – do not await
   const logEntry = new EmailLog({
     userId,
     tenantName,
@@ -83,7 +87,7 @@ export async function sendEmail(
     status: "pending",
     sentAt: new Date(),
   });
-  await logEntry.save();
+  logEntry.save().catch((err) => console.error("Log save failed", err));
 
   const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
   sendSmtpEmail.sender = {
@@ -94,7 +98,7 @@ export async function sendEmail(
   sendSmtpEmail.subject = subject;
   sendSmtpEmail.htmlContent = htmlBody;
 
-  // ── Retry logic: up to 3 attempts, 1‑second delay between ──
+  // Fast retry: 3 attempts, 50 ms delay
   const maxRetries = 3;
   let lastError;
 
@@ -112,8 +116,8 @@ export async function sendEmail(
         `❌ Attempt ${attempt} failed for ${toEmail}: ${error.message}`
       );
       if (attempt < maxRetries) {
-        // wait 1 second before retrying
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Very short delay – only 50 ms
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
   }
@@ -123,10 +127,10 @@ export async function sendEmail(
   logEntry.error = lastError.message;
   logEntry.failedAt = new Date();
   await logEntry.save();
-  throw lastError; // caught by the calling controller
+  throw lastError;
 }
 
-// Send overdue reminder emails for a user
+// Send overdue reminder emails for a user (parallel batches of 5)
 export async function sendOverdueEmailRemindersForUser(
   userId,
   todayOverride,
@@ -190,34 +194,18 @@ export async function sendOverdueEmailRemindersForUser(
 
     const leftByMonth = new Map();
     let prevCumulative = 0;
+    const monthData = new Map();
+
     for (const month of allMonths) {
       const ce = allEntries.find(
         (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
       );
       if (!ce) continue;
+
       const cumulative = ce.remainingBalance;
       const monthLeft = Math.max(0, cumulative) - Math.max(0, prevCumulative);
       leftByMonth.set(month, monthLeft);
       prevCumulative = cumulative;
-    }
-
-    let currentBillingMonth = allMonths[allMonths.length - 1];
-    for (const month of allMonths) {
-      const ce = allEntries.find(
-        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
-      );
-      if (ce?.dueDate && new Date(ce.dueDate) >= refDate) {
-        currentBillingMonth = month;
-        break;
-      }
-    }
-
-    let tableRows = "";
-    for (const month of allMonths) {
-      const ce = allEntries.find(
-        (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
-      );
-      if (!ce || month > currentBillingMonth) continue;
 
       const rentAmount = tenant.rent;
       let depositInstalment = 0;
@@ -250,52 +238,140 @@ export async function sendOverdueEmailRemindersForUser(
       );
       const paid = paymentsThisMonth.reduce((sum, e) => sum + e.amountPaid, 0);
 
-      const monthLeft = leftByMonth.get(month) || 0;
+      const monthLeftVal = leftByMonth.get(month) || 0;
       const dueDate = ce.dueDate ? new Date(ce.dueDate) : null;
-      const isPastDueByDate = dueDate && dueDate < refDate && monthLeft > 0;
-      const isInitialPastDue = ce.initialPastDue && monthLeft > 0;
+      const isPastDueByDate = dueDate && dueDate < refDate && monthLeftVal > 0;
+      const isInitialPastDue = ce.initialPastDue && monthLeftVal > 0;
       const isOverdue = isPastDueByDate || isInitialPastDue;
 
-      // FIXED: status based on monthLeft (standalone), not cumulative
       let status = "";
-      if (monthLeft <= 0) {
+      if (monthLeftVal <= 0) {
         status = "Paid";
       } else if (isOverdue) {
         status = "Overdue";
       } else {
-        status = "Pending";
+        status = "Not Due";
       }
 
-      const rowBg = isOverdue ? "#fff5f5" : "transparent";
-      const statusColor = isOverdue
-        ? "#d32f2f"
-        : status === "Paid"
-        ? "#2e7d32"
-        : "#b45309";
+      monthData.set(month, {
+        month,
+        rentAmount,
+        depositInstalment,
+        waterCharge,
+        garbageCharge,
+        extraTotal,
+        totalDue,
+        paid,
+        balance: monthLeftVal,
+        status,
+        isOverdue,
+      });
+    }
 
-      tableRows += `
-        <tr style="background:${rowBg};">
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${escapeHtml(
-            month
-          )}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${rentAmount.toLocaleString()}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
-            depositInstalment > 0 ? depositInstalment.toLocaleString() : "—"
-          }</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${waterCharge.toLocaleString()}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${garbageCharge.toLocaleString()}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; ${
-            extraTotal > 0 ? "color:#fbbf24; font-weight:600;" : ""
-          }">${extraTotal > 0 ? extraTotal.toLocaleString() : "—"}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${totalDue.toLocaleString()}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
-            paid > 0 ? paid.toLocaleString() : "—"
-          }</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; ${
-            monthLeft > 0 ? "color:#d32f2f;" : "color:#2e7d32;"
-          }">${monthLeft.toLocaleString()}</td>
-          <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; color:${statusColor};">${status}</td>
-        </tr>`;
+    // Determine current billing month
+    const currentBillingMonth =
+      allMonths.find((month) => {
+        const ce = allEntries.find(
+          (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
+        );
+        if (ce?.dueDate) return new Date(ce.dueDate) >= refDate;
+        return false;
+      }) || allMonths[allMonths.length - 1];
+
+    const overdueMonths = allMonths.filter(
+      (m) => monthData.get(m).status === "Overdue"
+    );
+    const nonOverdueMonths = allMonths.filter(
+      (m) => monthData.get(m).status !== "Overdue"
+    );
+
+    const displaySet = new Set(overdueMonths);
+    displaySet.add(currentBillingMonth);
+
+    const recentNonOverdue = nonOverdueMonths
+      .filter((m) => m !== currentBillingMonth)
+      .sort()
+      .slice(-3);
+
+    for (const m of recentNonOverdue) {
+      if (displaySet.size >= 3) break;
+      displaySet.add(m);
+    }
+
+    const displayMonths = allMonths.filter((m) => displaySet.has(m));
+
+    // Build card HTML with compact, centered table
+    let cardsHtml = "";
+    for (const month of displayMonths) {
+      const d = monthData.get(month);
+      if (!d) continue;
+
+      const cardBorder = d.isOverdue ? "#dc2626" : "#16a34a";
+      const cardBg = d.isOverdue ? "#fff5f5" : "#f0fdf4";
+      const balanceColor = d.balance > 0 ? "#dc2626" : "#16a34a";
+
+      cardsHtml += `
+        <div style="background:${cardBg}; border-left:5px solid ${cardBorder}; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <span style="font-size:20px; font-weight:700; color:#0f172a;">${
+              d.month
+            }</span>
+            <span style="margin-left:auto; display:inline-block; padding:5px 16px; border-radius:20px; font-weight:700; font-size:15px; background:${cardBorder}; color:white;">${
+        d.status
+      }</span>
+          </div>
+          <div style="max-width:450px; margin:0 auto; text-align:center;">
+            <table style="margin:0 auto; border-collapse:collapse; font-size:15px; color:#334155;">
+              <tr>
+                <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Rent</td>
+                <td style="padding:6px 0; text-align:right;">KES ${d.rentAmount.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Deposit</td>
+                <td style="padding:6px 0; text-align:right;">${
+                  d.depositInstalment > 0
+                    ? `KES ${d.depositInstalment.toLocaleString()}`
+                    : "—"
+                }</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Water</td>
+                <td style="padding:6px 0; text-align:right;">KES ${d.waterCharge.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Garbage</td>
+                <td style="padding:6px 0; text-align:right;">KES ${d.garbageCharge.toLocaleString()}</td>
+              </tr>
+              ${
+                d.extraTotal > 0
+                  ? `<tr>
+                      <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Extra</td>
+                      <td style="padding:6px 0; text-align:right; color:#fbbf24; font-weight:600;">KES ${d.extraTotal.toLocaleString()}</td>
+                    </tr>`
+                  : ""
+              }
+              <tr>
+                <td colspan="2" style="padding:0; border-top:1px solid #e2e8f0;"></td>
+              </tr>
+              <tr>
+                <td style="padding:10px 12px 6px 0; text-align:left; color:#64748b;">Total Due</td>
+                <td style="padding:10px 0 6px 0; text-align:right; font-weight:600;">KES ${d.totalDue.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Paid</td>
+                <td style="padding:6px 0; text-align:right;">${
+                  d.paid > 0 ? `KES ${d.paid.toLocaleString()}` : "—"
+                }</td>
+              </tr>
+              <tr>
+                <td colspan="2" style="padding:10px 0 0 0; text-align:center; font-weight:700; font-size:17px; color:${balanceColor};">
+                  Balance: KES ${d.balance.toLocaleString()}
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      `;
     }
 
     const totalOverdue = Array.from(leftByMonth.keys())
@@ -310,43 +386,29 @@ export async function sendOverdueEmailRemindersForUser(
       })
       .reduce((sum, month) => sum + (leftByMonth.get(month) || 0), 0);
 
-    let note =
-      totalOverdue > 0
-        ? `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-           <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
-           <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
-         </div>`
-        : `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-           <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
-         </div>`;
+    let note = "";
+    if (totalOverdue > 0) {
+      note = `<div style="background:#fff5f5; border-left:5px solid #dc2626; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+                <p style="margin:0; font-size:18px; font-weight:700; color:#dc2626;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+                <p style="margin:6px 0 0; font-size:15px; color:#b91c1c;">Please pay at your earliest convenience.</p>
+              </div>`;
+    } else {
+      note = `<div style="background:#ecfdf5; border-left:5px solid #16a34a; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+                <p style="margin:0; font-size:18px; font-weight:700; color:#16a34a;">All payments are up to date. Thank you!</p>
+              </div>`;
+    }
 
     const innerHtml = `
-        <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-          tenant.name
-        )}${
+      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+        tenant.name
+      )}${
       tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
     },</p>
       <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
-      <table style="width:100%; border-collapse:collapse; font-size:16px;">
-        <thead>
-          <tr style="background:#f1f5f9;">
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Extra</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
-            <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-        </tbody>
-      </table>
+      <div style="max-width:600px; margin:0 auto;">
+        ${cardsHtml}
+      </div>
 
       ${note}
 
@@ -393,8 +455,7 @@ export async function sendOverdueEmailRemindersForUser(
   }
   return results;
 }
-
-// Bulk send (used by manual email sending)
+// Bulk send (used by manual email sending) – parallel batches of 5
 export async function sendBulkEmails(tenantIds, subject, message, userId) {
   const tenants = await Tenant.find({
     _id: { $in: tenantIds },
@@ -402,21 +463,35 @@ export async function sendBulkEmails(tenantIds, subject, message, userId) {
     active: true,
   });
   const results = [];
-  for (const tenant of tenants) {
-    if (!tenant.email) {
-      results.push({
-        tenant: tenant.name,
-        success: false,
-        error: "No email address",
-      });
-      continue;
-    }
-    try {
-      await sendEmail(tenant.email, tenant.name, subject, message, userId);
-      results.push({ tenant: tenant.name, success: true });
-    } catch (err) {
-      results.push({ tenant: tenant.name, success: false, error: err.message });
+
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < tenants.length; i += BATCH_SIZE) {
+    const batch = tenants.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (tenant) => {
+        if (!tenant.email) {
+          return {
+            tenant: tenant.name,
+            success: false,
+            error: "No email address",
+          };
+        }
+        try {
+          await sendEmail(tenant.email, tenant.name, subject, message, userId);
+          return { tenant: tenant.name, success: true };
+        } catch (err) {
+          return { tenant: tenant.name, success: false, error: err.message };
+        }
+      })
+    );
+    for (const res of batchResults) {
+      results.push(
+        res.status === "fulfilled"
+          ? res.value
+          : { tenant: "unknown", success: false, error: res.reason?.message }
+      );
     }
   }
+
   return results;
 }

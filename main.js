@@ -6349,6 +6349,7 @@ async function showIndividualSmsModal(tenantId, prefillMessage = "") {
     Toast.fire({ icon: "success", title: "SMS sent successfully" });
   }
 }
+
 function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   const today = getAppToday();
   const overdue = getTenantPastDueAmount(tenant, today);
@@ -6358,7 +6359,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   const allMonths = [
     ...new Set(tenant.paymentHistory.map((e) => e.month)),
   ].sort();
-  const rows = [];
+  const monthData = new Map();
 
   // Compute standalone left for each month
   const leftByMonth = new Map();
@@ -6390,7 +6391,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     ).padStart(2, "0")}`;
   }
 
-  // Gather data for each month
+  // Collect month data
   for (const month of allMonths) {
     const chargeEntry = tenant.paymentHistory.find(
       (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
@@ -6430,19 +6431,16 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     const isInitialPastDue = chargeEntry.initialPastDue && monthLeft > 0;
     const isOverdue = isPastDueByDate || isInitialPastDue;
 
-    const cumulative = chargeEntry.remainingBalance;
-
-    // FIXED: status based on standalone (monthLeft), not cumulative
     let status = "";
     if (monthLeft <= 0) {
       status = "Paid";
     } else if (isOverdue) {
       status = "Overdue";
     } else {
-      status = "Pending";
+      status = "Not Due";
     }
 
-    rows.push({
+    monthData.set(month, {
       month,
       rentAmount,
       depositInstalment,
@@ -6452,95 +6450,144 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
       totalDue,
       paid,
       balance: monthLeft,
-      cumulative: cumulative,
       status,
       isOverdue,
     });
   }
 
-  // Build table rows
-  let tableRows = "";
-  for (const r of rows) {
-    const rowBg = r.isOverdue ? "#fff5f5" : "transparent";
-    const statusColor =
-      r.status === "Overdue"
-        ? "#d32f2f"
-        : r.status === "Paid"
-        ? "#2e7d32"
-        : "#b45309";
-    tableRows += `
-      <tr style="background:${rowBg};">
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${
-          r.month
-        }</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.rentAmount.toLocaleString()}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
-          r.depositInstalment > 0 ? r.depositInstalment.toLocaleString() : "—"
-        }</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.waterCharge.toLocaleString()}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${r.garbageCharge.toLocaleString()}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; ${
-          r.extraTotal > 0 ? "color:#fbbf24; font-weight:600;" : ""
-        }">${r.extraTotal > 0 ? r.extraTotal.toLocaleString() : "—"}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:600;">${r.totalDue.toLocaleString()}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important;">${
-          r.paid > 0 ? r.paid.toLocaleString() : "—"
-        }</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; ${
-          r.balance > 0 ? "color:#d32f2f;" : "color:#2e7d32;"
-        }">${r.balance.toLocaleString()}</td>
-        <td style="padding:14px 8px; border-bottom:1px solid #e0e0e0; text-align:center !important; font-weight:700; color:${statusColor};">${
-      r.status
-    }</td>
-      </tr>`;
+  // Decide which months to display
+  const currentBillingMonth = getCurrentBillingMonthForTenant(tenant);
+  const allMonthKeys = [...monthData.keys()].sort();
+
+  const overdueMonths = allMonthKeys.filter(
+    (m) => monthData.get(m).status === "Overdue"
+  );
+  const nonOverdueMonths = allMonthKeys.filter(
+    (m) => monthData.get(m).status !== "Overdue"
+  );
+
+  const displaySet = new Set(overdueMonths);
+  displaySet.add(currentBillingMonth);
+
+  const recentNonOverdue = nonOverdueMonths
+    .filter((m) => m !== currentBillingMonth)
+    .sort()
+    .slice(-3);
+
+  for (const m of recentNonOverdue) {
+    if (displaySet.size >= 3) break;
+    displaySet.add(m);
+  }
+
+  const displayMonths = allMonthKeys.filter((m) => displaySet.has(m));
+
+  // Generate cards
+  const cards = [];
+  for (const month of displayMonths) {
+    const d = monthData.get(month);
+    if (!d) continue;
+
+    const cardBorder = d.isOverdue ? "#dc2626" : "#16a34a";
+    const cardBg = d.isOverdue ? "#fff5f5" : "#f0fdf4";
+    const balanceColor = d.balance > 0 ? "#dc2626" : "#16a34a";
+
+    // Compact, centered table
+    const card = `
+      <div style="background:${cardBg}; border-left:5px solid ${cardBorder}; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <span style="font-size:20px; font-weight:700; color:#0f172a;">${
+            d.month
+          }</span>
+          <span style="margin-left:auto; display:inline-block; padding:5px 16px; border-radius:20px; font-weight:700; font-size:15px; background:${cardBorder}; color:white;">${
+      d.status
+    }</span>
+        </div>
+        <div style="max-width:450px; margin:0 auto; text-align:center;">
+          <table style="margin:0 auto; border-collapse:collapse; font-size:15px; color:#334155;">
+            <tr>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Rent</td>
+              <td style="padding:6px 0; text-align:right;">KES ${d.rentAmount.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Deposit</td>
+              <td style="padding:6px 0; text-align:right;">${
+                d.depositInstalment > 0
+                  ? `KES ${d.depositInstalment.toLocaleString()}`
+                  : "—"
+              }</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Water</td>
+              <td style="padding:6px 0; text-align:right;">KES ${d.waterCharge.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Garbage</td>
+              <td style="padding:6px 0; text-align:right;">KES ${d.garbageCharge.toLocaleString()}</td>
+            </tr>
+            ${
+              d.extraTotal > 0
+                ? `<tr>
+                    <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Extra</td>
+                    <td style="padding:6px 0; text-align:right; color:#fbbf24; font-weight:600;">KES ${d.extraTotal.toLocaleString()}</td>
+                  </tr>`
+                : ""
+            }
+            <!-- Divider -->
+            <tr>
+              <td colspan="2" style="padding:0; border-top:1px solid #e2e8f0;"></td>
+            </tr>
+            <tr>
+              <td style="padding:10px 12px 6px 0; text-align:left; color:#64748b;">Total Due</td>
+              <td style="padding:10px 0 6px 0; text-align:right; font-weight:600;">KES ${d.totalDue.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Paid</td>
+              <td style="padding:6px 0; text-align:right;">${
+                d.paid > 0 ? `KES ${d.paid.toLocaleString()}` : "—"
+              }</td>
+            </tr>
+            <tr>
+              <td colspan="2" style="padding:10px 0 0 0; text-align:center; font-weight:700; font-size:17px; color:${balanceColor};">
+                Balance: KES ${d.balance.toLocaleString()}
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    `;
+    cards.push(card);
   }
 
   // Summary note
   const totalOverdue = overdue;
   let note = "";
   if (overdue > 0) {
-    note = `<div style="background:#fff5f5; border-left:5px solid #d32f2f; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#d32f2f;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#b71c1c;">Please pay at your earliest convenience.</p>
+    note = `<div style="background:#fff5f5; border-left:5px solid #dc2626; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#dc2626;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#b91c1c;">Please pay at your earliest convenience.</p>
             </div>`;
   } else if (credit > 0) {
-    note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">You have a credit of KES ${credit.toLocaleString()}.</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#1b5e20;">Thank you!</p>
+    note = `<div style="background:#ecfdf5; border-left:5px solid #16a34a; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#16a34a;">You have a credit of KES ${credit.toLocaleString()}.</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#15803d;">Thank you!</p>
             </div>`;
   } else {
-    note = `<div style="background:#e8f5e9; border-left:5px solid #2e7d32; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#2e7d32;">All payments are up to date. Thank you!</p>
+    note = `<div style="background:#ecfdf5; border-left:5px solid #16a34a; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#16a34a;">All payments are up to date. Thank you!</p>
             </div>`;
   }
 
   const innerHtml = `
-      <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
-        tenant.name
-      )}${
+    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+      tenant.name
+    )}${
     tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
   },</p>
     <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
-    <table style="width:100%; border-collapse:collapse; font-size:16px;">
-      <thead>
-        <tr style="background:#f1f5f9;">
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Month</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Rent</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Deposit</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Water</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Garbage</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Extra</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Total</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Paid</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Balance</th>
-          <th style="padding:16px 6px; text-align:center !important; font-weight:700; color:#0f172a; border-bottom:2px solid #cbd5e1;">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows}
-      </tbody>
-    </table>
+    <div style="max-width:600px; margin:0 auto;">
+      ${cards.join("")}
+    </div>
 
     ${note}
 
@@ -6552,7 +6599,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
   return wrapPremiumEmail(innerHtml, landlordName);
 }
-
 async function showEmailModal(tenantId) {
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
@@ -6695,7 +6741,7 @@ async function showEmailModal(tenantId) {
           message: htmlMessage,
         }),
       },
-      60000 // ← 60 seconds
+      120000 // ← 2 minutes
     );
     const data = await response.json();
     if (response.ok) {
@@ -6918,123 +6964,188 @@ function showBulkEmailModal() {
       const landlordName =
         userProfile.landlordName || userProfile.name || "Landlord";
 
+      // ---- QUICK BALANCE (parallel batches of 5) ----
       if (isBalanceMode) {
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
         let successCount = 0;
         const failedNames = [];
-        for (const tenant of selectedTenants) {
-          const personalisedMsg = generateShortBalanceMessage(tenant);
-          const htmlMsg = wrapPremiumEmail(
-            `
-            <p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
-              tenant.name
-            )},</p>
-            <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
-              personalisedMsg
-            )}</div>
-          `,
-            landlordName
-          );
-          try {
-            const res = await fetchWithTimeout(
-              window.location.origin + "/tenants/send-emails",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({
-                  tenantIds: [tenant._id],
-                  subject: "Rent Balance",
-                  message: htmlMsg,
-                }),
+        const BATCH_SIZE = 5;
+
+        for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
+          const batch = selectedTenants.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.allSettled(
+            batch.map(async (tenant) => {
+              const personalisedMsg = generateShortBalanceMessage(tenant);
+              const htmlMsg = wrapPremiumEmail(
+                `<p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+                  tenant.name
+                )},</p>
+                 <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+                   personalisedMsg
+                 )}</div>`,
+                landlordName
+              );
+              try {
+                const res = await fetchWithTimeout(
+                  window.location.origin + "/tenants/send-emails",
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                    body: JSON.stringify({
+                      tenantIds: [tenant._id],
+                      subject: "Rent Balance",
+                      message: htmlMsg,
+                    }),
+                  },
+                  120000
+                );
+                const data = await res.json();
+                return {
+                  tenant: tenant.name,
+                  success: data.results?.[0]?.success,
+                };
+              } catch (err) {
+                return { tenant: tenant.name, success: false };
               }
-            );
-            const data = await res.json();
-            if (data.results?.[0]?.success) successCount++;
-            else failedNames.push(tenant.name);
-          } catch (err) {
-            failedNames.push(tenant.name);
+            })
+          );
+          for (const res of batchResults) {
+            if (res.status === "fulfilled") {
+              if (res.value.success) successCount++;
+              else failedNames.push(res.value.tenant);
+            } else {
+              failedNames.push("unknown");
+            }
           }
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
-      } else if (isDetailed) {
+      }
+
+      // ---- DETAILED BALANCE (parallel batches of 5) ----
+      else if (isDetailed) {
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
         let successCount = 0;
         const failedNames = [];
-        for (const tenant of selectedTenants) {
-          const personalisedMsg = generateDetailedBalanceHtml(
-            tenant,
-            landlordName
-          );
-          try {
-            const res = await fetchWithTimeout(
-              window.location.origin + "/tenants/send-emails",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({
-                  tenantIds: [tenant._id],
-                  subject: "Your Rent Statement",
-                  message: personalisedMsg,
-                }),
+        const BATCH_SIZE = 5;
+
+        for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
+          const batch = selectedTenants.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.allSettled(
+            batch.map(async (tenant) => {
+              const personalisedMsg = generateDetailedBalanceHtml(
+                tenant,
+                landlordName
+              );
+              try {
+                const res = await fetchWithTimeout(
+                  window.location.origin + "/tenants/send-emails",
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                    body: JSON.stringify({
+                      tenantIds: [tenant._id],
+                      subject: "Your Rent Statement",
+                      message: personalisedMsg,
+                    }),
+                  },
+                  120000
+                );
+                const data = await res.json();
+                return {
+                  tenant: tenant.name,
+                  success: data.results?.[0]?.success,
+                };
+              } catch (err) {
+                return { tenant: tenant.name, success: false };
               }
-            );
-            const data = await res.json();
-            if (data.results?.[0]?.success) successCount++;
-            else failedNames.push(tenant.name);
-          } catch (err) {
-            failedNames.push(tenant.name);
+            })
+          );
+          for (const res of batchResults) {
+            if (res.status === "fulfilled") {
+              if (res.value.success) successCount++;
+              else failedNames.push(res.value.tenant);
+            } else {
+              failedNames.push("unknown");
+            }
           }
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
-      } else if (isWaterBillMode) {
+      }
+
+      // ---- WATER BILL (parallel batches of 5) ----
+      else if (isWaterBillMode) {
         const selectedTenants = tenants.filter((t) =>
           tenantIds.includes(t._id)
         );
         let successCount = 0;
         const failedNames = [];
-        for (const tenant of selectedTenants) {
-          const personalisedMsg = generateWaterBillEmail(tenant, landlordName);
-          try {
-            const res = await fetchWithTimeout(
-              window.location.origin + "/tenants/send-emails",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({
-                  tenantIds: [tenant._id],
-                  subject: "Water Bill",
-                  message: personalisedMsg,
-                }),
+        const BATCH_SIZE = 5;
+
+        for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
+          const batch = selectedTenants.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.allSettled(
+            batch.map(async (tenant) => {
+              const personalisedMsg = generateWaterBillEmail(
+                tenant,
+                landlordName
+              );
+              try {
+                const res = await fetchWithTimeout(
+                  window.location.origin + "/tenants/send-emails",
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                    body: JSON.stringify({
+                      tenantIds: [tenant._id],
+                      subject: "Water Bill",
+                      message: personalisedMsg,
+                    }),
+                  },
+                  120000
+                );
+                const data = await res.json();
+                return {
+                  tenant: tenant.name,
+                  success: data.results?.[0]?.success,
+                };
+              } catch (err) {
+                return { tenant: tenant.name, success: false };
               }
-            );
-            const data = await res.json();
-            if (data.results?.[0]?.success) successCount++;
-            else failedNames.push(tenant.name);
-          } catch (err) {
-            failedNames.push(tenant.name);
+            })
+          );
+          for (const res of batchResults) {
+            if (res.status === "fulfilled") {
+              if (res.value.success) successCount++;
+              else failedNames.push(res.value.tenant);
+            } else {
+              failedNames.push("unknown");
+            }
           }
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
           summary += ` Failed for: ${failedNames.join(", ")}.`;
-      } else {
+      }
+
+      // ---- CUSTOM MESSAGE (unchanged, single request) ----
+      else {
         const htmlMessage = wrapPremiumEmail(
           `
           <p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
@@ -7071,6 +7182,7 @@ function showBulkEmailModal() {
           summary = data.message || "Failed to send";
         }
       }
+
       Toast.fire({ icon: "success", title: summary });
     } catch (err) {
       Toast.fire({ icon: "error", title: err.message });
@@ -7079,7 +7191,6 @@ function showBulkEmailModal() {
     }
   });
 }
-
 // ----- EMAIL LOGS MODAL -----
 function showEmailLogsModal() {
   Swal.fire({

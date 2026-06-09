@@ -303,7 +303,7 @@ function getPreviousMeterReading(tenant, targetMonth) {
 // ========================
 //   CORE RECALCULATION
 // ========================
-async function recalcFutureMonths(tenant, changedMonth) {
+export async function recalcFutureMonths(tenant, changedMonth) {
   const allEntries = tenant.paymentHistory.sort((a, b) => {
     if (a.month !== b.month) return a.month.localeCompare(b.month);
     const aDate = a.datePaid ? new Date(a.datePaid).getTime() : 0;

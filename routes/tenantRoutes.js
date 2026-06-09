@@ -2,10 +2,12 @@
 import authMiddleware from "../middleware/auth.js";
 import express from "express";
 import rateLimit from "express-rate-limit";
+import { Tenant } from "../models/Tenant.js";
+import { recalcFutureMonths } from "../controllers/tenantController.js";
 
 const smsEmailLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // 5 requests per minute
+  windowMs: 60 * 1000,
+  max: 5,
   message: { message: "Too many requests. Please wait a minute." },
 });
 const router = express.Router();
@@ -75,6 +77,9 @@ router.post("/send-sms", smsEmailLimiter, sendManualSms);
 router.post("/send-emails", smsEmailLimiter, sendManualEmails);
 router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
 router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+router.delete("/delete-all", deleteAllTenants);
+
+// ✅ NEW ROUTE: remove garbage fee for current billing month
 router.post("/remove-current-garbage", async (req, res) => {
   try {
     const userId = req.userId;
@@ -87,7 +92,6 @@ router.post("/remove-current-garbage", async (req, res) => {
     let updated = 0;
 
     for (const tenant of tenants) {
-      // Find the current billing month (same logic as sync / statements)
       const months = [
         ...new Set(tenant.paymentHistory.map((e) => e.month)),
       ].sort();
@@ -111,7 +115,6 @@ router.post("/remove-current-garbage", async (req, res) => {
       );
       if (chargeEntry && chargeEntry.garbageCharge > 0) {
         chargeEntry.garbageCharge = 0;
-        // Recalculate this month's total due and future months
         await recalcFutureMonths(tenant, currentMonth);
         tenant.markModified("paymentHistory");
         await tenant.save();
@@ -125,12 +128,9 @@ router.post("/remove-current-garbage", async (req, res) => {
   }
 });
 
-router.delete("/delete-all", deleteAllTenants);
-
-router.patch("/:id/restore", restoreTenant);
-
-router.delete("/:id/permanent", permanentlyDeleteTenant);
 // ----- PARAMETERIZED ROUTES (specific patterns) -----
+router.patch("/:id/restore", restoreTenant);
+router.delete("/:id/permanent", permanentlyDeleteTenant);
 router.get("/payment-status/:month", getPaymentStatusByMonth);
 router.get("/:id/statement", getTenantStatement);
 
@@ -143,7 +143,6 @@ router.post(
   express.raw({ type: "application/json" }),
   handleSmsWebhook
 );
-// POST, PUT, DELETE, PATCH (order less critical but keep similar pattern)
 router.post(
   "/sms-webhook",
   express.raw({ type: "application/json" }),
@@ -160,12 +159,11 @@ router.delete("/:id/payment-history/:entryId", deletePaymentRecord);
 router.delete("/:id/meter-reading/:readingId", deleteMeterReading);
 router.patch("/bulk-mark-paid", bulkMarkPaid);
 router.patch("/bulk-change-rent", bulkChangeRent);
-router.patch("/settings", updateGlobalSettings); // 👈 before /:id routes
-
+router.patch("/settings", updateGlobalSettings);
 router.patch("/:id/payment-history", updatePaymentHistory);
-
 router.patch("/:id/payment-history/:entryId", updatePaymentEntry);
 router.patch("/:id/meter-reading/:readingId", updateMeterReading);
 router.patch("/:id/meter-reading", addMeterReading);
 router.patch("/bulk-change-due-day", bulkChangeDueDay);
+
 export default router;

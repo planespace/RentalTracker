@@ -1529,8 +1529,8 @@ async function importTenants(req, res) {
   try {
     const { tenants } = req.body;
     const userId = req.userId;
-    const today = getEffectiveToday(req);
-    const currentMonth = getCurrentMonthString(today);
+    const effectiveToday = getEffectiveToday(req); // ✅ declare once
+    const currentMonth = getCurrentMonthString(effectiveToday);
     const settings = await getGlobalSettings(req.userId);
 
     if (!Array.isArray(tenants) || tenants.length === 0) {
@@ -1606,11 +1606,9 @@ async function importTenants(req, res) {
       let initialPastDue = false;
 
       if (newTenant) {
-        // New tenant – rent due on entry
         firstDueDate = entryDate;
         initialPastDue = true;
       } else {
-        // Existing tenant – normal next due date
         const { dueDate: computedDueDate } = getNextDueDateAndMonth(
           { dueDay: dueDayNum },
           referenceDate
@@ -1663,7 +1661,7 @@ async function importTenants(req, res) {
 
       await newTenantDoc.save();
 
-      // ✅ FIX: immediately sync months for this tenant
+      // ✅ Immediately sync months for this tenant
       await syncAllTenantsToCurrentMonth(effectiveToday, userId);
 
       created.push(newTenantDoc);
@@ -1768,7 +1766,7 @@ async function bulkAddTenants(req, res) {
   try {
     const { tenants } = req.body;
     const userId = req.userId;
-    const effectiveToday = getEffectiveToday(req); // ✅ compute once
+    const effectiveToday = getEffectiveToday(req); // ✅ declare once
     const settings = await getGlobalSettings(req.userId);
 
     if (!Array.isArray(tenants) || tenants.length === 0) {
@@ -1871,7 +1869,7 @@ async function bulkAddTenants(req, res) {
 
       await newTenantDoc.save();
 
-      // ✅ FIX: immediately sync months for this tenant
+      // ✅ Immediately sync months for this tenant
       await syncAllTenantsToCurrentMonth(effectiveToday, userId);
 
       created.push(newTenantDoc);

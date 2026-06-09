@@ -2778,6 +2778,28 @@ function showGlobalSettingsModal() {
 
     if (e.target.id === "remove-all-garbage-btn") {
       const btn = e.target;
+
+      // ── Serious confirmation ──
+      const confirmResult = await originalSwalFire.call(Swal, {
+        title: "Remove ALL Garbage Fees?",
+        html: `
+      <div style="text-align:center;">
+        <p style="font-size:1rem; color:#f1f5f9;">This will <strong style="color:#ef4444;">permanently delete</strong> every garbage charge from all billing months for all active tenants.</p>
+        <p style="font-size:0.9rem; color:#94a3b8;">This action cannot be undone. Future months will still apply the global garbage fee unless you set it to 0.</p>
+      </div>
+    `,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#ef4444",
+        confirmButtonText: "Yes, delete all garbage fees",
+        cancelButtonText: "Cancel",
+        background: "#1e293b",
+        color: "#f1f5f9",
+      });
+
+      if (!confirmResult.isConfirmed) return;
+
+      // Proceed with removal
       setButtonLoading(btn, true);
       try {
         const res = await fetchWithTimeout(
@@ -2812,6 +2834,7 @@ function showGlobalSettingsModal() {
         setButtonLoading(btn, false);
       }
     }
+
     if (e.target.id === "change-rent-btn") {
       const { value: newRent } = await Swal.fire({
         title: "Change Rent for All Tenants",

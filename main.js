@@ -2508,7 +2508,7 @@ function showGlobalSettingsModal() {
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-rent-btn" class="modal-action-btn" style="background: var(--accent-cyan);">💰 Change Rent for All Tenants</button>
       </div>
-      
+      <button id="remove-current-garbage-btn" class="modal-action-btn" style="background: #ef4444;">🗑️ Remove Garbage Fee for Current Month</button>
       <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
         <button id="save-global-settings" class="modal-action-btn">Save</button>
         <button id="cancel-global-settings" class="modal-action-btn danger">Cancel</button>
@@ -2773,6 +2773,43 @@ function showGlobalSettingsModal() {
         } finally {
           setButtonLoading(e.target, false);
         }
+      }
+    }
+
+    if (e.target.id === "remove-current-garbage-btn") {
+      const btn = e.target;
+      setButtonLoading(btn, true);
+      try {
+        const res = await fetchWithTimeout(
+          window.location.origin + "/tenants/remove-current-garbage",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        );
+        const data = await res.json();
+        if (res.ok) {
+          await loadTenants();
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "success",
+            title: `Garbage fee removed for ${data.updated} tenant(s).`,
+          });
+        } else {
+          Toast.fire({ icon: "error", title: data.message || "Failed" });
+        }
+      } catch (err) {
+        Toast.fire({ icon: "error", title: err.message });
+      } finally {
+        setButtonLoading(btn, false);
       }
     }
 

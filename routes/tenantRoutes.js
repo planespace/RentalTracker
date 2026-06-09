@@ -75,6 +75,56 @@ router.post("/send-sms", smsEmailLimiter, sendManualSms);
 router.post("/send-emails", smsEmailLimiter, sendManualEmails);
 router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
 router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+router.post("/remove-current-garbage", async (req, res) => {
+  try {
+    const userId = req.userId;
+    const today = new Date();
+    const todayUTC = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    );
+
+    const tenants = await Tenant.find({ userId, active: true });
+    let updated = 0;
+
+    for (const tenant of tenants) {
+      // Find the current billing month (same logic as sync / statements)
+      const months = [
+        ...new Set(tenant.paymentHistory.map((e) => e.month)),
+      ].sort();
+      let currentMonth = null;
+      for (const month of months) {
+        const entry = tenant.paymentHistory.find((e) => e.month === month);
+        if (entry?.dueDate) {
+          const due = new Date(entry.dueDate);
+          if (due >= todayUTC) {
+            currentMonth = month;
+            break;
+          }
+        }
+      }
+      if (!currentMonth) currentMonth = months[months.length - 1];
+      if (!currentMonth) continue;
+
+      const chargeEntry = tenant.paymentHistory.find(
+        (e) =>
+          e.month === currentMonth && (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      if (chargeEntry && chargeEntry.garbageCharge > 0) {
+        chargeEntry.garbageCharge = 0;
+        // Recalculate this month's total due and future months
+        await recalcFutureMonths(tenant, currentMonth);
+        tenant.markModified("paymentHistory");
+        await tenant.save();
+        updated++;
+      }
+    }
+
+    res.json({ success: true, updated });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.delete("/delete-all", deleteAllTenants);
 
 router.patch("/:id/restore", restoreTenant);

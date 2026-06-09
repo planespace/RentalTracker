@@ -21,118 +21,13 @@
       </select>
     </div>
 
-    <!-- Add tenant form -->
-    <div class="tenants-inputs">
-      <div class="add-tenants-inputs">
-        <!-- Row 1: Name & Rent -->
-        <div class="form-field">
-          <label>Tenant Name</label>
-          <input class="tenant-name" type="text" placeholder="e.g., John Doe" />
-        </div>
-        <div class="form-field">
-          <label>Rent Amount (KSH)</label>
-          <input class="rent-amount" type="number" placeholder="0.00" />
-        </div>
-
-        <!-- Row 2: Phone & House -->
-        <div class="form-field">
-          <label>Phone Number</label>
-          <input class="tenant-phone" type="tel" placeholder="0712 345 678" />
-        </div>
-
-        <div class="form-field">
-          <label>Email (optional)</label>
-          <input
-            class="tenant-email"
-            type="email"
-            placeholder="e.g., tenant@email.com"
-          />
-        </div>
-
-        <div class="form-field">
-          <label>House/Apt Number</label>
-          <input class="tenant-house" type="text" placeholder="e.g., Flat 2B" />
-        </div>
-
-        <!-- Row 3: Entry Date & Due Date -->
-        <div class="form-field">
-          <label>Entry Date</label>
-          <input class="tenant-entry-date" type="date" />
-        </div>
-
-        <div class="form-field">
-          <label>Due Day (1‑31)</label>
-          <input
-            class="tenant-due-day"
-            type="number"
-            min="1"
-            max="31"
-            placeholder="e.g., 5"
-          />
-        </div>
-
-        <!-- Row 4: Notes (centered) -->
-        <div class="notes-row">
-          <div class="notes-wrapper">
-            <div class="form-field">
-              <label>Notes (optional)</label>
-              <textarea
-                class="tenant-notes"
-                placeholder="Any extra info..."
-              ></textarea>
-            </div>
-          </div>
-        </div>
-
-        <!-- Row 5: Deposit checkbox above Add button -->
-        <div class="action-row">
-          <div class="action-wrapper">
-            <label class="deposit-label" style="margin-top: 10px">
-              <input type="checkbox" id="new-tenant-checkbox" checked />
-              New tenant – rent due on entry
-            </label>
-            <label
-              class="deposit-label"
-              data-tooltip="Tenant pays double rent in their first month. This extra amount acts as a deposit and is applied to their first month's balance."
-            >
-              <input type="checkbox" id="include-deposit-checkbox" />💰Deposit
-            </label>
-            <div
-              id="deposit-period-wrapper"
-              style="
-                display: none;
-                margin-top: 8px;
-                flex-direction: column;
-                align-items: center;
-                gap: 6px;
-              "
-            >
-              <label
-                for="deposit-period-input"
-                style="color: var(--text-secondary); font-size: 0.85rem"
-                >Deposit Period (months)</label
-              >
-              <input
-                type="number"
-                id="deposit-period-input"
-                min="1"
-                max="12"
-                value="1"
-                style="
-                  width: 80px;
-                  padding: 4px 8px;
-                  border-radius: 20px;
-                  border: 1px solid var(--border);
-                  background: var(--bg-elevated);
-                  color: var(--text-primary);
-                  text-align: center;
-                "
-              />
-            </div>
-            <button class="add-tenant-button">Add tenant</button>
-          </div>
-        </div>
-      </div>
+    <div
+      class="tenants-inputs"
+      style="display: flex; justify-content: center; padding: 16px"
+    >
+      <button id="open-add-tenant-modal" class="add-tenant-button">
+        🧑 Add Tenant
+      </button>
     </div>
 
     <!-- Top bar (filter, sort, logout) -->

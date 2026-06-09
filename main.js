@@ -9,16 +9,6 @@ if (!loginToken) {
 }
 
 // ----- GLOBAL VARIABLES -----
-let tenantName = document.querySelector(".tenant-name");
-let rentAmount = document.querySelector(".rent-amount");
-let addTenantButton = document.querySelector(".add-tenant-button");
-let dueDayInput = document.querySelector(".tenant-due-day");
-
-let entryDateInput = document.querySelector(".tenant-entry-date");
-entryDateInput.value = new Date().toISOString().split("T")[0];
-let phoneNumber = document.querySelector(".tenant-phone");
-let houseNumber = document.querySelector(".tenant-house");
-let tenantNotes = document.querySelector(".tenant-notes");
 let tenantInfoDiv = document.querySelector(".tenant-info-div");
 window.isBulkMode = false;
 let debtLineChart = null;
@@ -27,7 +17,7 @@ let trendLineChart = null;
 let currentAppDate;
 let tenantArray = [];
 let globalSettings = { garbageFee: 0, waterRatePerUnit: 0, totalHouses: 0 };
-let tenantEmailInput = document.querySelector(".tenant-email");
+
 let userProfile = { name: "", email: "", phone: "", landlordName: "" };
 
 function getAppToday() {
@@ -3728,6 +3718,217 @@ document.addEventListener("click", async (e) => {
   }
 });
 
+async function showAddTenantModal() {
+  closeDropdownIfOpen();
+  const todayStr = new Date().toISOString().split("T")[0];
+  const settings = globalSettings;
+
+  const html = `
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <!-- Name -->
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Tenant Name *</label>
+        <input id="modal-tenant-name" class="swal2-input" placeholder="e.g. John Doe"
+          style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+      </div>
+
+      <!-- Rent & Phone -->
+      <div style="display: flex; gap: 12px;">
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Rent (KSH) *</label>
+          <input id="modal-rent-amount" type="number" step="any" class="swal2-input" placeholder="0.00"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Phone *</label>
+          <input id="modal-phone" type="tel" class="swal2-input" placeholder="0712 345 678"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+      </div>
+
+      <!-- House & Email -->
+      <div style="display: flex; gap: 12px;">
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">House *</label>
+          <input id="modal-house" type="text" class="swal2-input" placeholder="e.g. Flat 2B"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Email (optional)</label>
+          <input id="modal-email" type="email" class="swal2-input" placeholder="tenant@email.com"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+      </div>
+
+      <!-- Entry Date & Due Day -->
+      <div style="display: flex; gap: 12px;">
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Entry Date *</label>
+          <input id="modal-entry-date" type="date" class="swal2-input" value="${todayStr}"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+        <div style="flex:1; display: flex; flex-direction: column; gap: 6px;">
+          <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Due Day (1‑31)</label>
+          <input id="modal-due-day" type="number" min="1" max="31" class="swal2-input" placeholder="e.g. 5"
+            style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Notes (optional)</label>
+        <textarea id="modal-notes" class="swal2-input" placeholder="Any extra info..."
+          style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem; resize: vertical; min-height: 70px;"></textarea>
+      </div>
+
+      <!-- New tenant checkbox -->
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" id="modal-new-tenant" checked style="width: 20px; height: 20px; accent-color: #10b981;">
+        <span style="color: var(--text-primary); font-size: 0.9rem;">New tenant – rent due on entry</span>
+      </label>
+
+      <!-- Deposit checkbox -->
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" id="modal-include-deposit" style="width: 20px; height: 20px; accent-color: #f59e0b;">
+        <span style="color: var(--text-primary); font-size: 0.9rem;">💰 Deposit</span>
+      </label>
+
+      <div id="modal-deposit-wrapper" style="display: none; flex-direction: column; gap: 6px;">
+        <label style="text-align: left; color: #cbd5e1; font-size: 0.85rem; font-weight: 500;">Deposit Period (months)</label>
+        <input id="modal-deposit-period" type="number" min="1" max="12" value="1" class="swal2-input"
+          style="margin:0; padding: 12px; border-radius: 10px; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.95rem;">
+      </div>
+    </div>
+  `;
+
+  const { isConfirmed } = await Swal.fire({
+    title: "🧑 Add Tenant",
+    html,
+    showCancelButton: true,
+    confirmButtonText: "Add Tenant",
+    confirmButtonColor: "#3b82f6",
+    cancelButtonColor: "#ef4444",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "650px",
+    customClass: {
+      popup: "premium-swal-popup", // clean rounded popup
+      title: "premium-swal-title",
+    },
+    didOpen: () => {
+      // Toggle deposit period
+      const depositCheck = document.getElementById("modal-include-deposit");
+      const wrapper = document.getElementById("modal-deposit-wrapper");
+      depositCheck.addEventListener("change", () => {
+        wrapper.style.display = depositCheck.checked ? "flex" : "none";
+      });
+    },
+    preConfirm: async () => {
+      const name = document.getElementById("modal-tenant-name").value.trim();
+      const rentStr = document.getElementById("modal-rent-amount").value.trim();
+      const phone = document.getElementById("modal-phone").value.trim();
+      const house = document.getElementById("modal-house").value.trim();
+      const email = document.getElementById("modal-email").value.trim();
+      const entryDate = document.getElementById("modal-entry-date").value;
+      const dueDayVal = document.getElementById("modal-due-day").value.trim();
+      const notes = document.getElementById("modal-notes").value.trim();
+      const newTenant = document.getElementById("modal-new-tenant").checked;
+      const includeDeposit = document.getElementById(
+        "modal-include-deposit"
+      ).checked;
+      const depositPeriod = includeDeposit
+        ? parseInt(document.getElementById("modal-deposit-period").value) || 1
+        : 0;
+
+      if (!name) {
+        Swal.showValidationMessage("Name is required.");
+        return false;
+      }
+      if (!rentStr || isNaN(Number(rentStr)) || Number(rentStr) <= 0) {
+        Swal.showValidationMessage("Rent must be a positive number.");
+        return false;
+      }
+      if (!phone) {
+        Swal.showValidationMessage("Phone number is required.");
+        return false;
+      }
+      if (!house) {
+        Swal.showValidationMessage("House number is required.");
+        return false;
+      }
+      if (!entryDate) {
+        Swal.showValidationMessage("Entry date is required.");
+        return false;
+      }
+
+      const phoneDigits = phone.replace(/\D/g, "");
+      if (phoneDigits.length < 9 || phoneDigits.length > 12) {
+        Swal.showValidationMessage("Phone number must have 9‑12 digits.");
+        return false;
+      }
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        Swal.showValidationMessage("Enter a valid email address.");
+        return false;
+      }
+
+      let finalDueDay = parseInt(dueDayVal);
+      if (!finalDueDay || finalDueDay < 1 || finalDueDay > 31) {
+        finalDueDay = settings.defaultDueDay || 1;
+      }
+
+      const rent = Number(rentStr);
+
+      // Send to server
+      try {
+        const response = await fetchWithTimeout("/tenants", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            name,
+            rent,
+            phoneNumber: phone,
+            houseNumber: house,
+            email,
+            entryDate,
+            dueDay: finalDueDay,
+            notes,
+            depositPeriod,
+            newTenant,
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.message);
+        }
+
+        return true;
+      } catch (err) {
+        Swal.showValidationMessage(err.message);
+        return false;
+      }
+    },
+  });
+
+  if (isConfirmed) {
+    await loadTenants();
+    originalSwalFire.call(Swal, {
+      toast: true,
+      position: "bottom-end",
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+      background: "#1e293b",
+      color: "#f1f5f9",
+      icon: "success",
+      title: "Tenant Added",
+    });
+  }
+}
+
 // ----- BULK MODE & CSV EXPORT -----
 const enterBulkModeBtn = document.getElementById("enter-bulk-mode-btn");
 const bulkModeButtons = document.getElementById("bulk-mode-buttons");
@@ -4127,121 +4328,6 @@ function generateBalanceMessage(tenant) {
 // ----- ADD TENANT -----
 let searchInput = document.querySelector(".search-tenants");
 let tenantsInputs = document.querySelector(".tenants-inputs");
-tenantsInputs.addEventListener("click", async (event) => {
-  if (event.target.classList.contains("add-tenant-button")) {
-    const addBtn = event.target;
-    if (!tenantName.value || !rentAmount.value) {
-      Toast.fire({
-        icon: "warning",
-        title: "Missing Fields",
-        text: "Please fill in tenant name and rent amount.",
-      });
-      return;
-    }
-
-    const entryDateValue = entryDateInput.value;
-    const dueDayValue = dueDayInput.value;
-
-    if (!entryDateValue) {
-      Swal.fire({
-        icon: "error",
-        title: "Missing Entry Date",
-        text: "Please select an entry date.",
-        confirmButtonColor: "#3b82f6",
-      });
-      return;
-    }
-
-    let finalDueDay = dueDayValue ? parseInt(dueDayValue) : null;
-    if (!finalDueDay || finalDueDay < 1 || finalDueDay > 31) {
-      const defaultDay = globalSettings.defaultDueDay;
-      if (!defaultDay || defaultDay < 1 || defaultDay > 31) {
-        Swal.fire({
-          icon: "error",
-          title: "Due Day Required",
-          text: "Please either enter a due day (1‑31) or set a valid default due day in Global Settings (⚙️).",
-          confirmButtonColor: "#3b82f6",
-          background: "#1e293b",
-          color: "#f1f5f9",
-        });
-        return;
-      }
-      finalDueDay = defaultDay;
-    }
-
-    setButtonLoading(addBtn, true);
-    try {
-      const includeDeposit =
-        document.getElementById("include-deposit-checkbox")?.checked || false;
-      const rent = Number(rentAmount.value);
-      let response = await fetchWithTimeout(
-        window.location.origin + "/tenants",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-          body: JSON.stringify({
-            name: tenantName.value,
-            rent: rent,
-            entryDate: entryDateValue,
-            houseNumber: houseNumber.value,
-            phoneNumber: phoneNumber.value,
-            notes: tenantNotes.value,
-            dueDay: finalDueDay,
-            email: tenantEmailInput?.value || "",
-            depositPeriod: includeDeposit
-              ? parseInt(
-                  document.getElementById("deposit-period-input").value
-                ) || 1
-              : 0,
-
-            newTenant:
-              document.getElementById("new-tenant-checkbox")?.checked ?? true,
-          }),
-        }
-      );
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message);
-      }
-      const newTenant = await response.json();
-      console.log(
-        "NEW TENANT FROM SERVER:",
-        JSON.stringify(newTenant, null, 2)
-      ); // 👈 ADD THIS
-      await loadTenants();
-      console.log(
-        "TENANT ARRAY AFTER RELOAD:",
-        tenantArray.map((t) => t.name)
-      ); // 👈 ADD THIS
-      Toast.fire({ icon: "success", title: "Tenant Added" });
-      tenantName.value = "";
-      houseNumber.value = "";
-      phoneNumber.value = "";
-      tenantNotes.value = "";
-
-      tenantEmailInput.value = "";
-      tenantName.focus();
-    } catch (err) {
-      let msg = err.message;
-      if (msg === "Failed to fetch") {
-        msg = "Network error. Please check your connection.";
-      }
-      Toast.fire({ icon: "error", title: "Add Failed", text: msg });
-    } finally {
-      setButtonLoading(addBtn, false);
-    }
-  }
-});
-
-document
-  .getElementById("include-deposit-checkbox")
-  .addEventListener("change", function () {
-    const wrapper = document.getElementById("deposit-period-wrapper");
-    if (wrapper) wrapper.style.display = this.checked ? "block" : "none";
-  });
 
 // ----- FILTER & SORT -----
 function applyFiltersAndSort() {
@@ -5277,6 +5363,10 @@ document.addEventListener("DOMContentLoaded", () => {
       closeModal();
     });
   }
+
+  document
+    .getElementById("open-add-tenant-modal")
+    ?.addEventListener("click", showAddTenantModal);
 
   document
     .getElementById("delete-all-tenants-btn")

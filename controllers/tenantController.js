@@ -1157,7 +1157,7 @@ async function createTenant(req, res) {
     const entryDateObj = entryDate ? new Date(entryDate) : today;
     entryDateObj.setHours(0, 0, 0, 0);
 
-    const referenceDate = entryDateObj > today ? entryDateObj : today;
+    const referenceDate = entryDateObj; // always use the entry date
     const { month: startMonth } = getNextDueDateAndMonth(
       { dueDay: dueDayNum },
       referenceDate
@@ -1591,7 +1591,7 @@ async function importTenants(req, res) {
       entryDate.setHours(0, 0, 0, 0);
 
       // Determine first month and due date using the same rules as createTenant
-      const referenceDate = entryDate > today ? entryDate : today;
+      const referenceDate = entryDate;
       const { month: startMonth } = getNextDueDateAndMonth(
         { dueDay: dueDayNum },
         referenceDate
@@ -1799,7 +1799,7 @@ async function bulkAddTenants(req, res) {
       const entryDate = t.entryDate ? new Date(t.entryDate) : new Date();
       entryDate.setHours(0, 0, 0, 0);
 
-      const referenceDate = entryDate > today ? entryDate : today;
+      const referenceDate = entryDate;
       const { month: startMonth } = getNextDueDateAndMonth(
         { dueDay: dueDayNum },
         referenceDate

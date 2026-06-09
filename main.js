@@ -5672,8 +5672,7 @@ if (window.location.search.includes("dev=true")) {
 } else {
   document.querySelector(".set-month-row").style.display = "none";
 }
-
-// ----- BULK PAYMENT MODAL -----
+// ----- BULK PAYMENT MODAL (flicker‑free, confirmation overlay inside same modal) -----
 async function showBulkPaymentModal() {
   closeDropdownIfOpen();
   const todayStr = new Date().toISOString().split("T")[0];
@@ -5693,7 +5692,6 @@ async function showBulkPaymentModal() {
     });
   });
 
-  // Build table rows
   function renderTable() {
     let html = "";
     tenants.forEach((tenant, index) => {
@@ -5701,26 +5699,26 @@ async function showBulkPaymentModal() {
         index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
       html += `
         <tr style="background:${rowBg};">
-          <td style="padding:8px 4px; text-align:center; color:var(--text-muted);">${escapeHtml(
+          <td style="padding:10px 6px; text-align:center; color:var(--text-muted);">${escapeHtml(
             tenant.houseNumber || "—"
           )}</td>
-          <td style="padding:8px 4px; text-align:center; font-weight:500;">${escapeHtml(
+          <td style="padding:10px 6px; text-align:center; font-weight:500;">${escapeHtml(
             tenant.name
           )}</td>
-          <td style="padding:8px 4px; text-align:center;">
+          <td style="padding:10px 6px; text-align:center;">
             <input type="number" step="any" class="bulk-pay-amount" data-tenant-id="${
               tenant._id
-            }" placeholder="0.00" style="width:80px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" placeholder="0.00" style="width:90px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
           </td>
-          <td style="padding:8px 4px; text-align:center;">
+          <td style="padding:10px 6px; text-align:center;">
             <input type="date" class="bulk-pay-date" data-tenant-id="${
               tenant._id
-            }" value="${todayStr}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" value="${todayStr}" style="width:120px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
           </td>
-          <td style="padding:8px 4px; text-align:center;">
+          <td style="padding:10px 6px; text-align:center;">
             <input type="text" class="bulk-pay-mpesa" data-tenant-id="${
               tenant._id
-            }" placeholder="Optional" style="width:90px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" placeholder="Optional" style="width:100px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
           </td>
         </tr>
       `;
@@ -5732,159 +5730,323 @@ async function showBulkPaymentModal() {
   styleTag.textContent = `
     @media (max-width: 600px) {
       .bulk-pay-table { font-size: 0.7rem !important; }
-      .bulk-pay-table th, .bulk-pay-table td { padding: 4px 2px !important; }
+      .bulk-pay-table th, .bulk-pay-table td { padding: 6px 2px !important; }
       .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
-        width: 60px !important; padding: 4px !important; font-size: 0.7rem !important;
+        width: 55px !important; padding: 6px 2px !important; font-size: 0.7rem !important;
       }
+    }
+    .bulk-pay-save-btn {
+      background: linear-gradient(135deg, #10b981, #059669) !important;
+      color: white !important;
+      border: none !important;
+      padding: 12px 28px !important;
+      border-radius: 40px !important;
+      font-size: 1rem !important;
+      font-weight: 600 !important;
+      cursor: pointer !important;
+      transition: transform 0.1s, box-shadow 0.1s !important;
+      margin: 0 !important;
+    }
+    .bulk-pay-save-btn:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4) !important;
+    }
+    .bulk-pay-cancel-btn {
+      background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+      color: white !important;
+      border: none !important;
+      padding: 12px 28px !important;
+      border-radius: 40px !important;
+      font-size: 1rem !important;
+      font-weight: 600 !important;
+      cursor: pointer !important;
+      transition: transform 0.1s, box-shadow 0.1s !important;
+      margin: 0 !important;
+    }
+    .bulk-pay-cancel-btn:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+    }
+    /* Overlay for confirmation */
+    .bulk-confirm-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .bulk-confirm-box {
+      background: var(--bg-surface, #1e293b);
+      border-radius: 24px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+      border: 1px solid var(--border, #334155);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
     }
   `;
   document.head.appendChild(styleTag);
 
+  // Build the initial view
+  const initialHtml = `
+    <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:calc(30px + env(safe-area-inset-bottom, 20px));">
+      <p style="text-align:center; font-size:0.85rem; color:var(--text-muted);">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
+      <div style="overflow-x:auto;">
+        <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:0.9rem;">
+          <thead>
+            <tr style="background:var(--bg-elevated);">
+              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">House</th>
+              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Tenant</th>
+              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Amount</th>
+              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Date</th>
+              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">M‑Pesa Ref</th>
+            </tr>
+          </thead>
+          <tbody id="bulk-pay-tbody">
+            ${renderTable()}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:center; gap:16px; margin-top:8px;" id="bulk-pay-buttons">
+        <button id="custom-bulk-cancel-btn" class="bulk-pay-cancel-btn">Cancel</button>
+        <button id="custom-bulk-save-btn" class="bulk-pay-save-btn">💰 Save All</button>
+      </div>
+    </div>
+  `;
+
   const result = await Swal.fire({
     title: "💳 Bulk Payment",
-    html: `
-      <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:calc(30px + env(safe-area-inset-bottom, 20px));">
-        <p style="text-align:center; font-size:0.85rem; color:var(--text-muted);">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
-        <div style="overflow-x:auto;">
-          <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:0.9rem;">
-            <thead>
-              <tr style="background:var(--bg-elevated);">
-                <th style="padding:10px 4px; text-align:center;">House</th>
-                <th style="padding:10px 4px; text-align:center;">Tenant</th>
-                <th style="padding:10px 4px; text-align:center;">Amount</th>
-                <th style="padding:10px 4px; text-align:center;">Date</th>
-                <th style="padding:10px 4px; text-align:center;">M‑Pesa Ref</th>
-              </tr>
-            </thead>
-            <tbody id="bulk-pay-tbody">
-              ${renderTable()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `,
-    showCancelButton: true,
-    confirmButtonText: "💰 Save All",
-    confirmButtonColor: "#10b981",
-    cancelButtonColor: "#ef4444",
+    html: initialHtml,
+    showCancelButton: false,
+    showConfirmButton: false,
     background: "#1e293b",
     color: "#f1f5f9",
     width: "90%",
     customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
-      // Ensure the whole modal scrolls, not just the table
       const popup = Swal.getPopup();
       if (popup) {
         popup.style.overflowY = "auto";
         popup.style.maxHeight = "100vh";
       }
-    },
-    preConfirm: () => {
-      // Collect rows with valid positive amounts
-      const amounts = document.querySelectorAll(".bulk-pay-amount");
-      const payments = [];
-      amounts.forEach((inp) => {
-        const tenantId = inp.dataset.tenantId;
-        const amountStr = inp.value.trim();
-        if (amountStr === "") return;
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) return;
 
-        const dateInput = document.querySelector(
-          `.bulk-pay-date[data-tenant-id="${tenantId}"]`
-        );
-        const mpesaInput = document.querySelector(
-          `.bulk-pay-mpesa[data-tenant-id="${tenantId}"]`
-        );
-        const date = dateInput ? dateInput.value : todayStr;
-        const mpesa = mpesaInput ? mpesaInput.value.trim() : "";
+      // Cancel button
+      document
+        .getElementById("custom-bulk-cancel-btn")
+        ?.addEventListener("click", () => Swal.close());
 
-        payments.push({ tenantId, amount, date, mpesa });
-      });
+      // Save button
+      document
+        .getElementById("custom-bulk-save-btn")
+        ?.addEventListener("click", () => {
+          const amounts = document.querySelectorAll(".bulk-pay-amount");
+          const payments = [];
+          const skipped = [];
 
-      if (payments.length === 0) {
-        Swal.showValidationMessage("Enter at least one valid payment amount.");
-        return false;
-      }
-      return payments;
+          amounts.forEach((inp) => {
+            const tenantId = inp.dataset.tenantId;
+            const amountStr = inp.value.trim();
+            const tenant = tenants.find((t) => t._id === tenantId);
+            const tenantLabel = tenant
+              ? `${escapeHtml(tenant.name)} (${escapeHtml(
+                  tenant.houseNumber || "—"
+                )})`
+              : tenantId;
+
+            if (amountStr === "") return;
+
+            const amount = parseFloat(amountStr);
+            if (isNaN(amount) || amount <= 0) {
+              skipped.push(`${tenantLabel} – invalid amount`);
+              return;
+            }
+
+            const dateInput = document.querySelector(
+              `.bulk-pay-date[data-tenant-id="${tenantId}"]`
+            );
+            const mpesaInput = document.querySelector(
+              `.bulk-pay-mpesa[data-tenant-id="${tenantId}"]`
+            );
+            const date = dateInput?.value || todayStr;
+            const mpesa = mpesaInput?.value.trim() || "";
+
+            payments.push({ tenantId, amount, date, mpesa });
+          });
+
+          if (payments.length === 0 && skipped.length === 0) {
+            Swal.showValidationMessage(
+              "Enter at least one valid payment amount."
+            );
+            return;
+          }
+
+          // Build confirmation overlay
+          const tenantMap = new Map(tenants.map((t) => [t._id, t]));
+          let summaryHtml =
+            '<div style="text-align:left; font-size:0.9rem; line-height:1.6; max-height:200px; overflow-y:auto;">';
+          if (payments.length > 0) {
+            summaryHtml +=
+              '<p style="font-weight:600; color:#10b981; margin-bottom:8px;">✅ Payments to be recorded:</p>';
+            payments.forEach((p) => {
+              const t = tenantMap.get(p.tenantId);
+              const name = t ? t.name : p.tenantId;
+              const house = t ? t.houseNumber || "—" : "—";
+              summaryHtml += `<div style="margin-bottom:4px;">🏠 ${escapeHtml(
+                house
+              )} – <strong>${escapeHtml(
+                name
+              )}</strong>: KES ${p.amount.toLocaleString()} on ${p.date} ${
+                p.mpesa ? `(Ref: ${escapeHtml(p.mpesa)})` : ""
+              }</div>`;
+            });
+          }
+          if (skipped.length > 0) {
+            summaryHtml +=
+              '<p style="font-weight:600; color:#f59e0b; margin-top:12px; margin-bottom:8px;">⚠️ Skipped (invalid input):</p>';
+            skipped.forEach((s) => {
+              summaryHtml += `<div style="margin-bottom:4px; color:#fbbf24;">• ${s}</div>`;
+            });
+          }
+          summaryHtml += "</div>";
+
+          const overlay = document.createElement("div");
+          overlay.className = "bulk-confirm-overlay";
+          overlay.innerHTML = `
+          <div class="bulk-confirm-box">
+            <h3 style="color:#f1f5f9; margin-bottom:16px;">Confirm Bulk Payment</h3>
+            <p style="font-size:0.9rem; color:#94a3b8;">You are about to record payments for <strong>${payments.length}</strong> tenant(s).</p>
+            ${summaryHtml}
+            <div style="display:flex; justify-content:center; gap:16px; margin-top:20px;">
+              <button id="confirm-cancel-btn" class="bulk-pay-cancel-btn">Cancel</button>
+              <button id="confirm-yes-btn" class="bulk-pay-confirm-btn">Yes, save all</button>
+            </div>
+          </div>
+        `;
+          document.body.appendChild(overlay);
+
+          // Cancel inside overlay – go back to the input view
+          document
+            .getElementById("confirm-cancel-btn")
+            .addEventListener("click", () => {
+              overlay.remove();
+            });
+
+          // Confirm – process payments
+          document
+            .getElementById("confirm-yes-btn")
+            .addEventListener("click", async () => {
+              overlay.remove();
+              setButtonLoading(
+                document.getElementById("bulk-payment-btn"),
+                true
+              );
+              try {
+                let successCount = 0;
+                const failedNames = [];
+                const BATCH_SIZE = 5;
+
+                for (let i = 0; i < payments.length; i += BATCH_SIZE) {
+                  const batch = payments.slice(i, i + BATCH_SIZE);
+                  const batchResults = await Promise.allSettled(
+                    batch.map(async (p) => {
+                      const tenant = tenantMap.get(p.tenantId);
+                      if (!tenant)
+                        return {
+                          tenant: p.tenantId,
+                          success: false,
+                          error: "Tenant not found",
+                        };
+                      try {
+                        const res = await fetchWithTimeout(
+                          `${window.location.origin}/tenants/${p.tenantId}/payment-history`,
+                          {
+                            method: "PATCH",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${localStorage.getItem(
+                                "token"
+                              )}`,
+                            },
+                            body: JSON.stringify({
+                              amountPaid: p.amount,
+                              datePaid: p.date || null,
+                              mpesaRef: p.mpesa || "",
+                            }),
+                          }
+                        );
+                        const data = await res.json();
+                        if (res.ok && data.success)
+                          return {
+                            tenant: tenant.name || p.tenantId,
+                            success: true,
+                          };
+                        else
+                          return {
+                            tenant: tenant.name || p.tenantId,
+                            success: false,
+                            error: data.message || "Server error",
+                          };
+                      } catch (err) {
+                        return {
+                          tenant: tenant.name || p.tenantId,
+                          success: false,
+                          error: err.message,
+                        };
+                      }
+                    })
+                  );
+                  batchResults.forEach((res) => {
+                    if (res.status === "fulfilled") {
+                      const { tenant: name, success, error } = res.value;
+                      if (success) successCount++;
+                      else
+                        failedNames.push(
+                          `${name}${error ? ` (${error})` : ""}`
+                        );
+                    } else {
+                      failedNames.push("Unknown");
+                    }
+                  });
+                }
+
+                await loadTenants();
+                scheduleChartUpdate();
+
+                let msg = `Payments recorded for ${successCount} tenant(s).`;
+                if (failedNames.length)
+                  msg += ` Failed: ${failedNames.join(", ")}.`;
+                originalSwalFire.call(Swal, {
+                  toast: true,
+                  position: "bottom-end",
+                  showConfirmButton: false,
+                  timer: 4000,
+                  timerProgressBar: true,
+                  background: "#1e293b",
+                  color: "#f1f5f9",
+                  icon: successCount > 0 ? "success" : "error",
+                  title: msg,
+                });
+
+                Swal.close(); // close main modal after successful payment
+              } catch (err) {
+                Toast.fire({ icon: "error", title: err.message });
+              } finally {
+                setButtonLoading(
+                  document.getElementById("bulk-payment-btn"),
+                  false
+                );
+              }
+            });
+        });
     },
     willClose: () => {
       styleTag.remove();
     },
   });
-
-  if (!result.isConfirmed) return;
-  const paymentsArray = result.value;
-
-  setButtonLoading(document.getElementById("bulk-payment-btn"), true);
-  try {
-    let successCount = 0;
-    const failedNames = [];
-    const BATCH_SIZE = 5;
-
-    for (let i = 0; i < paymentsArray.length; i += BATCH_SIZE) {
-      const batch = paymentsArray.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.allSettled(
-        batch.map(async (p) => {
-          const tenant = tenants.find((t) => t._id === p.tenantId);
-          try {
-            const res = await fetchWithTimeout(
-              `${window.location.origin}/tenants/${p.tenantId}/payment-history`,
-              {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({
-                  amountPaid: p.amount,
-                  datePaid: p.date || null,
-                  mpesaRef: p.mpesa || "",
-                }),
-              }
-            );
-            const data = await res.json();
-            return {
-              tenant: tenant?.name || p.tenantId,
-              success: data?.success || res.ok,
-            };
-          } catch (err) {
-            return { tenant: tenant?.name || p.tenantId, success: false };
-          }
-        })
-      );
-      batchResults.forEach((res) => {
-        if (res.status === "fulfilled" && res.value.success) {
-          successCount++;
-        } else {
-          failedNames.push(
-            res.status === "fulfilled" ? res.value.tenant : "unknown"
-          );
-        }
-      });
-    }
-
-    await loadTenants();
-    scheduleChartUpdate();
-
-    let msg = `Payments recorded for ${successCount} tenant(s).`;
-    if (failedNames.length) msg += ` Failed for: ${failedNames.join(", ")}.`;
-    originalSwalFire.call(Swal, {
-      toast: true,
-      position: "bottom-end",
-      showConfirmButton: false,
-      timer: 3000,
-      timerProgressBar: true,
-      background: "#1e293b",
-      color: "#f1f5f9",
-      icon: "success",
-      title: msg,
-    });
-  } catch (err) {
-    Toast.fire({ icon: "error", title: err.message });
-  } finally {
-    setButtonLoading(document.getElementById("bulk-payment-btn"), false);
-  }
 }
 
 async function showBulkWaterReadingModal() {

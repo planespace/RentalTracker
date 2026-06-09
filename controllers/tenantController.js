@@ -1157,7 +1157,7 @@ async function createTenant(req, res) {
     const entryDateObj = entryDate ? new Date(entryDate) : today;
     entryDateObj.setHours(0, 0, 0, 0);
 
-    const referenceDate = entryDateObj; // always use the entry date
+    const referenceDate = entryDateObj; // always use entry date as reference (fix from earlier)
     const { month: startMonth } = getNextDueDateAndMonth(
       { dueDay: dueDayNum },
       referenceDate
@@ -1219,6 +1219,11 @@ async function createTenant(req, res) {
     });
 
     await newTenantDoc.save();
+
+    // ✅ FIX: immediately generate all billing months up to today (or dev date)
+    const effectiveToday = getEffectiveToday(req);
+    await syncAllTenantsToCurrentMonth(effectiveToday, userId);
+
     res.status(201).json(newTenantDoc);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1591,7 +1596,7 @@ async function importTenants(req, res) {
       entryDate.setHours(0, 0, 0, 0);
 
       // Determine first month and due date using the same rules as createTenant
-      const referenceDate = entryDate;
+      const referenceDate = entryDate; // always entry date
       const { month: startMonth } = getNextDueDateAndMonth(
         { dueDay: dueDayNum },
         referenceDate
@@ -1657,6 +1662,10 @@ async function importTenants(req, res) {
       });
 
       await newTenantDoc.save();
+
+      // ✅ FIX: immediately sync months for this tenant
+      await syncAllTenantsToCurrentMonth(effectiveToday, userId);
+
       created.push(newTenantDoc);
     }
 
@@ -1759,7 +1768,7 @@ async function bulkAddTenants(req, res) {
   try {
     const { tenants } = req.body;
     const userId = req.userId;
-    const today = getEffectiveToday(req);
+    const effectiveToday = getEffectiveToday(req); // ✅ compute once
     const settings = await getGlobalSettings(req.userId);
 
     if (!Array.isArray(tenants) || tenants.length === 0) {
@@ -1799,7 +1808,7 @@ async function bulkAddTenants(req, res) {
       const entryDate = t.entryDate ? new Date(t.entryDate) : new Date();
       entryDate.setHours(0, 0, 0, 0);
 
-      const referenceDate = entryDate;
+      const referenceDate = entryDate; // always entry date
       const { month: startMonth } = getNextDueDateAndMonth(
         { dueDay: dueDayNum },
         referenceDate
@@ -1861,6 +1870,10 @@ async function bulkAddTenants(req, res) {
       });
 
       await newTenantDoc.save();
+
+      // ✅ FIX: immediately sync months for this tenant
+      await syncAllTenantsToCurrentMonth(effectiveToday, userId);
+
       created.push(newTenantDoc);
     }
 

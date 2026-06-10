@@ -5155,17 +5155,18 @@ function importTenantsFromCSV() {
               newTenant:
                 t.newTenant === "true" || t.newTenant === "TRUE" ? true : false,
             }));
-            const response = await fetchWithTimeout(
-              window.location.origin + "/tenants/import",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-                body: JSON.stringify({ tenants: cleanTenants }),
-              }
-            );
+        const response = await fetchWithTimeout(
+          window.location.origin + "/tenants/import",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+            body: JSON.stringify({ tenants: cleanTenants }),
+          },
+          120000 // 2 minutes timeout
+        );
             const data = await response.json();
 
             if (response.ok) {

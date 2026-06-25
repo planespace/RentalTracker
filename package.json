@@ -6,8 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "build": "npx esbuild main.js --bundle --minify --outfile=main.min.js",
-    "prestart": "npm run build"
+    "build": "npx esbuild main.js --bundle --minify --outfile=main.min.js"
   },
   "keywords": [],
   "author": "",

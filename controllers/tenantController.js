@@ -36,7 +36,12 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
       );
     })();
 
-  const todayTime = today.getTime();
+  const todayStr = [
+    today.getUTCFullYear(),
+    String(today.getUTCMonth() + 1).padStart(2, "0"),
+    String(today.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+
   const currentMonthStr = `${today.getUTCFullYear()}-${String(
     today.getUTCMonth() + 1
   ).padStart(2, "0")}`;
@@ -80,20 +85,18 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     const sortedMonths = [...tenant.paymentHistory.map((e) => e.month)].sort();
     const lastMonth = sortedMonths[sortedMonths.length - 1];
     const lastEntry = tenant.paymentHistory.find((e) => e.month === lastMonth);
-    let lastDueDate = lastEntry.dueDate
+
+    // ── Time‑zone‑proof comparison (YYYY‑MM‑DD) ──
+    const rawDue = lastEntry.dueDate
       ? new Date(lastEntry.dueDate)
       : getDueDateForMonth(tenant, lastMonth);
-    // Normalise to UTC midnight – compare days, not hours
-    lastDueDate = new Date(
-      Date.UTC(
-        lastDueDate.getUTCFullYear(),
-        lastDueDate.getUTCMonth(),
-        lastDueDate.getUTCDate()
-      )
-    );
-    const lastDueTime = lastDueDate.getTime();
+    const lastDueStr = [
+      rawDue.getUTCFullYear(),
+      String(rawDue.getUTCMonth() + 1).padStart(2, "0"),
+      String(rawDue.getUTCDate()).padStart(2, "0"),
+    ].join("-");
 
-    if (lastDueTime < todayTime) {
+    if (lastDueStr < todayStr) {
       const [lastYear, lastMon] = lastMonth.split("-").map(Number);
       const nextDate = new Date(lastYear, lastMon, 1);
       const newMonth = `${nextDate.getFullYear()}-${String(

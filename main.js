@@ -7341,6 +7341,9 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   return wrapPremiumEmail(innerHtml, landlordName);
 }
 async function showEmailModal(tenantId) {
+  // 🔒 Prevent double‑send
+  if (window.individualEmailSending) return;
+
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) return;
 
@@ -7387,7 +7390,8 @@ async function showEmailModal(tenantId) {
     cancelButtonText: "Cancel",
     background: "#1e293b",
     color: "#f1f5f9",
-    preConfirm: () => {
+    showLoaderOnConfirm: true, // 🔒 Built‑in Swal spinner on confirm button
+    preConfirm: async () => {
       const subject = document.getElementById("email-subject").value.trim();
       const body = document.getElementById("email-body").value.trim();
       if (!subject || !body) {
@@ -7425,8 +7429,11 @@ async function showEmailModal(tenantId) {
 
   if (!formValues) return;
 
+  // Lock and send
+  window.individualEmailSending = true;
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
+
   try {
     let subject = formValues.subject;
     let htmlMessage;
@@ -7436,19 +7443,17 @@ async function showEmailModal(tenantId) {
     if (templateValue === "detailedBalance") {
       htmlMessage = formValues.message;
     } else if (templateValue === "waterBill") {
-      htmlMessage = formValues.message; // already HTML
+      htmlMessage = formValues.message;
     } else if (templateValue === "quickBalance") {
       const landlordName =
         userProfile.landlordName || userProfile.name || "Landlord";
       htmlMessage = wrapPremiumEmail(
-        `
-        <p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
           tenant.name
         )},</p>
-        <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
-          formValues.message
-        )}</div>
-      `,
+         <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+           formValues.message
+         )}</div>`,
         landlordName
       );
       subject = "Rent Balance";
@@ -7456,14 +7461,12 @@ async function showEmailModal(tenantId) {
       const landlordName =
         userProfile.landlordName || userProfile.name || "Landlord";
       htmlMessage = wrapPremiumEmail(
-        `
-        <p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
           subject
         )}</p>
-        <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
-          formValues.message
-        ).replace(/\n/g, "<br>")}</div>
-      `,
+         <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
+           formValues.message
+         ).replace(/\n/g, "<br>")}</div>`,
         landlordName
       );
     }
@@ -7482,7 +7485,7 @@ async function showEmailModal(tenantId) {
           message: htmlMessage,
         }),
       },
-      120000 // ← 2 minutes
+      120000
     );
     const data = await response.json();
     if (response.ok) {
@@ -7509,6 +7512,7 @@ async function showEmailModal(tenantId) {
     Toast.fire({ icon: "error", title: err.message });
   } finally {
     setButtonLoading(btn, false);
+    window.individualEmailSending = false;
   }
 }
 
@@ -8845,9 +8849,15 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   });
 });
 
-document.getElementById("bulk-email-btn").addEventListener("click", () => {
-  showBulkEmailModal();
-});
+const bulkEmailBtn = document.getElementById("bulk-email-btn");
+if (bulkEmailBtn) {
+  // Remove any existing listener to prevent duplicates
+  bulkEmailBtn.replaceWith(bulkEmailBtn.cloneNode(true));
+  // Re‑attach exactly once
+  document.getElementById("bulk-email-btn").addEventListener("click", () => {
+    showBulkEmailModal();
+  });
+}
 
 // ----- SMS LOGS BUTTON (updated: date categories, clear all, sorted newest first) -----
 const smsLogsBtn = document.getElementById("sms-logs-btn");

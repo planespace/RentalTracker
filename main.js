@@ -125,33 +125,67 @@ function getAppTodayStr() {
 }
 
 // ----- Global top‑bar loader (shows on every fetch) -----
+// ----- Global top‑bar loader (smooth shimmer) -----
 (function () {
   const bar = document.createElement("div");
   bar.id = "top-loader";
-  bar.style.cssText = `
-    position: fixed; top:0; left:0; width:100%; height:3px; z-index:99999;
-    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
-    transform: scaleX(0); transform-origin: left;
-    transition: transform 0.4s ease;
+  bar.innerHTML = `<div class="top-loader-shimmer"></div>`;
+
+  // Inject the styles once
+  const style = document.createElement("style");
+  style.textContent = `
+    #top-loader {
+      position: fixed; top:0; left:0; width:100%; height:4px; z-index:99999;
+      background: transparent;
+      overflow: hidden;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    #top-loader.active {
+      opacity: 1;
+    }
+    .top-loader-shimmer {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(56,189,248,0.4) 30%,
+        rgba(56,189,248,0.7) 50%,
+        rgba(56,189,248,0.4) 70%,
+        transparent 100%
+      );
+      background-size: 200% 100%;
+      animation: top-loader-slide 0.8s linear infinite;
+    }
+    @keyframes top-loader-slide {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
   `;
+  document.head.appendChild(style);
   document.body.prepend(bar);
 
   let active = 0;
+  let hideTimer = null;
   const originalFetch = window.fetch;
   window.fetch = function (...args) {
     active++;
-    bar.style.transform = "scaleX(1)";
-    bar.style.opacity = "1";
+    clearTimeout(hideTimer);
+    bar.classList.add("active");
+
     const hide = () => {
       active--;
       if (active <= 0) {
         active = 0;
-        bar.style.transform = "scaleX(0)";
-        setTimeout(() => {
-          bar.style.opacity = "0";
-        }, 400);
+        // small delay so quick successive requests don't flicker the bar
+        hideTimer = setTimeout(() => {
+          bar.classList.remove("active");
+        }, 200);
       }
     };
+
     return originalFetch
       .apply(this, args)
       .then((res) => {

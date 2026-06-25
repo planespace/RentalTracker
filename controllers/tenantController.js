@@ -83,6 +83,14 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     let lastDueDate = lastEntry.dueDate
       ? new Date(lastEntry.dueDate)
       : getDueDateForMonth(tenant, lastMonth);
+    // Normalise to UTC midnight – compare days, not hours
+    lastDueDate = new Date(
+      Date.UTC(
+        lastDueDate.getUTCFullYear(),
+        lastDueDate.getUTCMonth(),
+        lastDueDate.getUTCDate()
+      )
+    );
     const lastDueTime = lastDueDate.getTime();
 
     if (lastDueTime < todayTime) {

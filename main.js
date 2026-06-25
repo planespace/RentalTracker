@@ -168,6 +168,7 @@ function getAppTodayStr() {
 function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
   const today = new Date();
   const landlordPhone = userProfile.phone || "";
+  const landlordEmail = userProfile.email || "";
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -176,18 +177,25 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body style="margin:0; padding:0; background:#F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-  <div style="max-width:700px; margin:30px auto; background:#FFFFFF; border-radius:24px; overflow:hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.06);">
+  <div style="max-width:700px; margin:30px auto; background:#FFFFFF; border-radius:24px; box-shadow: 0 8px 30px rgba(0,0,0,0.06);">
 
-    <!-- 🌟 Modern premium header -->
-    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding:40px 24px 32px 24px; text-align:center; border-bottom: 3px solid #38BDF8;">
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding:40px 24px 32px 24px; text-align:center; border-radius:24px 24px 0 0; border-bottom: 3px solid #38BDF8;">
       <h1 style="margin:0; font-size:30px; font-weight:800; color:#FFFFFF; letter-spacing:0.5px; line-height:1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">PARADISE SUITES</h1>
-      <p style="margin:14px 0 0; font-size:16px; color:#CBD5E1; font-weight:400;">Landlord: ${escapeHtml(
+      <p style="margin:14px 0 0; font-size:17px; color:#F1F5F9; font-weight:600;">Landlord: ${escapeHtml(
         landlordName
       )}</p>
       ${
         landlordPhone
-          ? `<p style="margin:6px 0 0; font-size:15px; color:#94A3B8;">Phone: ${escapeHtml(
+          ? `<p style="margin:8px 0 0; font-size:16px; color:#F1F5F9; font-weight:500;">📞 ${escapeHtml(
               landlordPhone
+            )}</p>`
+          : ""
+      }
+      ${
+        landlordEmail
+          ? `<p style="margin:6px 0 0; font-size:16px; color:#F1F5F9; font-weight:500;">✉️ ${escapeHtml(
+              landlordEmail
             )}</p>`
           : ""
       }
@@ -198,10 +206,10 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
       ${innerHtml}
     </div>
 
-    <!-- Footer -->
-    <div style="background:#F8FAFC; padding:20px 24px; text-align:center; border-top:1px solid #E2E8F0;">
-      <p style="margin:0; font-size:13px; color:#64748B;">&copy; ${today.getFullYear()} Paradise Suites. All rights reserved.</p>
-      <p style="margin:10px 0 0; font-size:13px; color:#F87171;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
+    <!-- 🎯 Footer – now clearly distinguishable -->
+    <div style="background:#E2E8F0; padding:20px 24px; text-align:center; border-radius:0 0 24px 24px; border-top:1px solid #CBD5E1;">
+      <p style="margin:0; font-size:14px; color:#1E293B; font-weight:500;">&copy; ${today.getFullYear()} Paradise Suites. All rights reserved.</p>
+      <p style="margin:12px 0 0; font-size:13px; color:#B91C1C; font-weight:600;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
     </div>
   </div>
 </body>
@@ -7331,10 +7339,12 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
     ${note}
 
-    <p style="font-size:14px; color:#64748B; margin-top:35px; text-align:center;">
-      If you have any questions, please contact your landlord.<br>
-      Statement generated on ${today.toLocaleDateString()}.
-    </p>
+    <div style="background:#F8FAFC; border-left:4px solid #38BDF8; border-radius:8px; padding:16px 20px; margin-top:35px; text-align:center;">
+      <p style="margin:0; font-size:14px; color:#1E293B; line-height:1.6;">
+        <strong>Questions?</strong> Please contact your landlord.<br>
+        Statement generated on ${today.toLocaleDateString()}.
+      </p>
+    </div>
   `;
 
   return wrapPremiumEmail(innerHtml, landlordName);

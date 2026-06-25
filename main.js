@@ -1112,8 +1112,9 @@ function getCurrentPaymentRecord(tenant) {
 function getDueDateForMonthLocal(tenant, yearMonth) {
   const dueDay = tenant.dueDay || 1;
   const [year, month] = yearMonth.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const lastDay = new Date(year, month, 0).getDate(); // last day of the month
   const day = Math.min(dueDay, lastDay);
+  // Return a YYYY‑MM‑DD string – always the correct Nairobi calendar day
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
     2,
     "0"
@@ -1121,7 +1122,10 @@ function getDueDateForMonthLocal(tenant, yearMonth) {
 }
 function getTenantNextDueDate(tenant) {
   const today = getAppToday();
-  const todayStr = today.toISOString().slice(0, 10);
+  // Nairobi‑local date string for today
+  const todayStr = today.toLocaleDateString("en-CA", {
+    timeZone: "Africa/Nairobi",
+  });
 
   const months = [...new Set(tenant.paymentHistory.map((e) => e.month))].sort();
   for (let month of months) {
@@ -1133,11 +1137,16 @@ function getTenantNextDueDate(tenant) {
     });
     const latest = entries[entries.length - 1];
     if (!latest.dueDate) continue;
+
     const dueDate = new Date(latest.dueDate);
-    const dueStr = dueDate.toISOString().slice(0, 10);
+    const dueStr = dueDate.toLocaleDateString("en-CA", {
+      timeZone: "Africa/Nairobi",
+    });
+
     if (dueStr >= todayStr) return dueStr;
   }
 
+  // Fallback – use current billing month’s due date
   const currentMonth = getCurrentMonth();
   return getDueDateForMonthLocal(tenant, currentMonth);
 }

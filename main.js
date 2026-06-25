@@ -7605,6 +7605,9 @@ async function showEmailModal(tenantId) {
 }
 
 function showBulkEmailModal() {
+  // 🔒 Prevent double‑trigger (clicking Send while already sending)
+  if (window.bulkEmailSending) return;
+
   let tenants = [...tenantArray].filter((t) => t.email);
   if (tenants.length === 0) {
     Toast.fire({ icon: "warning", title: "No tenants with email addresses." });
@@ -7815,6 +7818,8 @@ function showBulkEmailModal() {
 
     const btn = document.getElementById("bulk-email-btn");
     setButtonLoading(btn, true);
+    window.bulkEmailSending = true; // 🔒 lock
+
     try {
       let summary = "";
       const landlordName =
@@ -8027,6 +8032,7 @@ function showBulkEmailModal() {
       Toast.fire({ icon: "error", title: err.message });
     } finally {
       setButtonLoading(btn, false);
+      window.bulkEmailSending = false; // 🔓 unlock
     }
   });
 }

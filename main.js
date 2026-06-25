@@ -2338,25 +2338,25 @@ async function showUtilitiesModal(tenantId) {
     });
 
     if (result.isConfirmed) {
-      // ---- Edit with all fields ----
+      // Edit
       lastModalOpenTime = Date.now();
       const { value: formValues } = await originalSwalFire.call(Swal, {
         title: `Edit Reading for ${month}`,
         html: `
-        <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
-          <div>
-            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Current Reading</label>
-            <input id="swal-reading" class="swal2-input" type="number" value="${currentReading}" step="0.1">
-          </div>
-          <div>
-            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Override Previous (optional)</label>
-            <input id="swal-override" class="swal2-input" type="number" value="${currentOverride}" step="0.1" placeholder="Leave empty for auto">
-          </div>
-          <div>
-            <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Exempt Units (optional)</label>
-            <input id="swal-exempt" class="swal2-input" type="number" value="${currentExempt}" step="0.1" placeholder="0">
-          </div>
+      <div style="display:flex;flex-direction:column;gap:12px;text-align:left;">
+        <div>
+          <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Current Reading</label>
+          <input id="swal-reading" class="swal2-input" type="number" value="${currentReading}" step="0.1">
         </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Override Previous (optional)</label>
+          <input id="swal-override" class="swal2-input" type="number" value="${currentOverride}" step="0.1" placeholder="Leave empty for auto">
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;color:#cbd5e1;">Exempt Units (optional)</label>
+          <input id="swal-exempt" class="swal2-input" type="number" value="${currentExempt}" step="0.1" placeholder="0">
+        </div>
+      </div>
       `,
         showCancelButton: true,
         confirmButtonText: "Update",
@@ -2401,25 +2401,23 @@ async function showUtilitiesModal(tenantId) {
             }
           );
           if (response.ok) {
-            const resp = await fetchWithTimeout(
-              window.location.origin + "/tenants",
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("token")}`,
-                },
-              }
-            );
-            if (resp.ok) {
-              tenantArray = await resp.json();
+            const updatedTenant = await response.json();
+            const idx = tenantArray.findIndex((t) => t._id === tid);
+            if (idx !== -1) {
+              tenantArray[idx] = updatedTenant;
               applyFiltersAndSort();
               updateStats(tenantArray);
               scheduleChartUpdate();
-              const paymentModal = document.getElementById("payment-modal");
-              if (paymentModal && paymentModal.style.display === "block") {
-                renderPaymentModal(window.currentActionsTenantId);
-              }
-              showUtilitiesModal(tid);
+              sessionStorage.setItem(
+                "cachedTenants",
+                JSON.stringify(tenantArray)
+              );
             }
+            const paymentModal = document.getElementById("payment-modal");
+            if (paymentModal && paymentModal.style.display === "block") {
+              renderPaymentModal(window.currentActionsTenantId);
+            }
+            showUtilitiesModal(tid);
             originalSwalFire.call(Swal, {
               toast: true,
               position: "bottom-end",
@@ -2486,8 +2484,18 @@ async function showUtilitiesModal(tenantId) {
             }
           );
           if (response.ok) {
-            await loadTenants();
-            scheduleChartUpdate();
+            const updatedTenant = await response.json();
+            const idx = tenantArray.findIndex((t) => t._id === tid);
+            if (idx !== -1) {
+              tenantArray[idx] = updatedTenant;
+              applyFiltersAndSort();
+              updateStats(tenantArray);
+              scheduleChartUpdate();
+              sessionStorage.setItem(
+                "cachedTenants",
+                JSON.stringify(tenantArray)
+              );
+            }
             const paymentModal = document.getElementById("payment-modal");
             if (paymentModal && paymentModal.style.display === "block") {
               renderPaymentModal(window.currentActionsTenantId);
@@ -3370,16 +3378,31 @@ document.addEventListener("click", async (e) => {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       if (resp.ok) {
-        tenantArray = await resp.json();
-        applyFiltersAndSort();
-        updateStats(tenantArray);
-
+        const updatedTenant = await resp.json();
+        const idx = tenantArray.findIndex((t) => t._id === tenantId);
+        if (idx !== -1) {
+          tenantArray[idx] = updatedTenant;
+          applyFiltersAndSort();
+          updateStats(tenantArray);
+          scheduleChartUpdate();
+          sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        }
         const paymentModal = document.getElementById("payment-modal");
         if (paymentModal && paymentModal.style.display === "block") {
           renderPaymentModal(window.currentActionsTenantId);
         }
-
         showUtilitiesModal(window.currentActionsTenantId);
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 2000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: "Meter reading saved",
+        });
       }
       originalSwalFire.call(Swal, {
         toast: true,
@@ -3462,12 +3485,17 @@ document.addEventListener("click", async (e) => {
         }
       );
       if (response.ok) {
-        await loadTenants();
+        const idx = tenantArray.findIndex((t) => t._id === id);
+        if (idx !== -1) {
+          tenantArray[idx].active = false;
+          applyFiltersAndSort();
+          updateStats(tenantArray);
+          scheduleChartUpdate();
+          sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        }
         document.getElementById("tenant-actions-modal").style.display = "none";
         document.getElementById("modal-overlay").style.display = "none";
         document.body.classList.remove("modal-open");
-
-        // Safe success toast
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -3581,11 +3609,16 @@ document.addEventListener("click", async (e) => {
         }
       );
       if (response.ok) {
-        await loadTenants();
-        scheduleChartUpdate();
+        const data = await response.json();
+        const tenantIndex = tenantArray.findIndex((t) => t._id === tenantId);
+        if (tenantIndex !== -1) {
+          tenantArray[tenantIndex].paymentHistory = data.paymentHistory;
+          applyFiltersAndSort();
+          updateStats(tenantArray);
+          scheduleChartUpdate();
+          sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        }
         renderPaymentModal(tenantId);
-
-        // Safe success toast
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -3774,8 +3807,20 @@ document.addEventListener("click", async (e) => {
             }
           );
           if (response.ok) {
-            await loadTenants();
-            scheduleChartUpdate();
+            const data = await response.json();
+            const tenantIndex = tenantArray.findIndex(
+              (t) => t._id === tenantId
+            );
+            if (tenantIndex !== -1) {
+              tenantArray[tenantIndex].paymentHistory = data.paymentHistory;
+              applyFiltersAndSort();
+              updateStats(tenantArray);
+              scheduleChartUpdate();
+              sessionStorage.setItem(
+                "cachedTenants",
+                JSON.stringify(tenantArray)
+              );
+            }
             renderPaymentModal(tenantId);
             originalSwalFire.call(Swal, {
               toast: true,
@@ -3848,8 +3893,20 @@ document.addEventListener("click", async (e) => {
             }
           );
           if (response.ok) {
-            await loadTenants();
-            scheduleChartUpdate();
+            const data = await response.json();
+            const tenantIndex = tenantArray.findIndex(
+              (t) => t._id === tenantId
+            );
+            if (tenantIndex !== -1) {
+              tenantArray[tenantIndex].paymentHistory = data.paymentHistory;
+              applyFiltersAndSort();
+              updateStats(tenantArray);
+              scheduleChartUpdate();
+              sessionStorage.setItem(
+                "cachedTenants",
+                JSON.stringify(tenantArray)
+              );
+            }
             renderPaymentModal(tenantId);
             originalSwalFire.call(Swal, {
               toast: true,
@@ -5470,8 +5527,14 @@ document.addEventListener("click", async (e) => {
         }
       );
       if (response.ok) {
-        await loadTenants();
-        scheduleChartUpdate();
+        const idx = tenantArray.findIndex((t) => t._id === tenantId);
+        if (idx !== -1) {
+          tenantArray[idx].active = true;
+          applyFiltersAndSort();
+          updateStats(tenantArray);
+          scheduleChartUpdate();
+          sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        }
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",

@@ -48,7 +48,7 @@ connectTOMongoDB().then(async () => {
   }
 
   await runSync();
-  setInterval(runSync, 10 * 60 * 1000);
+  setInterval(runSync, 60 * 60 * 1000);
 });
 
 startScheduler();

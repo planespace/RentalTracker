@@ -25,28 +25,17 @@ let tenantsInputs = document.querySelector(".tenants-inputs");
 
 function getAppToday() {
   let result;
-
-  // 1) Prefer the dev date
   if (devModeActive && currentDevDate) {
-    const [y, m, d] = currentDevDate.split("-").map(Number);
-    result = new Date(Date.UTC(y, m - 1, d));
+    // dev date – treat as Nairobi midnight
+    result = new Date(currentDevDate + "T00:00:00+03:00");
     return result;
   }
-
-  // 2) Use server‑provided currentAppDate
-  if (!currentAppDate) {
-    const now = new Date();
-    result = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    );
-    return result;
-  }
-
-  // 3) Fallback to server date
-  const d = new Date(currentAppDate);
+  // Real Nairobi midnight
+  const now = new Date();
   result = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   );
+  result = new Date(result.getTime() + 3 * 60 * 60 * 1000); // shift to Nairobi midnight
   return result;
 }
 

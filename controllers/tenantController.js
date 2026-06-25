@@ -212,22 +212,32 @@ function getNextDueDateAndMonth(tenant, referenceDate) {
 
 function getEffectiveToday(req) {
   const devDateStr = req.headers["x-dev-date"];
+  let date;
+
   if (devDateStr) {
-    const devDate = new Date(devDateStr);
-    if (!isNaN(devDate.getTime())) {
-      return new Date(
-        Date.UTC(
-          devDate.getUTCFullYear(),
-          devDate.getUTCMonth(),
-          devDate.getUTCDate()
-        )
-      );
+    // Interpret the dev date as a Nairobi local date (yyyy-mm-dd)
+    date = new Date(devDateStr + "T00:00:00+03:00"); // Nairobi midnight
+    if (isNaN(date.getTime())) {
+      // fallback to UTC if parsing fails
+      date = new Date(devDateStr + "T00:00:00Z");
     }
+  } else {
+    // Real Nairobi midnight: get current UTC time, add 3 hours, then truncate to day
+    const now = new Date();
+    date = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        0,
+        0,
+        0
+      )
+    );
+    // shift by +3 hours to Nairobi midnight (21:00 UTC previous day)
+    date = new Date(date.getTime() + 3 * 60 * 60 * 1000);
   }
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
+  return date;
 }
 
 function getNextMonthString(monthString) {

@@ -6090,69 +6090,18 @@ async function showBulkPaymentModal() {
   const styleTag = document.createElement("style");
   styleTag.textContent = `
     @media (max-width: 600px) {
-      .bulk-pay-table th, .bulk-pay-table td {
-        padding: 6px 1px !important;
-        font-size: 0.8rem !important;
-      }
-      .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
-        width: 55px !important;
-        padding: 6px 1px !important;
-        font-size: 0.8rem !important;
-      }
-      .bulk-payment-fullscreen .swal2-html-container {
-        padding: 8px 0 !important;
-      }
-      .bulk-payment-content {
-        padding: 0 !important;
-      }
-      .bulk-pay-buttons {
-        gap: 8px !important;
-        padding: 0 2px !important;
-        flex-wrap: nowrap !important;
-      }
-      .bulk-cancel-btn, .bulk-save-btn {
-        white-space: nowrap;
-        padding: 10px 20px !important;
-        font-size: 0.9rem !important;
-      }
+      .bulk-pay-table th, .bulk-pay-table td { padding: 6px 1px !important; font-size: 0.8rem !important; }
+      .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa { width: 55px !important; padding: 6px 1px !important; font-size: 0.8rem !important; }
+      .bulk-payment-fullscreen .swal2-html-container { padding: 8px 0 !important; }
+      .bulk-payment-content { padding: 0 !important; }
+      .bulk-pay-buttons { gap: 8px !important; padding: 0 2px !important; flex-wrap: nowrap !important; }
+      .bulk-cancel-btn, .bulk-save-btn { padding: 10px 20px !important; font-size: 0.9rem !important; }
     }
-    .bulk-pay-sticky-header th {
-      position: sticky;
-      top: 0;
-      background: var(--bg-elevated);
-      z-index: 2;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    .bulk-save-btn {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-      border: none;
-      padding: 12px 28px;
-      border-radius: 40px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.1s, box-shadow 0.1s;
-    }
-    .bulk-save-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-    }
-    .bulk-cancel-btn {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white;
-      border: none;
-      padding: 12px 28px;
-      border-radius: 40px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.1s, box-shadow 0.1s;
-    }
-    .bulk-cancel-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-    }
+    .bulk-pay-sticky-header th { position: sticky; top: 0; background: var(--bg-elevated); z-index: 2; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+    .bulk-save-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 28px; border-radius: 40px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+    .bulk-save-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+    .bulk-cancel-btn { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; padding: 12px 28px; border-radius: 40px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+    .bulk-cancel-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); }
   `;
   document.head.appendChild(styleTag);
 
@@ -6175,7 +6124,6 @@ async function showBulkPaymentModal() {
           </tbody>
         </table>
       </div>
-      <!-- Buttons always together, centered, no wrapping -->
       <div class="bulk-pay-buttons" style="display:flex; justify-content:center; gap:14px; padding:0 4px; flex-wrap:nowrap;">
         <button id="custom-bulk-cancel-btn" class="bulk-cancel-btn">Cancel</button>
         <button id="custom-bulk-save-btn" class="bulk-save-btn">💰 Save All</button>
@@ -6287,9 +6235,10 @@ async function showBulkPaymentModal() {
           if (skipped.length > 0) {
             summaryHtml +=
               '<p style="font-weight:600; color:#f59e0b; margin-top:12px; margin-bottom:8px;">⚠️ Skipped (invalid input):</p>';
-            skipped.forEach((s) => {
-              summaryHtml += `<div style="margin-bottom:4px; color:#fbbf24;">• ${s}</div>`;
-            });
+            skipped.forEach(
+              (s) =>
+                (summaryHtml += `<div style="margin-bottom:4px; color:#fbbf24;">• ${s}</div>`)
+            );
           }
           summaryHtml += "</div>";
 
@@ -6311,11 +6260,8 @@ async function showBulkPaymentModal() {
 
           document
             .getElementById("confirm-cancel-btn")
-            .addEventListener("click", () => {
-              overlay.remove();
-            });
+            .addEventListener("click", () => overlay.remove());
 
-          // 🔒 Guard to prevent double‑click on "Yes, save all"
           let bulkSaveInProgress = false;
 
           document
@@ -6324,7 +6270,6 @@ async function showBulkPaymentModal() {
               if (bulkSaveInProgress) return;
               bulkSaveInProgress = true;
 
-              // Show spinner and disable button
               const confirmBtn = document.getElementById("confirm-yes-btn");
               const originalText = confirmBtn.innerHTML;
               confirmBtn.innerHTML = `<span class="custom-loader" style="margin-right:8px;"></span> Saving...`;
@@ -6393,43 +6338,33 @@ async function showBulkPaymentModal() {
                         failedNames.push(
                           `${name}${error ? ` (${error})` : ""}`
                         );
-                    } else {
-                      failedNames.push("Unknown");
-                    }
+                    } else failedNames.push("Unknown");
                   });
                 }
 
-                // Update local data and UI
                 await loadTenants();
                 scheduleChartUpdate();
 
-                // Remove overlay
+                // Remove overlay and close modal
                 overlay.remove();
-
-                // Close the bulk payment modal
                 Swal.close();
 
-                // Show result toast (longer timer to ensure visibility)
+                // Small delay so the modal fully closes, then toast
+                await new Promise((resolve) => setTimeout(resolve, 300));
+
                 let msg = `Payments recorded for ${successCount} tenant(s).`;
                 if (failedNames.length)
                   msg += ` Failed: ${failedNames.join(", ")}.`;
-                originalSwalFire.call(Swal, {
-                  toast: true,
-                  position: "bottom-end",
-                  showConfirmButton: false,
-                  timer: 5000,
-                  timerProgressBar: true,
-                  background: "#1e293b",
-                  color: "#f1f5f9",
+                Toast.fire({
                   icon: successCount > 0 ? "success" : "error",
                   title: msg,
+                  timer: 4000,
                 });
               } catch (err) {
                 overlay.remove();
                 Swal.close();
                 Toast.fire({ icon: "error", title: err.message });
               }
-              // No need to reset bulkSaveInProgress because overlay is removed
             });
         });
     },

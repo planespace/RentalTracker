@@ -17,7 +17,7 @@ let trendLineChart = null;
 let currentAppDate;
 let tenantArray = [];
 let globalSettings = { garbageFee: 0, waterRatePerUnit: 0, totalHouses: 0 };
-
+let initialLoadComplete = false;
 let userProfile = { name: "", email: "", phone: "", landlordName: "" };
 
 let searchInput = document.querySelector(".search-tenants");
@@ -787,8 +787,8 @@ try {
 } catch (e) {}
 
 async function loadTenants() {
-  // If we have cached data, render it instantly
-  if (cachedTenants && cachedTenants.length) {
+  // ✅ Render cached data ONLY on the very first page load
+  if (!initialLoadComplete && cachedTenants && cachedTenants.length) {
     tenantArray = cachedTenants;
     applyFiltersAndSort();
     updateCharts();
@@ -856,6 +856,9 @@ async function loadTenants() {
     updateOccupancy();
     fetchAndDisplaySmsBalance();
     fetchAndDisplayEmailBalance();
+
+    // ✅ Mark initial load complete so future calls don’t flash old cache
+    initialLoadComplete = true;
   } catch (err) {
     showNetworkErrorModal(err.message);
   }

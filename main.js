@@ -166,7 +166,7 @@ function getAppTodayStr() {
 })();
 
 function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
-  const today = getAppToday();
+  const today = new Date();
   const landlordPhone = userProfile.phone || "";
   return `
 <!DOCTYPE html>
@@ -175,33 +175,33 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0; padding:0; background:#f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-  <div style="max-width:700px; margin:30px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.08);">
-    
-    <!-- HEADER -->
-    <div style="background:#0f172a; padding:36px 24px; text-align:center;">
-      <h1 style="margin:0; font-size:28px; font-weight:800; color:#ffffff; letter-spacing:1px;">PARADISE SUITES</h1>
-      <p style="margin:10px 0 0; font-size:16px; color:#cbd5e1; font-weight:400;">Landlord: ${escapeHtml(
+<body style="margin:0; padding:0; background:#F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <div style="max-width:700px; margin:30px auto; background:#FFFFFF; border-radius:24px; overflow:hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.06);">
+
+    <!-- 🌟 Modern premium header -->
+    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding:40px 24px 32px 24px; text-align:center; border-bottom: 3px solid #38BDF8;">
+      <h1 style="margin:0; font-size:30px; font-weight:800; color:#FFFFFF; letter-spacing:0.5px; line-height:1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">PARADISE SUITES</h1>
+      <p style="margin:14px 0 0; font-size:16px; color:#CBD5E1; font-weight:400;">Landlord: ${escapeHtml(
         landlordName
       )}</p>
       ${
         landlordPhone
-          ? `<p style="margin:6px 0 0; font-size:15px; color:#94a3b8;">Phone: ${escapeHtml(
+          ? `<p style="margin:6px 0 0; font-size:15px; color:#94A3B8;">Phone: ${escapeHtml(
               landlordPhone
             )}</p>`
           : ""
       }
     </div>
 
-    <!-- BODY -->
+    <!-- Body -->
     <div style="padding:32px 24px;">
       ${innerHtml}
     </div>
 
-    <!-- FOOTER -->
-    <div style="background:#0f172a; padding:16px 24px; text-align:center;">
-      <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; ${new Date().getFullYear()} Paradise Suites. All rights reserved.</p>
-      <p style="margin:8px 0 0; font-size:12px; color:#f87171;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
+    <!-- Footer -->
+    <div style="background:#F8FAFC; padding:20px 24px; text-align:center; border-top:1px solid #E2E8F0;">
+      <p style="margin:0; font-size:13px; color:#64748B;">&copy; ${today.getFullYear()} Paradise Suites. All rights reserved.</p>
+      <p style="margin:10px 0 0; font-size:13px; color:#F87171;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>
     </div>
   </div>
 </body>
@@ -7104,7 +7104,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   ].sort();
   const monthData = new Map();
 
-  // leftByMonth calculation
   const leftByMonth = new Map();
   let prevCumulative = 0;
   for (const month of allMonths) {
@@ -7118,7 +7117,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     prevCumulative = cumulative;
   }
 
-  // deposit end month
   const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
   let depositEndMonth = null;
   if (
@@ -7134,7 +7132,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     ).padStart(2, "0")}`;
   }
 
-  // collect month data
   for (const month of allMonths) {
     const chargeEntry = tenant.paymentHistory.find(
       (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
@@ -7194,7 +7191,6 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     });
   }
 
-  // display logic
   const currentBillingMonth = getCurrentBillingMonthForTenant(tenant);
   const allMonthKeys = [...monthData.keys()].sort();
   const overdueMonths = allMonthKeys.filter(
@@ -7216,108 +7212,118 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   }
   const displayMonths = allMonthKeys.filter((m) => displaySet.has(m));
 
-  // ── Build premium cards ──
   const cards = [];
   for (const month of displayMonths) {
     const d = monthData.get(month);
     if (!d) continue;
 
-    const cardBg = d.isOverdue ? "#FEF2F2" : "#F0FDF4";
-    const borderColor = d.isOverdue ? "#EF4444" : "#10B981";
-    const badgeBg = d.isOverdue ? "#FEE2E2" : "#D1FAE5";
-    const badgeColor = d.isOverdue ? "#991B1B" : "#065F46";
+    const isPaidCard = d.status === "Paid";
+    const cardBg = isPaidCard ? "#F0FDF4" : d.isOverdue ? "#FEF2F2" : "#F8FAFC";
+    const borderColor = isPaidCard
+      ? "#10B981"
+      : d.isOverdue
+      ? "#EF4444"
+      : "#CBD5E1";
+    // 🌟 brighter green badge for Paid
+    const badgeBg = isPaidCard
+      ? "#10B981"
+      : d.isOverdue
+      ? "#FEE2E2"
+      : "#DBEAFE";
+    const badgeColor = isPaidCard
+      ? "#FFFFFF"
+      : d.isOverdue
+      ? "#991B1B"
+      : "#1E40AF";
     const balanceColor = d.balance > 0 ? "#DC2626" : "#059669";
     const balanceText =
-      d.balance > 0 ? `KES ${d.balance.toLocaleString()}` : "Fully paid";
+      d.balance <= 0 ? "Fully paid" : `KES ${d.balance.toLocaleString()}`;
 
     cards.push(`
-      <div style="background:${cardBg}; border-radius:16px; padding:20px; margin-bottom:18px; border:1px solid ${borderColor};">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-          <span style="font-size:18px; font-weight:700; color:#1E293B;">${
+      <div style="background:${cardBg}; border-radius:16px; padding:20px; margin-bottom:18px; border:1px solid ${borderColor}; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <span style="font-size:20px; font-weight:700; color:#0F172A;">${
             d.month
           }</span>
-          <span style="display:inline-block; background:${badgeBg}; color:${badgeColor}; padding:6px 16px; border-radius:40px; font-weight:700; font-size:14px;">${
+          <span style="display:inline-block; background:${badgeBg}; color:${badgeColor}; padding:6px 18px; border-radius:40px; font-weight:800; font-size:14px;">${
       d.status
     }</span>
         </div>
-        <div style="max-width:480px; margin:0 auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:15px; color:#334155;">
-            <tr>
-              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Rent</td>
-              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.rentAmount.toLocaleString()}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Deposit</td>
-              <td style="padding:8px 0; text-align:right; font-weight:500;">${
-                d.depositInstalment > 0
-                  ? `KES ${d.depositInstalment.toLocaleString()}`
-                  : "—"
-              }</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Water</td>
-              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.waterCharge.toLocaleString()}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Garbage</td>
-              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.garbageCharge.toLocaleString()}</td>
-            </tr>
-            ${
-              d.extraTotal > 0
-                ? `
-            <tr>
-              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Extra</td>
-              <td style="padding:8px 0; text-align:right; font-weight:600; color:#D97706;">KES ${d.extraTotal.toLocaleString()}</td>
-            </tr>`
-                : ""
-            }
-            <tr><td colspan="2" style="padding:0; border-top:1px solid #E2E8F0;"></td></tr>
-            <tr>
-              <td style="padding:12px 12px 6px 0; text-align:left; font-weight:600; color:#0F172A;">Total Due</td>
-              <td style="padding:12px 0 6px 0; text-align:right; font-weight:700;">KES ${d.totalDue.toLocaleString()}</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748B;">Paid</td>
-              <td style="padding:6px 0; text-align:right;">${
-                d.paid > 0 ? `KES ${d.paid.toLocaleString()}` : "—"
-              }</td>
-            </tr>
-            <tr>
-              <td colspan="2" style="padding:14px 0 0 0; text-align:center; font-weight:700; font-size:18px; color:${balanceColor};">
-                Balance: ${balanceText}
-              </td>
-            </tr>
-          </table>
-        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px; margin:0 auto; border-collapse:collapse; font-size:16px; color:#334155;">
+          <tr>
+            <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">🏠 Rent</td>
+            <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.rentAmount.toLocaleString()}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">💰 Deposit</td>
+            <td style="padding:8px 0; text-align:right; font-weight:500;">${
+              d.depositInstalment > 0
+                ? `KES ${d.depositInstalment.toLocaleString()}`
+                : "—"
+            }</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">💧 Water</td>
+            <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.waterCharge.toLocaleString()}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">🗑️ Garbage</td>
+            <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.garbageCharge.toLocaleString()}</td>
+          </tr>
+          ${
+            d.extraTotal > 0
+              ? `
+          <tr>
+            <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">📌 Extra</td>
+            <td style="padding:8px 0; text-align:right; font-weight:600; color:#D97706;">KES ${d.extraTotal.toLocaleString()}</td>
+          </tr>`
+              : ""
+          }
+          <tr><td colspan="2" style="padding:0; border-top:1px solid #E2E8F0;"></td></tr>
+          <tr>
+            <td style="padding:14px 12px 6px 0; text-align:left; font-weight:700; color:#0F172A;">Total Due</td>
+            <td style="padding:14px 0 6px 0; text-align:right; font-weight:700; font-size:18px;">KES ${d.totalDue.toLocaleString()}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 12px 6px 0; text-align:left; color:#64748B;">Paid</td>
+            <td style="padding:6px 0; text-align:right;">${
+              d.paid > 0 ? `KES ${d.paid.toLocaleString()}` : "—"
+            }</td>
+          </tr>
+          <tr>
+            <td colspan="2" style="padding:14px 0 0 0; text-align:center; font-weight:700; font-size:18px; color:${balanceColor};">
+              Balance: ${balanceText}
+            </td>
+          </tr>
+        </table>
       </div>
     `);
   }
 
-  // summary note
   let note = "";
   if (overdue > 0) {
-    note = `<div style="background:#FEF2F2; border-left:4px solid #DC2626; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#DC2626;">Total overdue: KES ${overdue.toLocaleString()}</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#991B1B;">Please arrange payment at your earliest convenience.</p>
+    note = `<div style="background:#FEF2F2; border-left:5px solid #DC2626; padding:18px 24px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:20px; font-weight:800; color:#DC2626;">Total overdue: KES ${overdue.toLocaleString()}</p>
+              <p style="margin:8px 0 0; font-size:15px; color:#991B1B;">Please arrange payment at your earliest convenience.</p>
             </div>`;
   } else if (credit > 0) {
-    note = `<div style="background:#F0FDF4; border-left:4px solid #10B981; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#065F46;">You have a credit of KES ${credit.toLocaleString()}.</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#047857;">Thank you!</p>
+    note = `<div style="background:#F0FDF4; border-left:5px solid #10B981; padding:18px 24px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:20px; font-weight:800; color:#065F46;">You have a credit of KES ${credit.toLocaleString()}.</p>
+              <p style="margin:8px 0 0; font-size:15px; color:#047857;">Thank you!</p>
             </div>`;
   } else {
-    note = `<div style="background:#F0FDF4; border-left:4px solid #10B981; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#065F46;">All payments are up to date. Thank you!</p>
+    note = `<div style="background:#F0FDF4; border-left:5px solid #10B981; padding:18px 24px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:20px; font-weight:800; color:#065F46;">All payments are up to date. Thank you!</p>
             </div>`;
   }
 
   const innerHtml = `
-    <p style="font-size:17px; color:#1E293B; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+    <p style="font-size:17px; color:#1E293B; margin-bottom:6px; font-weight:500;">Dear ${escapeHtml(
       tenant.name
     )}${
     tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
   },</p>
-    <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:20px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
+    <p style="font-size:16px; color:#475569; line-height:1.6; margin-bottom:24px;">Here is your detailed rent statement. Please review and arrange any outstanding payments.</p>
 
     <div style="max-width:600px; margin:0 auto;">
       ${cards.join("")}
@@ -7325,7 +7331,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
     ${note}
 
-    <p style="font-size:14px; color:#64748B; margin-top:30px; text-align:center;">
+    <p style="font-size:14px; color:#64748B; margin-top:35px; text-align:center;">
       If you have any questions, please contact your landlord.<br>
       Statement generated on ${today.toLocaleDateString()}.
     </p>

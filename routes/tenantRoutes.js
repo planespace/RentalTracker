@@ -74,8 +74,7 @@ router.get("/email-logs", getEmailLogs);
 router.delete("/email-logs", clearEmailLogs);
 router.post("/bulk-add", bulkAddTenants);
 router.post("/send-sms", smsEmailLimiter, sendManualSms);
-router.post("/send-emails", smsEmailLimiter, sendManualEmails);
-router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
+
 router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
 router.delete("/delete-all", deleteAllTenants);
 
@@ -140,7 +139,7 @@ router.post(
   express.raw({ type: "application/json" }),
   handleSmsWebhook
 );
-router.post("/send-sms", sendManualSms);
+
 router.post("/trigger-reminders", triggerAutomaticReminders);
 router.post("/import", importTenants);
 router.post("/", createTenant);

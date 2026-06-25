@@ -20,6 +20,9 @@ let globalSettings = { garbageFee: 0, waterRatePerUnit: 0, totalHouses: 0 };
 
 let userProfile = { name: "", email: "", phone: "", landlordName: "" };
 
+let searchInput = document.querySelector(".search-tenants");
+let tenantsInputs = document.querySelector(".tenants-inputs");
+
 function getAppToday() {
   let result;
 
@@ -726,7 +729,22 @@ async function fetchCurrentDate() {
 
 let showArchived = false;
 
+let cachedTenants = null;
+try {
+  cachedTenants = JSON.parse(sessionStorage.getItem("cachedTenants"));
+} catch (e) {}
+
 async function loadTenants() {
+  // If we have cached data, render it instantly
+  if (cachedTenants && cachedTenants.length) {
+    tenantArray = cachedTenants;
+    applyFiltersAndSort();
+    updateCharts();
+    updateAllTimeStats(tenantArray);
+    updateOccupancy();
+  }
+
+  // Now fetch the real data from the server
   try {
     const resp = await fetchWithTimeout(window.location.origin + "/tenants", {
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -769,12 +787,15 @@ async function loadTenants() {
     }
     tenantArray = await response.json();
 
+    // Update the cache with the fresh data
+    sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+
     await fetchCurrentDate();
     await fetchUserProfile();
     await fetchGlobalSettings();
     populateMonthSelector();
     applyFiltersAndSort();
-    updateCharts();
+    ensureChartsVisible();
 
     setMonthPickerDefault();
     updateAllTimeStats(tenantArray);
@@ -980,6 +1001,37 @@ function updateCharts() {
     });
   }
 }
+
+// --- LAZY LOAD CHARTS ---
+let chartsInitialized = false;
+
+function ensureChartsVisible() {
+  if (chartsInitialized) return;
+  const chartSection = document.querySelector(".charts-wrapper");
+  if (!chartSection) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting) {
+        updateCharts();
+        chartsInitialized = true;
+        observer.disconnect();
+      }
+    },
+    { rootMargin: "200px" }
+  );
+
+  observer.observe(chartSection);
+
+  // Fallback: if after 3 seconds the charts still aren't visible, draw them anyway
+  setTimeout(() => {
+    if (!chartsInitialized) {
+      updateCharts();
+      chartsInitialized = true;
+    }
+  }, 3000);
+}
+
 // ----- TENANT HELPERS -----
 function getCurrentPaymentRecord(tenant) {
   const billingMonth = getCurrentBillingMonthForTenant(tenant);
@@ -1171,27 +1223,34 @@ function getCollectedForMonth(tenant, monthStr) {
 function updateTenantList(filteredList) {
   requestAnimationFrame(() => {
     let headerHtml = `<div class="tenant-info">`;
-
-    headerHtml += `<h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2></div>`;
+    headerHtml += `<h2 class="tenant-col-house">HS</h2>`;
+    headerHtml += `<h2 class="tenant-col-name">Name</h2>`;
+    headerHtml += `<h2 class="tenant-col-rent">Rent</h2>`;
+    headerHtml += `<h2 class="tenant-col-bal">Balance</h2>`;
+    headerHtml += `<h2 class="tenant-col-entry">Entry</h2>`;
+    headerHtml += `<h2 class="tenant-col-due">Due</h2>`;
+    headerHtml += `<h2 class="tenant-col-actions"></h2></div>`;
     tenantInfoDiv.innerHTML = headerHtml;
 
     filteredList.forEach((tenant) => {
       let rowDiv = renderTenant(tenant);
-
       tenantInfoDiv.appendChild(rowDiv);
     });
 
     updateStats(tenantArray);
     if (filteredList.length === 0) {
+      // Also update the empty state header to match
       tenantInfoDiv.innerHTML = `
     <div class="tenant-info">
-      ${window.isBulkMode ? '<div class="checkbox-cell"></div>' : ""}
-      <h2>Name</h2><h2>Rent Amount</h2><h2>Balance</h2><h2>Entry Date</h2><h2>Due Date</h2><h2>Actions</h2>
+      <h2 class="tenant-col-house">HS</h2>
+      <h2 class="tenant-col-name">Name</h2>
+      <h2 class="tenant-col-rent">Rent</h2>
+      <h2 class="tenant-col-bal">Balance</h2>
+      <h2 class="tenant-col-entry">Entry</h2>
+      <h2 class="tenant-col-due">Due</h2>
+      <h2 class="tenant-col-actions"></h2>
     </div>
   `;
-      if (tenantArray.length === 0) {
-        const nameInput = document.querySelector(".tenant-name");
-      }
     }
   });
 }
@@ -4073,6 +4132,11 @@ document.querySelector("#logout-btn").addEventListener("click", async () => {
     localStorage.removeItem("token");
     window.location.href = "login.html";
   }
+  if (result.isConfirmed) {
+    sessionStorage.removeItem("cachedTenants"); // ← add this
+    localStorage.removeItem("token");
+    window.location.href = "login.html";
+  }
 });
 
 function generateBalanceMessage(tenant) {
@@ -4311,8 +4375,6 @@ function generateBalanceMessage(tenant) {
 }
 
 // ----- ADD TENANT -----
-let searchInput = document.querySelector(".search-tenants");
-let tenantsInputs = document.querySelector(".tenants-inputs");
 
 // ----- FILTER & SORT -----
 function applyFiltersAndSort() {
@@ -4520,6 +4582,19 @@ document
           document.getElementById("profile-modal").style.display = "none";
           document.body.classList.remove("modal-open");
           Toast.fire({ icon: "success", title: "Profile Updated" });
+        } else {
+          const err = await response.json();
+          originalSwalFire.call(Swal, {
+            toast: true,
+            position: "bottom-end",
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: "#1e293b",
+            color: "#f1f5f9",
+            icon: "error",
+            title: err.message || "Update failed",
+          });
         }
       } catch (err) {
         Toast.fire({ icon: "error", title: err.message });
@@ -5155,18 +5230,18 @@ function importTenantsFromCSV() {
               newTenant:
                 t.newTenant === "true" || t.newTenant === "TRUE" ? true : false,
             }));
-        const response = await fetchWithTimeout(
-          window.location.origin + "/tenants/import",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-            body: JSON.stringify({ tenants: cleanTenants }),
-          },
-          120000 // 2 minutes timeout
-        );
+            const response = await fetchWithTimeout(
+              window.location.origin + "/tenants/import",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({ tenants: cleanTenants }),
+              },
+              120000 // 2 minutes timeout
+            );
             const data = await response.json();
 
             if (response.ok) {
@@ -5323,12 +5398,11 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
-        triggerUrl,
+        window.location.origin + `/tenants/${tenantId}/restore`, // ✅ fixed
         {
-          method: "POST",
+          method: "PATCH",
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        },
-        120000
+        }
       );
       if (response.ok) {
         await loadTenants();
@@ -5822,26 +5896,26 @@ async function showBulkPaymentModal() {
         index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
       html += `
         <tr style="background:${rowBg};">
-          <td style="padding:10px 6px; text-align:center; color:var(--text-muted);">${escapeHtml(
+          <td style="padding:10px 4px; text-align:center; color:var(--text-muted); font-size:0.95rem;">${escapeHtml(
             tenant.houseNumber || "—"
           )}</td>
-          <td style="padding:10px 6px; text-align:center; font-weight:500;">${escapeHtml(
+          <td style="padding:10px 4px; text-align:center; font-weight:500; font-size:0.95rem;">${escapeHtml(
             tenant.name
           )}</td>
-          <td style="padding:10px 6px; text-align:center;">
+          <td style="padding:10px 4px; text-align:center;">
             <input type="number" step="any" class="bulk-pay-amount" data-tenant-id="${
               tenant._id
-            }" placeholder="0.00" style="width:90px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" placeholder="0.00" style="width:80px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
           </td>
-          <td style="padding:10px 6px; text-align:center;">
+          <td style="padding:10px 4px; text-align:center;">
             <input type="date" class="bulk-pay-date" data-tenant-id="${
               tenant._id
-            }" value="${todayStr}" style="width:120px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" value="${todayStr}" style="width:115px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
           </td>
-          <td style="padding:10px 6px; text-align:center;">
+          <td style="padding:10px 4px; text-align:center;">
             <input type="text" class="bulk-pay-mpesa" data-tenant-id="${
               tenant._id
-            }" placeholder="Optional" style="width:100px; padding:8px 6px; border-radius:8px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.9rem;">
+            }" placeholder="Optional" style="width:90px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
           </td>
         </tr>
       `;
@@ -5852,81 +5926,87 @@ async function showBulkPaymentModal() {
   const styleTag = document.createElement("style");
   styleTag.textContent = `
     @media (max-width: 600px) {
-      .bulk-pay-table { font-size: 0.7rem !important; }
-      .bulk-pay-table th, .bulk-pay-table td { padding: 6px 2px !important; }
+      .bulk-pay-table th, .bulk-pay-table td {
+        padding: 6px 1px !important;
+        font-size: 0.8rem !important;
+      }
       .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
-        width: 55px !important; padding: 6px 2px !important; font-size: 0.7rem !important;
+        width: 55px !important;
+        padding: 6px 1px !important;
+        font-size: 0.8rem !important;
+      }
+      /* Remove ALL padding around the content container */
+      .bulk-payment-fullscreen .swal2-html-container {
+        padding: 8px 0 !important;
+      }
+      /* The inner content also gets zero padding */
+      .bulk-payment-content {
+        padding: 0 !important;
+      }
+      /* Buttons stay on one line, centered, no wrapping */
+      .bulk-pay-buttons {
+        gap: 8px !important;
+        padding: 0 2px !important;
+        flex-wrap: nowrap !important;
+      }
+      .bulk-cancel-btn, .bulk-save-btn {
+        white-space: nowrap;
+        padding: 10px 20px !important;
+        font-size: 0.9rem !important;
       }
     }
-    .bulk-pay-save-btn {
-      background: linear-gradient(135deg, #10b981, #059669) !important;
-      color: white !important;
-      border: none !important;
-      padding: 12px 28px !important;
-      border-radius: 40px !important;
-      font-size: 1rem !important;
-      font-weight: 600 !important;
-      cursor: pointer !important;
-      transition: transform 0.1s, box-shadow 0.1s !important;
-      margin: 0 !important;
+    .bulk-pay-sticky-header th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-elevated);
+      z-index: 2;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
-    .bulk-pay-save-btn:hover {
-      transform: translateY(-1px) !important;
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4) !important;
+    .bulk-save-btn {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 40px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
     }
-    .bulk-pay-cancel-btn {
-      background: linear-gradient(135deg, #ef4444, #dc2626) !important;
-      color: white !important;
-      border: none !important;
-      padding: 12px 28px !important;
-      border-radius: 40px !important;
-      font-size: 1rem !important;
-      font-weight: 600 !important;
-      cursor: pointer !important;
-      transition: transform 0.1s, box-shadow 0.1s !important;
-      margin: 0 !important;
+    .bulk-save-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
     }
-    .bulk-pay-cancel-btn:hover {
-      transform: translateY(-1px) !important;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+    .bulk-cancel-btn {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 40px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
     }
-    /* Overlay for confirmation */
-    .bulk-confirm-overlay {
-      position: fixed;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.7);
-      backdrop-filter: blur(4px);
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .bulk-confirm-box {
-      background: var(--bg-surface, #1e293b);
-      border-radius: 24px;
-      padding: 24px;
-      max-width: 500px;
-      width: 90%;
-      text-align: center;
-      border: 1px solid var(--border, #334155);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    .bulk-cancel-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
     }
   `;
   document.head.appendChild(styleTag);
 
-  // Build the initial view
-  const initialHtml = `
-    <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:calc(30px + env(safe-area-inset-bottom, 20px));">
-      <p style="text-align:center; font-size:0.85rem; color:var(--text-muted);">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
-      <div style="overflow-x:auto;">
-        <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 6px; font-size:0.9rem;">
-          <thead>
+  const modalHtml = `
+    <div class="bulk-payment-content" style="display:flex; flex-direction:column; padding-bottom:16px;">
+      <p style="text-align:center; font-size:1rem; color:var(--text-muted); margin-bottom:12px; padding:0 16px;">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
+      <div style="overflow-x:auto; border:1px solid var(--border); border-radius:12px; margin:0 0 16px 0;">
+        <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 4px; font-size:0.95rem;">
+          <thead class="bulk-pay-sticky-header">
             <tr style="background:var(--bg-elevated);">
-              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">House</th>
-              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Tenant</th>
-              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Amount</th>
-              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">Date</th>
-              <th style="padding:12px 6px; text-align:center; font-weight:600; color:var(--accent-cyan);">M‑Pesa Ref</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">House</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Tenant</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Amount</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Date</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">M‑Pesa Ref</th>
             </tr>
           </thead>
           <tbody id="bulk-pay-tbody">
@@ -5934,43 +6014,52 @@ async function showBulkPaymentModal() {
           </tbody>
         </table>
       </div>
-      <div style="display:flex; justify-content:center; gap:16px; margin-top:8px;" id="bulk-pay-buttons">
-        <button id="custom-bulk-cancel-btn" class="bulk-pay-cancel-btn">Cancel</button>
-        <button id="custom-bulk-save-btn" class="bulk-pay-save-btn">💰 Save All</button>
+      <!-- Buttons always together, centered, no wrapping -->
+      <div class="bulk-pay-buttons" style="display:flex; justify-content:center; gap:14px; padding:0 4px; flex-wrap:nowrap;">
+        <button id="custom-bulk-cancel-btn" class="bulk-cancel-btn">Cancel</button>
+        <button id="custom-bulk-save-btn" class="bulk-save-btn">💰 Save All</button>
       </div>
     </div>
   `;
 
   const result = await Swal.fire({
     title: "💳 Bulk Payment",
-    html: initialHtml,
+    html: modalHtml,
     showCancelButton: false,
     showConfirmButton: false,
+    showCloseButton: true,
     background: "#1e293b",
     color: "#f1f5f9",
-    width: "90%",
-    customClass: { popup: "fullscreen-sms-modal" },
+    width: "100%",
+    grow: "fullscreen",
+    customClass: { popup: "bulk-payment-fullscreen" },
     didOpen: () => {
-      // ── Scroll fix for desktop ──
       const popup = Swal.getPopup();
       if (popup) {
-        popup.style.maxHeight = "90vh";
-        popup.style.overflow = "hidden";
+        popup.style.position = "fixed";
+        popup.style.top = "0";
+        popup.style.left = "0";
+        popup.style.width = "100%";
+        popup.style.height = "100%";
+        popup.style.maxHeight = "100vh";
+        popup.style.margin = "0";
+        popup.style.borderRadius = "0";
+        popup.style.transform = "none";
         popup.style.display = "flex";
         popup.style.flexDirection = "column";
+        popup.style.overflow = "auto";
       }
       const htmlContainer = Swal.getHtmlContainer();
       if (htmlContainer) {
         htmlContainer.style.flex = "1";
-        htmlContainer.style.overflowY = "auto";
+        htmlContainer.style.overflowY = "visible";
+        htmlContainer.style.maxHeight = "none";
       }
 
-      // Cancel button
       document
         .getElementById("custom-bulk-cancel-btn")
         ?.addEventListener("click", () => Swal.close());
 
-      // Save button
       document
         .getElementById("custom-bulk-save-btn")
         ?.addEventListener("click", () => {
@@ -6015,10 +6104,9 @@ async function showBulkPaymentModal() {
             return;
           }
 
-          // Build confirmation overlay
           const tenantMap = new Map(tenants.map((t) => [t._id, t]));
           let summaryHtml =
-            '<div style="text-align:left; font-size:0.9rem; line-height:1.6; max-height:200px; overflow-y:auto;">';
+            '<div style="text-align:left; font-size:0.95rem; line-height:1.6; max-height:200px; overflow-y:auto;">';
           if (payments.length > 0) {
             summaryHtml +=
               '<p style="font-weight:600; color:#10b981; margin-bottom:8px;">✅ Payments to be recorded:</p>';
@@ -6045,28 +6133,27 @@ async function showBulkPaymentModal() {
           summaryHtml += "</div>";
 
           const overlay = document.createElement("div");
-          overlay.className = "bulk-confirm-overlay";
+          overlay.style.cssText =
+            "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center;";
           overlay.innerHTML = `
-          <div class="bulk-confirm-box">
-            <h3 style="color:#f1f5f9; margin-bottom:16px;">Confirm Bulk Payment</h3>
-            <p style="font-size:0.9rem; color:#94a3b8;">You are about to record payments for <strong>${payments.length}</strong> tenant(s).</p>
+          <div style="background: var(--bg-surface, #1e293b); border-radius: 24px; padding: 24px; max-width: 480px; width: 90%; text-align: center; border: 1px solid var(--border, #334155); box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <h3 style="color:#f1f5f9; margin-bottom:12px; font-size:1.2rem;">Confirm Bulk Payment</h3>
+            <p style="font-size:0.95rem; color:#94a3b8;">You are about to record payments for <strong>${payments.length}</strong> tenant(s).</p>
             ${summaryHtml}
-            <div style="display:flex; justify-content:center; gap:16px; margin-top:20px;">
-              <button id="confirm-cancel-btn" class="bulk-pay-cancel-btn">Cancel</button>
-              <button id="confirm-yes-btn" class="bulk-pay-confirm-btn">Yes, save all</button>
+            <div style="display:flex; justify-content:center; gap:14px; margin-top:20px;">
+              <button id="confirm-cancel-btn" class="bulk-cancel-btn">Cancel</button>
+              <button id="confirm-yes-btn" class="bulk-save-btn">Yes, save all</button>
             </div>
           </div>
         `;
           document.body.appendChild(overlay);
 
-          // Cancel inside overlay – go back to the input view
           document
             .getElementById("confirm-cancel-btn")
             .addEventListener("click", () => {
               overlay.remove();
             });
 
-          // Confirm – process payments
           document
             .getElementById("confirm-yes-btn")
             .addEventListener("click", async () => {
@@ -6075,6 +6162,7 @@ async function showBulkPaymentModal() {
                 document.getElementById("bulk-payment-btn"),
                 true
               );
+
               try {
                 let successCount = 0;
                 const failedNames = [];
@@ -6162,7 +6250,7 @@ async function showBulkPaymentModal() {
                   title: msg,
                 });
 
-                Swal.close(); // close main modal after successful payment
+                Swal.close();
               } catch (err) {
                 Toast.fire({ icon: "error", title: err.message });
               } finally {
@@ -6179,7 +6267,6 @@ async function showBulkPaymentModal() {
     },
   });
 }
-
 async function showBulkWaterReadingModal() {
   closeDropdownIfOpen();
   const currentMonth = getCurrentMonth();
@@ -6511,6 +6598,7 @@ async function showBulkWaterReadingModal() {
       if (data.errors && data.errors.length > 0) {
         msg += ` Skipped: ${data.errors.join(", ")}.`;
       }
+      // ✅ Success toast – THIS IS THE CONFIRMATION TOAST
       originalSwalFire.call(Swal, {
         toast: true,
         position: "bottom-end",
@@ -6628,7 +6716,7 @@ function generateShortBalanceMessage(tenant) {
 
   const dueStr = formatDueDate(dueDate);
 
-  // Find charge entries for current and previous month
+  // Find the charge entry for current billing month
   const currentCharge = (tenant.paymentHistory || []).find(
     (e) => e.month === currentMonth && (e.amountPaid || 0) === 0 && !e.datePaid
   );
@@ -6639,25 +6727,13 @@ function generateShortBalanceMessage(tenant) {
     }, no payments recorded yet. Current month KES ${currentTotal.toLocaleString()} due by ${dueStr}. Thank you!`;
   }
 
-  const cumulative = currentCharge.remainingBalance;
-  const allMonthsSorted = [
-    ...new Set((tenant.paymentHistory || []).map((e) => e.month)),
-  ].sort();
-  const currentIndex = allMonthsSorted.indexOf(currentMonth);
-  const previousMonth =
-    currentIndex > 0 ? allMonthsSorted[currentIndex - 1] : null;
-  let previousCumulative = 0;
-  if (previousMonth) {
-    const prevCharge = (tenant.paymentHistory || []).find(
-      (e) =>
-        e.month === previousMonth && (e.amountPaid || 0) === 0 && !e.datePaid
-    );
-    if (prevCharge) {
-      previousCumulative = prevCharge.remainingBalance;
-    }
-  }
-
-  const monthLeft = Math.max(0, cumulative) - Math.max(0, previousCumulative);
+  const paymentsThisMonth = (tenant.paymentHistory || []).filter(
+    (e) => e.month === currentMonth && e.amountPaid > 0
+  );
+  const paidThisMonth = paymentsThisMonth.reduce(
+    (sum, e) => sum + e.amountPaid,
+    0
+  );
 
   // Overdue branch
   if (overdue > 0) {
@@ -6666,21 +6742,31 @@ function generateShortBalanceMessage(tenant) {
     }, total overdue KES ${overdue.toLocaleString()}. Current month KES ${currentTotal.toLocaleString()} due by ${dueStr}. Please pay overdue.`;
   }
 
-  // No overdue – fully covered (by payments or credit)
-  if (monthLeft === 0) {
-    if (credit > 0) {
+  // No overdue – handle credit case
+  if (credit > 0) {
+    const stillToPay = Math.max(
+      0,
+      currentCharge.totalDue - paidThisMonth - credit
+    );
+    if (stillToPay === 0) {
       return `Dear ${
         tenant.name
       }, no overdue, KES ${credit.toLocaleString()} credit on your account. Thank you!`;
+    } else {
+      return `Dear ${
+        tenant.name
+      }, no overdue, but KES ${stillToPay.toLocaleString()} still to pay this month after credit. Due by ${dueStr}. Thank you!`;
     }
-    // Fully paid – no due date needed
-    return `Dear ${tenant.name}, all payments up to date, including this month. Thank you!`;
   }
 
-  // Still owes something for current month
+  // No overdue, no credit
+  const leftToPay = Math.max(0, currentCharge.totalDue - paidThisMonth);
+  if (leftToPay === 0) {
+    return `Dear ${tenant.name}, all payments up to date, including this month. Thank you!`;
+  }
   return `Dear ${
     tenant.name
-  }, no overdue, KES ${monthLeft.toLocaleString()} still to pay this month. Due by ${dueStr}. Thank you!`;
+  }, no overdue, KES ${leftToPay.toLocaleString()} still to pay this month. Due by ${dueStr}. Thank you!`;
 }
 // ─────────────────────────────────────────────────────
 
@@ -8100,6 +8186,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
   const today = getAppToday();
   const costPerMsg = 0.8;
 
+  // ---- Build the HTML (unchanged, custom buttons at the end) ----
   let html = `
   <div style="display: flex; flex-direction: column; gap: 16px;">
     <div>
@@ -8124,7 +8211,7 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
     <div>
       <div style="background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
         <table style="width: 100%; border-collapse: collapse;">
-          <thead>
+          <thead class="sms-sticky-header">
             <tr style="border-bottom: 1px solid var(--border); background: var(--bg-elevated);">
               <th style="padding: 10px 4px; text-align: center; width: 35px;"> </th>
               <th style="padding: 10px 4px; text-align: center;">House</th>
@@ -8171,331 +8258,217 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
       </div>
     </div>
     <div id="sms-cost-estimate" style="text-align: center; font-size: 0.9rem; font-weight: bold; margin-top: 8px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; color: var(--text-primary);">Select tenants to see total cost</div>
-  </div>
-  `;
 
- Swal.fire({
-   title: "📱 Send SMS to Tenants",
-   // ── The buttons are now part of the main HTML, at the very end ──
-   html:
-     html +
-     `
+    <!-- CUSTOM BUTTONS at the bottom of the scrollable content -->
     <div style="display:flex; justify-content:center; gap:16px; margin-top:20px; padding-bottom:calc(30px + env(safe-area-inset-bottom, 20px));">
       <button id="custom-sms-cancel-btn" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; padding: 12px 28px; border-radius: 40px; font-size: 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
       <button id="custom-sms-send-btn" style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 28px; border-radius: 40px; font-size: 1rem; font-weight: 600; cursor: pointer;">Send</button>
     </div>
-  `, // ← the closing </div> of the main flex column is already inside your `html` variable
-   showCancelButton: false,
-   showConfirmButton: false,
-   background: "#1e293b",
-   color: "#f1f5f9",
-   width: "auto",
-   customClass: { popup: "fullscreen-sms-modal" },
-   didOpen: () => {
-     // ── Popup as a single scrollable column ──
-     const popup = Swal.getPopup();
-     if (popup) {
-       popup.style.display = "flex";
-       popup.style.flexDirection = "column";
-       popup.style.maxHeight = "90vh";
-       popup.style.overflow = "hidden";
-     }
-     const htmlContainer = Swal.getHtmlContainer();
-     if (htmlContainer) {
-       htmlContainer.style.flex = "1";
-       htmlContainer.style.overflowY = "auto";
-       htmlContainer.style.maxHeight = "none";
-     }
+  </div>
+  `;
 
-     // Bind the custom buttons
-     document
-       .getElementById("custom-sms-cancel-btn")
-       ?.addEventListener("click", () => Swal.close());
-     document
-       .getElementById("custom-sms-send-btn")
-       ?.addEventListener("click", () => Swal.clickConfirm());
+  // ── FIX: custom buttons, full‑screen, content starts at top ──
+  Swal.fire({
+    title: "📱 Send SMS to Tenants",
+    html: html,
+    showCancelButton: false, // we use custom buttons
+    showConfirmButton: false,
+    showCloseButton: true,
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "90%",
+    customClass: { popup: "sms-bulk-fixed" },
+    didOpen: () => {
+      // ── Force the popup to fill the viewport and scroll as one page ──
+      const popup = Swal.getPopup();
+      if (popup) {
+        popup.style.position = "fixed";
+        popup.style.top = "0";
+        popup.style.left = "0";
+        popup.style.width = "100%";
+        popup.style.height = "100%";
+        popup.style.maxHeight = "100vh";
+        popup.style.margin = "0";
+        popup.style.borderRadius = "0";
+        popup.style.transform = "none";
+        popup.style.display = "flex";
+        popup.style.flexDirection = "column";
+        popup.style.overflow = "hidden";
+      }
+      const htmlContainer = Swal.getHtmlContainer();
+      if (htmlContainer) {
+        htmlContainer.style.flex = "1";
+        htmlContainer.style.overflowY = "auto";
+        // 🔥 CRITICAL: override the global centering that hides the top content
+        htmlContainer.style.alignItems = "flex-start";
+        htmlContainer.style.justifyContent = "flex-start";
+        htmlContainer.style.padding = "8px 16px";
+        htmlContainer.scrollTop = 0;
+      }
 
-     // ── All your existing didOpen code (unchanged) starts here ──
-     const style = document.createElement("style");
-     style.textContent = `
-        @media (max-width: 768px) {
-          .fullscreen-sms-modal {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            max-width: 100vw !important;
-            height: 100vh !important;
-            max-height: 100vh !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border-radius: 0 !important;
-            background: var(--bg-secondary, #0f172a) !important;
-          }
-          .fullscreen-sms-modal .swal2-html-container {
-            flex: 1 !important;
-            overflow-y: auto !important;
-            padding: 8px 8px 16px 8px !important;
-            margin: 0 !important;
-          }
-          textarea#sms-message {
-            width: 100%;
-            font-size: 16px !important;
-            padding: 12px !important;
-            margin-bottom: 16px;
-            border-radius: 24px !important;
-            background: var(--bg-tertiary, #0f172a);
-            border: 1px solid var(--border, #334155);
-            color: var(--text-primary, #f1f5f9);
-          }
-          .fullscreen-sms-modal table {
-            width: 100%;
-            table-layout: fixed;
-            border-collapse: collapse;
-            font-size: 14px;
-            margin: 0;
-          }
-          .fullscreen-sms-modal th,
-          .fullscreen-sms-modal td {
-            padding: 10px 4px !important;
-            text-align: center !important;
-            vertical-align: middle !important;
-            word-break: break-word;
-          }
-          .fullscreen-sms-modal th {
-            font-size: 13px;
-            background: var(--bg-elevated, #1e293b);
-          }
-          .fullscreen-sms-modal input[type="checkbox"] {
-            width: 24px;
-            height: 24px;
-            transform: scale(1);
-            cursor: pointer;
-          }
-          #sms-cost-estimate {
-            margin: 12px 0 8px;
-            padding: 10px;
-            font-size: 14px;
-          }
-        }
-        @media (min-width: 769px) {
-          .fullscreen-sms-modal {
-            width: 85% !important;
-            max-width: 1100px !important;
-            height: auto !important;
-            max-height: 90vh !important;
-            padding: 20px 24px !important;
-            border-radius: 32px !important;
-            background: var(--bg-secondary, #0f172a) !important;
-          }
-          .fullscreen-sms-modal table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: var(--bg-tertiary, #111827);
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-          }
-          .fullscreen-sms-modal th {
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            padding: 18px 12px;
-            font-size: 0.95rem;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #e2e8f0;
-            font-weight: 700;
-            border-bottom: 2px solid #38bdf8;
-          }
-          .fullscreen-sms-modal td {
-            background: var(--bg-tertiary, #111827);
-            padding: 16px 12px;
-            border-bottom: 1px solid var(--border, #2d3a4e);
-            font-size: 1rem;
-            color: #f1f5f9;
-            transition: background 0.2s;
-          }
-          .fullscreen-sms-modal tr:last-child td {
-            border-bottom: none;
-          }
-          .fullscreen-sms-modal tr:hover td {
-            background: #1e2a3a;
-          }
-          textarea#sms-message {
-            font-size: 15px;
-            padding: 14px 16px;
-            border-radius: 28px;
-            background: var(--bg-tertiary, #0f172a);
-            border: 1px solid var(--border, #334155);
-            color: var(--text-primary, #f1f5f9);
-          }
-          .fullscreen-sms-modal input[type="checkbox"] {
-            width: 22px;
-            height: 22px;
-            transform: scale(1);
-            cursor: pointer;
-            accent-color: #10b981;
-          }
-          #sms-cost-estimate {
-            font-size: 1rem;
-            padding: 14px 20px;
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            border-radius: 60px;
-            margin-top: 20px;
-            font-weight: 600;
-            text-align: center;
-          }
-        }
-        textarea#sms-message {
-          width: 100%;
-          resize: vertical;
-          font-family: inherit;
-        }
-        .fullscreen-sms-modal th, 
-        .fullscreen-sms-modal td {
-          text-align: center !important;
-          vertical-align: middle !important;
-        }
-        #sms-cost-estimate {
-          font-weight: 600;
+      // Bind custom buttons
+      document
+        .getElementById("custom-sms-cancel-btn")
+        ?.addEventListener("click", () => Swal.close());
+      document
+        .getElementById("custom-sms-send-btn")
+        ?.addEventListener("click", () => Swal.clickConfirm());
+
+      // ── Sticky table header ──
+      const stickyStyle = document.createElement("style");
+      stickyStyle.textContent = `
+        .sms-sticky-header th {
+          position: sticky;
+          top: 0;
+          background: var(--bg-elevated, #1e293b);
+          z-index: 2;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
       `;
-     document.head.appendChild(style);
+      document.head.appendChild(stickyStyle);
+      const smsTable = document.querySelector(".sms-bulk-fixed table");
+      if (smsTable) {
+        const thead = smsTable.querySelector("thead");
+        if (thead) thead.classList.add("sms-sticky-header");
+      }
 
-     // Select All / Select Late
-     const selectAllBtn = document.getElementById("sms-select-all");
-     if (selectAllBtn) {
-       selectAllBtn.addEventListener("click", () => {
-         const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
-         const allChecked = Array.from(allCheckboxes).every((cb) => cb.checked);
-         const newState = !allChecked;
-         allCheckboxes.forEach((cb) => {
-           cb.checked = newState;
-           cb.dispatchEvent(new Event("change"));
-         });
-         selectAllBtn.textContent = newState
-           ? "✕ Deselect All"
-           : "✓ Select All";
-       });
-     }
+      // ── All your existing event listeners (unchanged) ──
+      const selectAllBtn = document.getElementById("sms-select-all");
+      if (selectAllBtn) {
+        selectAllBtn.addEventListener("click", () => {
+          const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
+          const allChecked = Array.from(allCheckboxes).every(
+            (cb) => cb.checked
+          );
+          const newState = !allChecked;
+          allCheckboxes.forEach((cb) => {
+            cb.checked = newState;
+            cb.dispatchEvent(new Event("change"));
+          });
+          selectAllBtn.textContent = newState
+            ? "✕ Deselect All"
+            : "✓ Select All";
+        });
+      }
 
-     const selectLateBtn = document.getElementById("sms-select-late");
-     if (selectLateBtn) {
-       selectLateBtn.addEventListener("click", () => {
-         const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
-         const overdueCbs = Array.from(allCheckboxes).filter(
-           (cb) => parseFloat(cb.dataset.overdue) > 0
-         );
-         const allOverdueChecked = overdueCbs.every((cb) => cb.checked);
-         const newState = !allOverdueChecked;
-         overdueCbs.forEach((cb) => {
-           cb.checked = newState;
-           cb.dispatchEvent(new Event("change"));
-         });
-         selectLateBtn.textContent = newState
-           ? "✕ Deselect Late"
-           : "⚠️ Select Late";
-       });
-     }
+      const selectLateBtn = document.getElementById("sms-select-late");
+      if (selectLateBtn) {
+        selectLateBtn.addEventListener("click", () => {
+          const allCheckboxes = document.querySelectorAll(".sms-tenant-select");
+          const overdueCbs = Array.from(allCheckboxes).filter(
+            (cb) => parseFloat(cb.dataset.overdue) > 0
+          );
+          const allOverdueChecked = overdueCbs.every((cb) => cb.checked);
+          const newState = !allOverdueChecked;
+          overdueCbs.forEach((cb) => {
+            cb.checked = newState;
+            cb.dispatchEvent(new Event("change"));
+          });
+          selectLateBtn.textContent = newState
+            ? "✕ Deselect Late"
+            : "⚠️ Select Late";
+        });
+      }
 
-     const textarea = document.getElementById("sms-message");
-     const counter = document.getElementById("sms-char-counter");
-     const updateCounter = () => {
-       const len = textarea.value.length;
-       counter.textContent = `${len} characters${
-         len > 160 ? " (multiple messages)" : ""
-       }`;
-     };
-     textarea.addEventListener("input", updateCounter);
-     updateCounter();
+      const textarea = document.getElementById("sms-message");
+      const counter = document.getElementById("sms-char-counter");
+      const updateCounter = () => {
+        const len = textarea.value.length;
+        counter.textContent = `${len} characters${
+          len > 160 ? " (multiple messages)" : ""
+        }`;
+      };
+      textarea.addEventListener("input", updateCounter);
+      updateCounter();
 
-     const templateSelect = document.getElementById("sms-template-bulk");
-     const msgTextarea = document.getElementById("sms-message");
-     if (templateSelect) {
-       templateSelect.addEventListener("change", () => {
-         const val = templateSelect.value;
-         let newMsg = "";
-         if (val === "balance") {
-           msgTextarea.style.display = "none";
-           msgTextarea.value = "";
-           const balanceNote = document.getElementById("balance-note");
-           if (balanceNote) balanceNote.style.display = "block";
-           updateCost();
-         } else {
-           msgTextarea.style.display = "block";
-           const balanceNote = document.getElementById("balance-note");
-           if (balanceNote) balanceNote.style.display = "none";
-           updateCost();
-           if (val === "payment") {
-             newMsg =
-               "Dear tenant, your rent payment is due. Please pay to avoid penalties. Thank you.";
-           } else if (val === "water") {
-             newMsg = `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`;
-           } else if (val === "thanks") {
-             newMsg = "Thank you for your payment. Have a great day!";
-           } else if (val === "waterBill") {
-             msgTextarea.value = "";
-           } else if (val === "reminder") {
-             newMsg =
-               "Reminder: Rent is due on the scheduled date. Please pay on time to avoid penalties.";
-           } else if (val === "late") {
-             newMsg =
-               "URGENT: Your rent payment is past due. Please clear the outstanding amount immediately to avoid penalties.";
-           }
-           if (newMsg) msgTextarea.value = newMsg;
-           msgTextarea.dispatchEvent(new Event("input"));
-         }
-       });
-     }
+      const templateSelect = document.getElementById("sms-template-bulk");
+      const msgTextarea = document.getElementById("sms-message");
+      if (templateSelect) {
+        templateSelect.addEventListener("change", () => {
+          const val = templateSelect.value;
+          let newMsg = "";
+          if (val === "balance") {
+            msgTextarea.style.display = "none";
+            msgTextarea.value = "";
+            const balanceNote = document.getElementById("balance-note");
+            if (balanceNote) balanceNote.style.display = "block";
+            updateCost();
+          } else {
+            msgTextarea.style.display = "block";
+            const balanceNote = document.getElementById("balance-note");
+            if (balanceNote) balanceNote.style.display = "none";
+            updateCost();
+            if (val === "payment") {
+              newMsg =
+                "Dear tenant, your rent payment is due. Please pay to avoid penalties. Thank you.";
+            } else if (val === "water") {
+              newMsg = `Kindly provide your water meter reading for ${getCurrentMonth()} to help us generate an accurate bill.`;
+            } else if (val === "thanks") {
+              newMsg = "Thank you for your payment. Have a great day!";
+            } else if (val === "waterBill") {
+              msgTextarea.value = "";
+            } else if (val === "reminder") {
+              newMsg =
+                "Reminder: Rent is due on the scheduled date. Please pay on time to avoid penalties.";
+            } else if (val === "late") {
+              newMsg =
+                "URGENT: Your rent payment is past due. Please clear the outstanding amount immediately to avoid penalties.";
+            }
+            if (newMsg) msgTextarea.value = newMsg;
+            msgTextarea.dispatchEvent(new Event("input"));
+          }
+        });
+      }
 
-     const updateCost = () => {
-       const selected = document.querySelectorAll(
-         ".sms-tenant-select:checked"
-       ).length;
-       const totalCost = selected * costPerMsg;
-       const costDiv = document.getElementById("sms-cost-estimate");
-       const templateValue = document.getElementById("sms-template-bulk").value;
-       const isBalanceMode = templateValue === "balance";
-       if (selected === 0) {
-         costDiv.innerHTML = "📊 Select tenants to see total cost";
-       } else {
-         let note = isBalanceMode
-           ? `<span style="color:#fbbf24; font-size:0.75rem;">(Balance enquiries may cost more for long messages)</span>`
-           : "";
-         costDiv.innerHTML = `💰 <strong>Total cost: KES ${totalCost.toFixed(
-           2
-         )}</strong> (${selected} message${
-           selected !== 1 ? "s" : ""
-         } × KES ${costPerMsg})${note}`;
-       }
-     };
-     document
-       .querySelectorAll(".sms-tenant-select")
-       .forEach((cb) => cb.addEventListener("change", updateCost));
-     updateCost();
-   },
-   preConfirm: async () => {
-     const selected = Array.from(
-       document.querySelectorAll(".sms-tenant-select:checked")
-     ).map((cb) => cb.dataset.id);
-     const message = document.getElementById("sms-message").value;
-     const templateValue = document.getElementById("sms-template-bulk").value;
-     const isBalanceMode = templateValue === "balance";
-     const isWaterBillMode = templateValue === "waterBill";
+      const updateCost = () => {
+        const selected = document.querySelectorAll(
+          ".sms-tenant-select:checked"
+        ).length;
+        const totalCost = selected * costPerMsg;
+        const costDiv = document.getElementById("sms-cost-estimate");
+        const templateValue =
+          document.getElementById("sms-template-bulk").value;
+        const isBalanceMode = templateValue === "balance";
+        if (selected === 0) {
+          costDiv.innerHTML = "📊 Select tenants to see total cost";
+        } else {
+          let note = isBalanceMode
+            ? `<span style="color:#fbbf24; font-size:0.75rem;">(Balance enquiries may cost more for long messages)</span>`
+            : "";
+          costDiv.innerHTML = `💰 <strong>Total cost: KES ${totalCost.toFixed(
+            2
+          )}</strong> (${selected} message${
+            selected !== 1 ? "s" : ""
+          } × KES ${costPerMsg})${note}`;
+        }
+      };
+      document
+        .querySelectorAll(".sms-tenant-select")
+        .forEach((cb) => cb.addEventListener("change", updateCost));
+      updateCost();
+    },
+    preConfirm: async () => {
+      const selected = Array.from(
+        document.querySelectorAll(".sms-tenant-select:checked")
+      ).map((cb) => cb.dataset.id);
+      const message = document.getElementById("sms-message").value;
+      const templateValue = document.getElementById("sms-template-bulk").value;
+      const isBalanceMode = templateValue === "balance";
+      const isWaterBillMode = templateValue === "waterBill";
 
-     if (selected.length === 0) {
-       Swal.showValidationMessage("Select at least one tenant.");
-       return false;
-     }
-     if (!isBalanceMode && !isWaterBillMode && !message.trim()) {
-       Swal.showValidationMessage("Message cannot be empty.");
-       return false;
-     }
+      if (selected.length === 0) {
+        Swal.showValidationMessage("Select at least one tenant.");
+        return false;
+      }
+      if (!isBalanceMode && !isWaterBillMode && !message.trim()) {
+        Swal.showValidationMessage("Message cannot be empty.");
+        return false;
+      }
 
-     const totalCost = selected.length * costPerMsg;
-     const confirm = await Swal.fire({
-       title: "📱 Confirm Bulk SMS",
-       html: `
+      const totalCost = selected.length * costPerMsg;
+      const confirm = await Swal.fire({
+        title: "📱 Confirm Bulk SMS",
+        html: `
       <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 12px 0;">
         <div style="background: linear-gradient(135deg, #10b98120, #3b82f620); padding: 20px 24px; border-radius: 32px; width: 100%; text-align: center;">
           <div style="font-size: 2.2rem; font-weight: 800; color: #fbbf24;">KES ${totalCost.toFixed(
@@ -8517,145 +8490,184 @@ document.getElementById("bulk-sms-btn").addEventListener("click", () => {
         </div>
       </div>
       `,
-       icon: "question",
-       iconColor: "#fbbf24",
-       showCancelButton: true,
-       confirmButtonText: `Yes, send to ${selected.length} tenant${
-         selected.length !== 1 ? "s" : ""
-       }`,
-       confirmButtonColor: "#10b981",
-       cancelButtonText: "Cancel",
-       cancelButtonColor: "#ef4444",
-       background: "#1e293b",
-       color: "#f1f5f9",
-       backdrop: "rgba(0,0,0,0.7)",
-       customClass: {
-         popup: "premium-confirm-popup",
-         confirmButton: "premium-confirm-btn",
-         cancelButton: "premium-cancel-btn",
-       },
-       buttonsStyling: false,
-     });
+        icon: "question",
+        iconColor: "#fbbf24",
+        showCancelButton: true,
+        confirmButtonText: `Yes, send to ${selected.length} tenant${
+          selected.length !== 1 ? "s" : ""
+        }`,
+        confirmButtonColor: "#10b981",
+        cancelButtonText: "Cancel",
+        cancelButtonColor: "#ef4444",
+        background: "#1e293b",
+        color: "#f1f5f9",
+        backdrop: "rgba(0,0,0,0.7)",
+        customClass: {
+          popup: "premium-confirm-popup",
+          confirmButton: "premium-confirm-btn",
+          cancelButton: "premium-cancel-btn",
+        },
+        buttonsStyling: false,
+      });
 
-     if (!confirm.isConfirmed) {
-       Swal.showValidationMessage("Cancelled");
-       return false;
-     }
-     return { tenantIds: selected, message, isBalanceMode, isWaterBillMode };
-   },
- }).then(async (result) => {
-   if (result.isConfirmed) {
-     const { tenantIds, message, isBalanceMode, isWaterBillMode } =
-       result.value;
+      if (!confirm.isConfirmed) {
+        Swal.showValidationMessage("Cancelled");
+        return false;
+      }
+      return { tenantIds: selected, message, isBalanceMode, isWaterBillMode };
+    },
+  }).then(async (result) => {
+    if (result.isConfirmed) {
+      const { tenantIds, message, isBalanceMode, isWaterBillMode } =
+        result.value;
 
-     setButtonLoading(btn, true);
-     try {
-       let summary = "";
-       if (isBalanceMode) {
-         const selectedTenants = tenants.filter((t) =>
-           tenantIds.includes(t._id)
-         );
-         let successCount = 0;
-         const failedNames = [];
-         for (const tenant of selectedTenants) {
-           const personalisedMsg = generateShortBalanceMessage(tenant);
-           try {
-             const res = await fetchWithTimeout(
-               window.location.origin + "/tenants/send-sms",
-               {
-                 method: "POST",
-                 headers: {
-                   "Content-Type": "application/json",
-                   Authorization: `Bearer ${localStorage.getItem("token")}`,
-                 },
-                 body: JSON.stringify({
-                   tenantIds: [tenant._id],
-                   message: personalisedMsg,
-                 }),
-               }
-             );
-             const data = await res.json();
-             if (data.results?.[0]?.success) {
-               successCount++;
-             } else {
-               failedNames.push(tenant.name);
-             }
-           } catch (err) {
-             failedNames.push(tenant.name);
-           }
-         }
-         summary = `Sent to ${successCount} tenant(s).`;
-         if (failedNames.length)
-           summary += ` Failed for: ${failedNames.join(", ")}.`;
-       } else if (isWaterBillMode) {
-         const selectedTenants = tenants.filter((t) =>
-           tenantIds.includes(t._id)
-         );
-         let successCount = 0;
-         const failedNames = [];
-         for (const tenant of selectedTenants) {
-           const personalisedMsg = generateWaterBillSms(tenant);
-           try {
-             const res = await fetchWithTimeout(
-               window.location.origin + "/tenants/send-sms",
-               {
-                 method: "POST",
-                 headers: {
-                   "Content-Type": "application/json",
-                   Authorization: `Bearer ${localStorage.getItem("token")}`,
-                 },
-                 body: JSON.stringify({
-                   tenantIds: [tenant._id],
-                   message: personalisedMsg,
-                 }),
-               }
-             );
-             const data = await res.json();
-             if (data.results?.[0]?.success) {
-               successCount++;
-             } else {
-               failedNames.push(tenant.name);
-             }
-           } catch (err) {
-             failedNames.push(tenant.name);
-           }
-         }
-         summary = `Sent to ${successCount} tenant(s).`;
-         if (failedNames.length)
-           summary += ` Failed for: ${failedNames.join(", ")}.`;
-       } else {
-         const response = await fetchWithTimeout(
-           window.location.origin + "/tenants/send-sms",
-           {
-             method: "POST",
-             headers: {
-               "Content-Type": "application/json",
-               Authorization: `Bearer ${localStorage.getItem("token")}`,
-             },
-             body: JSON.stringify({ tenantIds, message }),
-           }
-         );
-         const data = await response.json();
-         if (response.ok) {
-           let sent = (data.results || []).filter((r) => r.success).length;
-           summary = `Sent to ${sent} tenants.`;
-           const failed = (data.results || []).filter((r) => !r.success);
-           if (failed.length)
-             summary += ` Failed for: ${failed
-               .map((f) => f.tenant)
-               .join(", ")}.`;
-         } else {
-           summary = data.message || "Failed to send";
-         }
-       }
-       Toast.fire({ icon: "success", title: summary });
-     } catch (err) {
-       Toast.fire({ icon: "error", title: err.message });
-     } finally {
-       setButtonLoading(btn, false);
-     }
-   }
- });
+      setButtonLoading(btn, true);
+      try {
+        let summary = "";
+        // ========== FIX: batched sending for balance mode ==========
+        if (isBalanceMode) {
+          const selectedTenants = tenants.filter((t) =>
+            tenantIds.includes(t._id)
+          );
+          let successCount = 0;
+          const failedNames = [];
+          const BATCH_SIZE = 5;
+
+          for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
+            const batch = selectedTenants.slice(i, i + BATCH_SIZE);
+            const batchResults = await Promise.allSettled(
+              batch.map(async (tenant) => {
+                const personalisedMsg = generateShortBalanceMessage(tenant);
+                try {
+                  const res = await fetchWithTimeout(
+                    window.location.origin + "/tenants/send-sms",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${localStorage.getItem(
+                          "token"
+                        )}`,
+                      },
+                      body: JSON.stringify({
+                        tenantIds: [tenant._id],
+                        message: personalisedMsg,
+                      }),
+                    }
+                  );
+                  const data = await res.json();
+                  return {
+                    tenant: tenant.name,
+                    success: data.results?.[0]?.success,
+                  };
+                } catch (err) {
+                  return { tenant: tenant.name, success: false };
+                }
+              })
+            );
+
+            for (const res of batchResults) {
+              if (res.status === "fulfilled") {
+                if (res.value.success) successCount++;
+                else failedNames.push(res.value.tenant);
+              } else {
+                failedNames.push("unknown");
+              }
+            }
+          }
+          summary = `Sent to ${successCount} tenant(s).`;
+          if (failedNames.length)
+            summary += ` Failed for: ${failedNames.join(", ")}.`;
+        }
+        // ========== FIX: batched sending for water bill mode ==========
+        else if (isWaterBillMode) {
+          const selectedTenants = tenants.filter((t) =>
+            tenantIds.includes(t._id)
+          );
+          let successCount = 0;
+          const failedNames = [];
+          const BATCH_SIZE = 5;
+
+          for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
+            const batch = selectedTenants.slice(i, i + BATCH_SIZE);
+            const batchResults = await Promise.allSettled(
+              batch.map(async (tenant) => {
+                const personalisedMsg = generateWaterBillSms(tenant);
+                try {
+                  const res = await fetchWithTimeout(
+                    window.location.origin + "/tenants/send-sms",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${localStorage.getItem(
+                          "token"
+                        )}`,
+                      },
+                      body: JSON.stringify({
+                        tenantIds: [tenant._id],
+                        message: personalisedMsg,
+                      }),
+                    }
+                  );
+                  const data = await res.json();
+                  return {
+                    tenant: tenant.name,
+                    success: data.results?.[0]?.success,
+                  };
+                } catch (err) {
+                  return { tenant: tenant.name, success: false };
+                }
+              })
+            );
+
+            for (const res of batchResults) {
+              if (res.status === "fulfilled") {
+                if (res.value.success) successCount++;
+                else failedNames.push(res.value.tenant);
+              } else {
+                failedNames.push("unknown");
+              }
+            }
+          }
+          summary = `Sent to ${successCount} tenant(s).`;
+          if (failedNames.length)
+            summary += ` Failed for: ${failedNames.join(", ")}.`;
+        }
+        // ========== standard custom message (unchanged) ==========
+        else {
+          const response = await fetchWithTimeout(
+            window.location.origin + "/tenants/send-sms",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+              body: JSON.stringify({ tenantIds, message }),
+            }
+          );
+          const data = await response.json();
+          if (response.ok) {
+            let sent = (data.results || []).filter((r) => r.success).length;
+            summary = `Sent to ${sent} tenants.`;
+            const failed = (data.results || []).filter((r) => !r.success);
+            if (failed.length)
+              summary += ` Failed for: ${failed
+                .map((f) => f.tenant)
+                .join(", ")}.`;
+          } else {
+            summary = data.message || "Failed to send";
+          }
+        }
+        Toast.fire({ icon: "success", title: summary });
+      } catch (err) {
+        Toast.fire({ icon: "error", title: err.message });
+      } finally {
+        setButtonLoading(btn, false);
+      }
+    }
+  });
 });
 
 document.getElementById("bulk-email-btn").addEventListener("click", () => {

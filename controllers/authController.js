@@ -36,7 +36,7 @@ async function forgotPassword(req, res) {
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
-      // Don't reveal whether the email exists – still return success
+      // Always return success to prevent email enumeration
       return res.json({
         success: true,
         message: "If that email is registered, a reset link has been sent.",
@@ -49,10 +49,10 @@ async function forgotPassword(req, res) {
     user.resetTokenExpiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    // Send email with reset link
-    const resetUrl = `${req.protocol}://${req.get(
-      "host"
-    )}/reset-password.html?token=${token}`;
+    // Use FRONTEND_URL env variable for the correct base URL
+    const baseUrl =
+      process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
+    const resetUrl = `${baseUrl}/reset-password.html?token=${token}`;
     const htmlBody = `
       <p>You requested a password reset for your Paradise Suites account.</p>
       <p>Click the link below to choose a new password (valid for 1 hour):</p>
@@ -60,26 +60,31 @@ async function forgotPassword(req, res) {
       <p>If you didn't request this, ignore this email.</p>
     `;
 
-    // Use the existing email service
-    const { sendEmail } = await import("../services/emailService.js");
-    await sendEmail(
-      user.email,
-      user.name,
-      "Password Reset – Paradise Suites",
-      htmlBody,
-      user._id.toString()
-    );
+    // Send email (import dynamically to avoid circular deps)
+    try {
+      const { sendEmail } = await import("../services/emailService.js");
+      await sendEmail(
+        user.email,
+        user.name,
+        "Password Reset – Paradise Suites",
+        htmlBody,
+        user._id.toString()
+      );
+    } catch (emailError) {
+      console.error("Email sending failed:", emailError);
+      // Even if email fails, we still return a success message
+      // so the user isn't left hanging.
+    }
 
     res.json({
       success: true,
       message: "If that email is registered, a reset link has been sent.",
     });
   } catch (error) {
-    // 🔁 FIX: Hide the raw error from the client
-    console.error("Forgot password error:", error); // keep detailed log for you
-    res
-      .status(500)
-      .json({ message: "Could not send reset email. Please try again later." });
+    console.error("Forgot password error:", error);
+    res.status(500).json({
+      message: "Something went wrong. Please try again later.",
+    });
   }
 }
 

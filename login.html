@@ -309,7 +309,7 @@
             confirmButtonColor: "#3b82f6",
             background: "#1e293b",
             color: "#f1f5f9",
-            showLoaderOnConfirm: true, // ← spinner inside the popup
+            showLoaderOnConfirm: true,
             allowOutsideClick: () => !Swal.isLoading(),
             preConfirm: async (email) => {
               if (!email) {
@@ -317,13 +317,26 @@
                 return false;
               }
 
+              // 🔁 Improved fetch with timeout and safe JSON handling
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 15000); // 15‑second timeout
+
               try {
                 const res = await fetch("/auth/forgot-password", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ email }),
+                  signal: controller.signal,
                 });
-                const data = await res.json();
+                clearTimeout(timeoutId);
+
+                // Safely parse JSON
+                let data;
+                try {
+                  data = await res.json();
+                } catch (jsonError) {
+                  throw new Error("Server returned an invalid response.");
+                }
 
                 if (!res.ok) {
                   throw new Error(
@@ -332,7 +345,14 @@
                 }
                 return data; // passed to the next .then()
               } catch (err) {
-                Swal.showValidationMessage(err.message);
+                clearTimeout(timeoutId);
+                if (err.name === "AbortError") {
+                  Swal.showValidationMessage(
+                    "Request timed out. Please try again."
+                  );
+                } else {
+                  Swal.showValidationMessage(err.message);
+                }
                 return false;
               }
             },

@@ -189,6 +189,20 @@ export async function getOverdueTenants(userId, todayOverride) {
       });
       const latest = monthEntries[monthEntries.length - 1];
       if (!latest || !latest.dueDate) continue;
+
+      // Check for initialPastDue flag – if set and balance > 0, mark overdue immediately
+      const chargeEntry = monthEntries.find(
+        (e) => (e.amountPaid || 0) === 0 && !e.datePaid
+      );
+      if (
+        chargeEntry &&
+        chargeEntry.initialPastDue &&
+        latest.remainingBalance > 0
+      ) {
+        hasOverdue = true;
+        break;
+      }
+
       const dueUTC = new Date(latest.dueDate);
       const dueStr = `${dueUTC.getUTCFullYear()}-${String(
         dueUTC.getUTCMonth() + 1

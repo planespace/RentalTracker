@@ -26,8 +26,6 @@ function renderTenant(tenant, index) {
     statusText = "⚠️ Past due";
     statusClass += " overdue";
 
-    // Find the EARLIEST past‑due month's due date
-    const today = getAppToday();
     const months = [
       ...new Set(tenant.paymentHistory.map((e) => e.month)),
     ].sort();
@@ -37,8 +35,6 @@ function renderTenant(tenant, index) {
       const entry = tenant.paymentHistory.find((e) => e.month === month);
       if (!entry || !entry.dueDate) continue;
       const due = new Date(entry.dueDate);
-
-      // Only consider months that are past due
       if (due < today && entry.remainingBalance > 0) {
         if (!earliestPastDueDate || due < earliestPastDueDate) {
           earliestPastDueDate = due;
@@ -53,7 +49,6 @@ function renderTenant(tenant, index) {
     }
   }
 
-  // Balance = latest cumulative remaining balance
   let balance = tenant.rent;
   if (tenant.paymentHistory && tenant.paymentHistory.length > 0) {
     const sorted = [...tenant.paymentHistory].sort((a, b) => {
@@ -81,7 +76,6 @@ function renderTenant(tenant, index) {
 
   const displayDueDate = getTenantNextDueDate(tenant);
 
-  // Deposit badge – visible until the due date of the LAST deposit month passes
   let hasDeposit = false;
   if (tenant.deposit) {
     const firstMonth = getTenantFirstMonth(tenant);
@@ -89,9 +83,10 @@ function renderTenant(tenant, index) {
       const addMonths = (monthStr, n) => {
         const [y, m] = monthStr.split("-").map(Number);
         const d = new Date(y, m - 1 + n, 1);
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, "0");
-        return `${year}-${month}`;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+          2,
+          "0"
+        )}`;
       };
       const depositPeriod = tenant.depositPeriod || 1;
       const endMonth = addMonths(firstMonth, depositPeriod - 1);
@@ -108,14 +103,19 @@ function renderTenant(tenant, index) {
   let newDiv = document.createElement("div");
   newDiv.className = "tenant-info";
   newDiv.innerHTML = `
-  <p class="tenant-name-cell">${escapeHtml(tenant.name)}</p>
-  <div class="rent-cell">
+  <span class="tenant-col-house" style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(
+    tenant.houseNumber || "—"
+  )}</span>
+  <p class="tenant-col-name">${escapeHtml(tenant.name)}</p>
+  <div class="tenant-col-rent rent-cell">
     <span class="rent-value">${formatCurrency(tenant.rent)}</span>
     ${hasDeposit ? `<span class="deposit-badge">+ Deposit</span>` : ""}
   </div>
-  <div class="balance-cell ${balanceClass}">${balanceText}</div>
-  <p class="entry-date-cell">${formatDate(tenant.entryDate) || "—"}</p>
-  <div class="due-date-cell">
+  <div class="tenant-col-bal balance-cell ${balanceClass}">${balanceText}</div>
+  <p class="tenant-col-entry entry-date-cell">${
+    formatDate(tenant.entryDate) || "—"
+  }</p>
+  <div class="tenant-col-due due-date-cell">
     <span class="due-date-value">${formatDate(displayDueDate) || "—"}</span>
     <span class="${statusClass}">${statusText}</span>
     ${
@@ -126,7 +126,7 @@ function renderTenant(tenant, index) {
         : ""
     }
   </div>
-  <div class="actions-cell">
+  <div class="tenant-col-actions actions-cell">
   ${
     showArchived
       ? `<button class="archived-actions-btn" data-id="${tenant._id}">⚙️</button>`

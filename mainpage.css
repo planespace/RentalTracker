@@ -364,136 +364,6 @@ body.modal-open {
     width: 100%;
   }
 }
-/* ========================
-   TENANTS TABLE
-======================== */
-.tenants-div {
-  max-width: 1400px;
-  margin: 0 auto;
-  background: var(--bg-surface);
-  border-radius: 28px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-md);
-  padding: 0 12px 12px 12px;
-}
-
-.tenant-info-div {
-  overflow-x: auto;
-}
-
-.tenant-info {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 1rem;
-  padding: 14px 20px;
-}
-
-.tenant-info > * {
-  flex: 0 0 auto;
-}
-
-/* Column widths (desktop) */
-.tenant-info > :nth-child(1) {
-  width: 17%;
-} /* Name */
-.tenant-info > :nth-child(2) {
-  width: 12%;
-} /* Rent */
-.tenant-info > :nth-child(3) {
-  width: 13%;
-} /* Balance */
-.tenant-info > :nth-child(4) {
-  width: 12%;
-} /* Entry Date */
-.tenant-info > :nth-child(5) {
-  width: 12%;
-} /* Due Date */
-.tenant-info > :nth-child(6) {
-  width: 18%;
-} /* Actions */
-
-.tenant-info:first-child {
-  background: var(--bg-elevated);
-  border-bottom: 2px solid var(--accent-cyan);
-  border-top-left-radius: 28px;
-  border-top-right-radius: 28px;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.tenant-info:first-child h2 {
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--accent-cyan);
-  margin: 0;
-}
-
-.tenant-info:not(:first-child):hover {
-  background: rgba(59, 130, 246, 0.05);
-}
-
-.tenant-info:first-child > :nth-child(3) {
-  text-align: center;
-}
-
-.balance-cell {
-  text-align: center;
-  font-weight: 600;
-}
-
-.balance-paid {
-  color: var(--success);
-}
-.balance-unpaid {
-  color: var(--danger);
-}
-.balance-overpaid {
-  color: var(--success);
-}
-
-.due-date-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
-.due-date-value {
-  font-size: 0.85rem;
-  color: var(--text-primary);
-}
-
-.due-status {
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.4);
-  display: inline-block;
-}
-
-.tenant-info .tenant-actions-btn {
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  border-radius: 30px;
-}
-
-.tenant-info button {
-  padding: 6px 12px;
-  font-size: 0.75rem;
-}
-
-.empty-message {
-  justify-content: center;
-}
-.empty-message p {
-  white-space: nowrap;
-  text-align: center;
-}
 
 /* ========================
    BULK ACTIONS
@@ -1617,60 +1487,6 @@ body.bulk-mode-active .due-date-cell {
   }
 }
 
-/* ========================
-   RESPONSIVE (TABLET & MOBILE) – NON‑BULK
-======================== */
-@media (max-width: 1023px) and (min-width: 768px) {
-  .tenant-info > :nth-child(4),
-  .tenant-info:first-child > :nth-child(4) {
-    display: block !important;
-  }
-  .tenant-info > :nth-child(1) {
-    width: 18%;
-  }
-  .tenant-info > :nth-child(2) {
-    width: 14%;
-  }
-  .tenant-info > :nth-child(3) {
-    width: 14%;
-  }
-  .tenant-info > :nth-child(4) {
-    width: 14%;
-  }
-  .tenant-info > :nth-child(5) {
-    width: 16%;
-  }
-  .tenant-info > :nth-child(6) {
-    width: 18%;
-  }
-}
-
-@media (max-width: 767px) and (min-width: 481px) {
-  .tenant-info > :nth-child(4),
-  .tenant-info:first-child > :nth-child(4) {
-    display: none !important;
-  }
-  .tenant-info > :nth-child(5),
-  .tenant-info:first-child > :nth-child(5) {
-    display: block !important;
-  }
-  .tenant-info > :nth-child(1) {
-    width: 24%;
-  }
-  .tenant-info > :nth-child(2) {
-    width: 18%;
-  }
-  .tenant-info > :nth-child(3) {
-    width: 18%;
-  }
-  .tenant-info > :nth-child(5) {
-    width: 18%;
-  }
-  .tenant-info > :nth-child(6) {
-    width: 18%;
-  }
-}
-
 /* All‑time stats */
 .all-time-stats {
   max-width: 1200px;
@@ -2456,12 +2272,7 @@ body.bulk-mode-active .due-date-cell {
   filter: invert(0.8);
   cursor: pointer;
 }
-.swal2-html-container {
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-  padding: 8px 0 !important;
-}
+
 .swal2-input {
   width: 100% !important;
   box-sizing: border-box !important;
@@ -2749,122 +2560,6 @@ body.bulk-mode-active .due-date-cell {
   }
 }
 
-/* Centering headers & content */
-.tenant-info:first-child > :nth-child(1) h2,
-.tenant-info:first-child > :nth-child(2) h2,
-.tenant-info:first-child > :nth-child(3) h2,
-.tenant-info:first-child > :nth-child(5) h2 {
-  text-align: center !important;
-}
-.tenant-info > :nth-child(1),
-.tenant-info > :nth-child(2),
-.tenant-info > :nth-child(3),
-.tenant-info > :nth-child(5) {
-  text-align: center !important;
-}
-.tenant-info > :nth-child(6) {
-  text-align: right !important;
-}
-.rent-cell {
-  align-items: center !important;
-}
-.due-date-cell {
-  align-items: center !important;
-  text-align: center !important;
-}
-.due-date-value {
-  text-align: center !important;
-}
-
-/* Unified responsive styles (non‑bulk) */
-@media (max-width: 1023px) and (min-width: 768px) {
-  .tenant-info {
-    gap: 0.5rem !important;
-    padding: 10px 12px !important;
-  }
-  .tenant-info > :nth-child(1) {
-    width: 20% !important;
-  }
-  .tenant-info > :nth-child(2) {
-    width: 14% !important;
-  }
-  .tenant-info > :nth-child(3) {
-    width: 15% !important;
-  }
-  .tenant-info > :nth-child(4) {
-    width: 14% !important;
-  }
-  .tenant-info > :nth-child(5) {
-    width: 15% !important;
-  }
-  .tenant-info > :nth-child(6) {
-    width: 18% !important;
-  }
-  .tenant-info p,
-  .tenant-info .rent-value,
-  .tenant-info .balance-cell,
-  .tenant-info .due-date-value {
-    font-size: 0.8rem !important;
-    text-align: center !important;
-  }
-  .tenant-info:first-child h2 {
-    font-size: 0.7rem !important;
-    text-align: center !important;
-  }
-}
-@media (max-width: 767px) and (min-width: 481px) {
-  .tenant-info {
-    gap: 0.3rem !important;
-    padding: 8px 8px !important;
-  }
-  .tenant-info > :nth-child(1) {
-    width: 26% !important;
-  }
-  .tenant-info > :nth-child(2) {
-    width: 18% !important;
-  }
-  .tenant-info > :nth-child(3) {
-    width: 18% !important;
-  }
-  .tenant-info > :nth-child(4) {
-    display: none !important;
-  }
-  .tenant-info > :nth-child(5) {
-    width: 20% !important;
-  }
-  .tenant-info > :nth-child(6) {
-    width: 18% !important;
-  }
-  .tenant-info p,
-  .tenant-info .rent-value,
-  .tenant-info .balance-cell,
-  .tenant-info .due-date-value {
-    font-size: 0.75rem !important;
-    text-align: center !important;
-  }
-  .tenant-info:first-child h2 {
-    font-size: 0.65rem !important;
-    text-align: center !important;
-  }
-}
-@media (max-width: 480px) {
-  body:not(.bulk-mode-active) .tenant-info > :nth-child(4) {
-    display: none !important;
-  }
-  body:not(.bulk-mode-active) .tenant-info > :nth-child(5) {
-    text-align: center !important;
-  }
-  body:not(.bulk-mode-active) .tenant-info:first-child > :nth-child(5) h2 {
-    text-align: center !important;
-  }
-  body:not(.bulk-mode-active) .rent-cell {
-    align-items: center !important;
-  }
-  body:not(.bulk-mode-active) .deposit-badge {
-    margin-left: 0 !important;
-  }
-}
-
 /* Actions column alignment */
 .tenant-info > :nth-child(6) {
   text-align: right !important;
@@ -2877,34 +2572,6 @@ body.bulk-mode-active .due-date-cell {
     padding: 6px 8px !important;
     font-size: 0.75rem !important;
   }
-}
-
-/* Center everything */
-.tenant-info > :nth-child(1),
-.tenant-info > :nth-child(2),
-.tenant-info > :nth-child(3),
-.tenant-info > :nth-child(4),
-.tenant-info > :nth-child(5),
-.tenant-info > :nth-child(6) {
-  text-align: center !important;
-  justify-content: center !important;
-}
-.tenant-info:first-child > :nth-child(1) h2,
-.tenant-info:first-child > :nth-child(2) h2,
-.tenant-info:first-child > :nth-child(3) h2,
-.tenant-info:first-child > :nth-child(4) h2,
-.tenant-info:first-child > :nth-child(5) h2,
-.tenant-info:first-child > :nth-child(6) h2 {
-  text-align: center !important;
-}
-.actions-cell {
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-}
-.tenant-actions-btn {
-  margin: 0 auto !important;
-  display: inline-block !important;
 }
 
 /* Desktop bulk mode (all columns visible) */
@@ -4390,152 +4057,6 @@ body.bulk-mode-active .due-date-cell {
   width: 200px;
 }
 
-/* ========================
-   CLEAN MOBILE LAYOUT – No scroll, Rent visible, Entry Date hidden
-======================== */
-@media (max-width: 640px) {
-  /* Container – prevent overflow */
-  .tenant-info-div {
-    overflow-x: hidden;
-  }
-
-  /* All rows – flex, even distribution */
-  .tenant-info {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    gap: 0.5rem !important;
-    padding: 10px 6px !important;
-    border-bottom: 1px solid var(--border-light) !important;
-    box-sizing: border-box !important;
-  }
-
-  /* Header row same layout */
-  .tenant-info:first-child {
-    background: var(--bg-elevated) !important;
-    border-bottom: 2px solid var(--accent-cyan) !important;
-    padding: 8px 6px !important;
-    border-radius: 0 !important;
-  }
-
-  /* Hide Entry Date column entirely */
-  .tenant-info > :nth-child(4),
-  .tenant-info:first-child > :nth-child(4) {
-    display: none !important;
-  }
-
-  /* All visible columns share space evenly except Actions */
-  .tenant-info > :nth-child(1), /* Name */
-  .tenant-info > :nth-child(2), /* Rent */
-  .tenant-info > :nth-child(3), /* Balance */
-  .tenant-info > :nth-child(5)  /* Due Date */ {
-    flex: 1 1 0% !important; /* grow equally */
-    min-width: 0 !important; /* allow shrinking */
-    text-align: center !important;
-  }
-
-  /* Actions column – fixed narrow width */
-  .tenant-info > :nth-child(6) {
-    flex: 0 0 44px !important;
-    text-align: center !important;
-    display: flex !important;
-    justify-content: center !important;
-  }
-
-  /* Header row columns same as above */
-  .tenant-info:first-child > :nth-child(1),
-  .tenant-info:first-child > :nth-child(2),
-  .tenant-info:first-child > :nth-child(3),
-  .tenant-info:first-child > :nth-child(5) {
-    flex: 1 1 0% !important;
-    min-width: 0 !important;
-    text-align: center !important;
-  }
-  .tenant-info:first-child > :nth-child(6) {
-    flex: 0 0 44px !important;
-    display: flex !important;
-    justify-content: center !important;
-  }
-
-  /* Header text styling */
-  .tenant-info:first-child h2 {
-    font-size: 0.65rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    white-space: nowrap !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-  }
-
-  /* Data cell text */
-  .tenant-info p,
-  .tenant-info .rent-value,
-  .tenant-info .balance-cell,
-  .tenant-info .due-date-value {
-    font-size: 0.75rem !important;
-    line-height: 1.3 !important;
-    white-space: nowrap !important; /* keep on one line */
-    overflow: hidden !important;
-    text-overflow: ellipsis !important; /* add … if too long */
-    margin: 0;
-  }
-
-  /* Rent cell stacking (badge under amount) */
-  .rent-cell {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    gap: 2px !important;
-  }
-  .deposit-badge {
-    margin-left: 0 !important;
-    white-space: nowrap !important;
-    font-size: 0.6rem;
-  }
-
-  /* Action button compact */
-  .tenant-actions-btn {
-    padding: 4px 6px !important;
-    font-size: 0.75rem !important;
-    min-width: 32px !important;
-  }
-
-  /* Due date badge */
-  .due-status {
-    font-size: 0.6rem !important;
-    padding: 1px 4px;
-    white-space: nowrap;
-  }
-}
-
-/* Extra tight for very small phones (max 400px) – reduce gap a bit */
-@media (max-width: 400px) {
-  .tenant-info {
-    gap: 0.3rem !important;
-    padding: 8px 4px !important;
-  }
-  .tenant-info p,
-  .tenant-info .rent-value,
-  .tenant-info .balance-cell,
-  .tenant-info .due-date-value {
-    font-size: 0.7rem !important;
-  }
-  .tenant-info:first-child h2 {
-    font-size: 0.6rem !important;
-  }
-  .tenant-actions-btn {
-    padding: 3px 5px !important;
-    font-size: 0.7rem !important;
-  }
-  .tenant-info > :nth-child(6) {
-    flex: 0 0 38px !important;
-  }
-  .tenant-info:first-child > :nth-child(6) {
-    flex: 0 0 38px !important;
-  }
-}
-
 .charge-lock {
   font-size: 0.9rem;
   opacity: 0.6;
@@ -5121,20 +4642,321 @@ body.bulk-mode-active .due-date-cell {
 }
 
 @media (max-width: 600px) {
-  .payment-compact-table td {
-    color: var(--text-primary) !important;
+  /* No forced colour – keep the original class colours */
+}
+/* ── ALWAYS START FULLSCREEN MODALS AT THE TOP ── */
+.swal2-container:has(.fullscreen-sms-modal) {
+  align-items: flex-start !important;
+  padding-top: 5vh !important;
+}
+
+.tenant-col-house {
+  width: 6%;
+  min-width: 36px;
+  text-align: center;
+}
+.tenant-col-name {
+  width: 16%;
+  text-align: center;
+}
+.tenant-col-rent {
+  width: 11%;
+  text-align: center;
+}
+.tenant-col-bal {
+  width: 12%;
+  text-align: center;
+}
+.tenant-col-entry {
+  width: 11%;
+  text-align: center;
+}
+.tenant-col-due {
+  width: 12%;
+  text-align: center;
+}
+.tenant-col-actions {
+  width: 18%;
+  text-align: center;
+}
+
+/* ========================
+   TENANTS TABLE – final polished (HS, centered, no overflow)
+======================== */
+.tenants-div {
+  max-width: 1400px;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  padding: 0 12px 12px 12px;
+}
+
+.tenant-info-div {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Row layout (flex, no gap) ── */
+.tenant-info {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  padding: 14px 20px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: fit-content;
+}
+
+/* All direct children – base rules */
+.tenant-info > * {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 4px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Desktop widths ── */
+.tenant-col-house {
+  width: 6%;
+  min-width: 36px;
+}
+.tenant-col-name {
+  width: 20%;
+}
+.tenant-col-rent {
+  width: 11%;
+}
+.tenant-col-bal {
+  width: 12%;
+}
+.tenant-col-entry {
+  width: 10%;
+}
+.tenant-col-due {
+  width: 12%;
+}
+.tenant-col-actions {
+  width: 29%;
+}
+
+/* Header row */
+.tenant-info:first-child {
+  background: var(--bg-elevated);
+  border-bottom: 2px solid var(--accent-cyan);
+  border-top-left-radius: 28px;
+  border-top-right-radius: 28px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tenant-info:first-child h2 {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent-cyan);
+  margin: 0;
+}
+
+/* Hover effect */
+.tenant-info:not(:first-child):hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+/* Balance colours */
+.balance-cell {
+  font-weight: 600;
+}
+.balance-paid {
+  color: var(--success);
+}
+.balance-unpaid {
+  color: var(--danger);
+}
+.balance-overpaid {
+  color: var(--success);
+}
+
+/* Rent cell */
+.rent-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.rent-value {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+/* Deposit badge */
+.deposit-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+/* Due date cell – fully centered, no overflow */
+.due-date-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  overflow: hidden;
+}
+.due-date-value {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.due-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.4);
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.overdue-days {
+  font-size: 0.65rem;
+  color: #f87171;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 1px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Action button */
+.tenant-info .tenant-actions-btn {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border-radius: 30px;
+}
+.tenant-info button {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+}
+
+/* Empty state */
+.empty-message {
+  justify-content: center;
+}
+.empty-message p {
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* ── MOBILE (≤640px) – all 6 columns visible ── */
+@media (max-width: 640px) {
+  .tenant-info {
+    padding: 10px 4px;
   }
-  .payment-compact-table .amount-paid,
-  .payment-compact-table .status-paid,
-  .payment-compact-table .balance-positive,
-  .payment-compact-table .balance-negative,
-  .payment-compact-table .balance-zero,
-  .payment-compact-table .status-unpaid,
-  .payment-compact-table .status-overdue,
-  .payment-compact-table .status-overpaid,
-  .payment-compact-table .left-net,
-  .payment-compact-table .balance-red,
-  .payment-compact-table .balance-green {
-    color: inherit !important;
+
+  .tenant-col-house {
+    width: 8% !important;
+    min-width: 24px !important;
+  }
+  .tenant-col-name {
+    width: 24% !important;
+  }
+  .tenant-col-rent {
+    width: 14% !important;
+  }
+  .tenant-col-bal {
+    width: 16% !important;
+    display: block !important;
+  }
+  .tenant-col-entry {
+    display: none !important;
+  }
+  .tenant-col-due {
+    width: 18% !important;
+  }
+  .tenant-col-actions {
+    width: 20% !important;
+  }
+
+  .tenant-info p,
+  .tenant-info .rent-value,
+  .tenant-info .balance-cell,
+  .tenant-info .due-date-value {
+    font-size: 0.75rem;
+  }
+  .tenant-info:first-child h2 {
+    font-size: 0.6rem !important;
+  }
+  .tenant-actions-btn {
+    padding: 4px 6px !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Ensure due tags don't break */
+  .due-status,
+  .overdue-days {
+    font-size: 0.65rem;
+    padding: 1px 4px;
+  }
+}
+
+/* Very small phones – a bit more compact */
+@media (max-width: 480px) {
+  .tenant-info {
+    padding: 8px 2px;
+  }
+  .tenant-col-house {
+    width: 10% !important;
+    min-width: 20px !important;
+  }
+  .tenant-col-name {
+    width: 24% !important;
+  }
+  .tenant-col-rent {
+    width: 14% !important;
+  }
+  .tenant-col-bal {
+    width: 16% !important;
+    display: block !important;
+  }
+  .tenant-col-due {
+    width: 18% !important;
+  }
+  .tenant-col-actions {
+    width: 18% !important;
+  }
+
+  .tenant-info p,
+  .tenant-info .rent-value,
+  .tenant-info .balance-cell,
+  .tenant-info .due-date-value {
+    font-size: 0.7rem;
+  }
+  .tenant-actions-btn {
+    padding: 2px 4px !important;
+    font-size: 0.7rem !important;
   }
 }

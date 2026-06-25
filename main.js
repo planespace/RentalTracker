@@ -3928,11 +3928,10 @@ async function showAddTenantModal() {
     color: "#f1f5f9",
     width: "650px",
     customClass: {
-      popup: "premium-swal-popup", // clean rounded popup
+      popup: "premium-swal-popup",
       title: "premium-swal-title",
     },
     didOpen: () => {
-      // Toggle deposit period
       const depositCheck = document.getElementById("modal-include-deposit");
       const wrapper = document.getElementById("modal-deposit-wrapper");
       depositCheck.addEventListener("change", () => {
@@ -3956,6 +3955,7 @@ async function showAddTenantModal() {
         ? parseInt(document.getElementById("modal-deposit-period").value) || 1
         : 0;
 
+      // Validation (same as before)
       if (!name) {
         Swal.showValidationMessage("Name is required.");
         return false;
@@ -3994,7 +3994,7 @@ async function showAddTenantModal() {
 
       const rent = Number(rentStr);
 
-      // Send to server
+      // Send to server and return the created tenant object
       try {
         const response = await fetchWithTimeout("/tenants", {
           method: "POST",
@@ -4021,7 +4021,8 @@ async function showAddTenantModal() {
           throw new Error(err.message);
         }
 
-        return true;
+        // Return the newly created tenant from the server
+        return await response.json();
       } catch (err) {
         Swal.showValidationMessage(err.message);
         return false;
@@ -4029,8 +4030,18 @@ async function showAddTenantModal() {
     },
   });
 
-  if (isConfirmed) {
-    await loadTenants();
+  if (isConfirmed && isConfirmed !== false) {
+    // The value from preConfirm is the new tenant object
+    const newTenant = isConfirmed;
+
+    // ⚡ Optimistic update – push to local array and re‑render immediately
+    tenantArray.push(newTenant);
+    applyFiltersAndSort();
+    updateStats(tenantArray);
+    updateOccupancy();
+    updateAllTimeStats(tenantArray);
+
+    // Show success toast
     originalSwalFire.call(Swal, {
       toast: true,
       position: "bottom-end",
@@ -4042,6 +4053,9 @@ async function showAddTenantModal() {
       icon: "success",
       title: "Tenant Added",
     });
+
+    // Update the cache as well
+    sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
   }
 }
 

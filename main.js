@@ -4017,7 +4017,6 @@ async function showAddTenantModal() {
         ? parseInt(document.getElementById("modal-deposit-period").value) || 1
         : 0;
 
-      // Validation (same as before)
       if (!name) {
         Swal.showValidationMessage("Name is required.");
         return false;
@@ -4056,7 +4055,6 @@ async function showAddTenantModal() {
 
       const rent = Number(rentStr);
 
-      // Send to server and return the created tenant object
       try {
         const response = await fetchWithTimeout("/tenants", {
           method: "POST",
@@ -4083,8 +4081,7 @@ async function showAddTenantModal() {
           throw new Error(err.message);
         }
 
-        // Return the newly created tenant from the server
-        return await response.json();
+        return true;
       } catch (err) {
         Swal.showValidationMessage(err.message);
         return false;
@@ -4092,18 +4089,10 @@ async function showAddTenantModal() {
     },
   });
 
-  if (isConfirmed && isConfirmed !== false) {
-    // The value from preConfirm is the new tenant object
-    const newTenant = isConfirmed;
-
-    // ⚡ Optimistic update – push to local array and re‑render immediately
-    tenantArray.push(newTenant);
-    applyFiltersAndSort();
-    updateStats(tenantArray);
-    updateOccupancy();
-    updateAllTimeStats(tenantArray);
-
-    // Show success toast
+  if (isConfirmed) {
+    // 🔁 Reload the whole list from server – guarantees accurate data
+    await loadTenants();
+    scheduleChartUpdate();
     originalSwalFire.call(Swal, {
       toast: true,
       position: "bottom-end",
@@ -4115,9 +4104,6 @@ async function showAddTenantModal() {
       icon: "success",
       title: "Tenant Added",
     });
-
-    // Update the cache as well
-    sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
   }
 }
 

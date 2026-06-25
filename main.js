@@ -332,6 +332,13 @@ function showNetworkErrorModal(message) {
 }
 
 async function fetchUserProfile() {
+  // Return cached profile instantly if available
+  const cached = sessionStorage.getItem("userProfile");
+  if (cached) {
+    userProfile = JSON.parse(cached);
+    return userProfile;
+  }
+
   try {
     const response = await fetchWithTimeout(
       window.location.origin + "/auth/profile",
@@ -339,7 +346,10 @@ async function fetchUserProfile() {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       }
     );
-    if (response.ok) userProfile = await response.json();
+    if (response.ok) {
+      userProfile = await response.json();
+      sessionStorage.setItem("userProfile", JSON.stringify(userProfile));
+    }
     return userProfile;
   } catch (err) {
     console.warn("Fetch user profile failed", err);
@@ -480,6 +490,7 @@ function showLandlordProfileModal() {
       setButtonLoading(e.target, true);
       try {
         await updateUserProfile(updates);
+        sessionStorage.setItem("userProfile", JSON.stringify(userProfile));
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -665,6 +676,13 @@ function setButtonLoading(button, isLoading) {
 
 // ----- GLOBAL SETTINGS HELPERS -----
 async function fetchGlobalSettings() {
+  // Return cached settings instantly if available
+  const cached = sessionStorage.getItem("globalSettings");
+  if (cached) {
+    globalSettings = JSON.parse(cached);
+    return globalSettings;
+  }
+
   const response = await fetchWithTimeout(
     window.location.origin + "/tenants/settings",
     {
@@ -679,6 +697,9 @@ async function fetchGlobalSettings() {
     window.location.replace("login.html");
   }
   globalSettings = await response.json();
+
+  // Cache for next time
+  sessionStorage.setItem("globalSettings", JSON.stringify(globalSettings));
   return globalSettings;
 }
 
@@ -1434,6 +1455,7 @@ async function saveExtraChargesForMonth(tenantId, entryId, month) {
       // Refresh main tenant list so balance/overdue updates immediately
       applyFiltersAndSort();
       updateStats(tenantArray);
+      scheduleChartUpdate();
     } else {
       console.warn(
         "⚠️ Could not update tenantArray – tenant not found or missing paymentHistory in response"
@@ -2118,15 +2140,39 @@ async function showUtilitiesModal(tenantId) {
         <span>${formatCurrency(waterRate)} / unit</span>
       </div>
 
-      <h4>📝 Add New Reading</h4>
+         <h4>📝 Add New Reading</h4>
       <div class="add-reading-form">
-        <div class="utility-row"><label>Month:</label><input type="month" id="reading-month" value="${currentMonth}"></div>
-      <div class="utility-row"><label>Previous Reading:</label><span id="prev-reading-display">${prevReading}</span> <a href="#" id="override-previous-link" style="font-size:0.8rem; color:var(--accent-cyan); margin-left:10px;">Override</a></div>
-<div class="utility-row" id="override-previous-row" style="display:none;">
-  <label>Override Previous:</label><input type="number" id="override-previous-input" step="0.1" placeholder="Enter manual previous">
-</div>
-<div class="utility-row"><label>Current Reading:</label><input type="number" id="meter-reading" step="0.1" placeholder="Enter current reading"></div>
-<div class="utility-row"><label>Exempt Units:</label><input type="number" id="exempt-units" step="0.1" placeholder="Optional, e.g., 1.2"></div>
+        <div class="utility-row">
+          <label>Month:</label>
+          <select id="reading-month" style="padding:8px; border-radius:8px; background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border); flex:1;">
+            ${(() => {
+              // Get months that have a charge entry (amountPaid=0, no datePaid)
+              const monthsWithCharges = (tenant.paymentHistory || [])
+                .filter((e) => (e.amountPaid || 0) === 0 && !e.datePaid)
+                .map((e) => e.month)
+                .sort();
+              // Ensure currentMonth is included even if not yet charged
+              if (!monthsWithCharges.includes(currentMonth)) {
+                monthsWithCharges.push(currentMonth);
+                monthsWithCharges.sort();
+              }
+              return monthsWithCharges
+                .map(
+                  (m) =>
+                    `<option value="${m}" ${
+                      m === currentMonth ? "selected" : ""
+                    }>${m}</option>`
+                )
+                .join("");
+            })()}
+          </select>
+        </div>
+        <div class="utility-row"><label>Previous Reading:</label><span id="prev-reading-display">${prevReading}</span> <a href="#" id="override-previous-link" style="font-size:0.8rem; color:var(--accent-cyan); margin-left:10px;">Override</a></div>
+        <div class="utility-row" id="override-previous-row" style="display:none;">
+          <label>Override Previous:</label><input type="number" id="override-previous-input" step="0.1" placeholder="Enter manual previous">
+        </div>
+        <div class="utility-row"><label>Current Reading:</label><input type="number" id="meter-reading" step="0.1" placeholder="Enter current reading"></div>
+        <div class="utility-row"><label>Exempt Units:</label><input type="number" id="exempt-units" step="0.1" placeholder="Optional, e.g., 1.2"></div>
         <div class="utility-row"><label>Units Used:</label><span id="units-used">0</span></div>
         <div class="utility-row"><label>Water Cost (KSH):</label><span id="water-cost">0</span></div>
         <div class="utility-actions">
@@ -2359,6 +2405,7 @@ async function showUtilitiesModal(tenantId) {
               tenantArray = await resp.json();
               applyFiltersAndSort();
               updateStats(tenantArray);
+              scheduleChartUpdate();
               const paymentModal = document.getElementById("payment-modal");
               if (paymentModal && paymentModal.style.display === "block") {
                 renderPaymentModal(window.currentActionsTenantId);
@@ -2432,6 +2479,7 @@ async function showUtilitiesModal(tenantId) {
           );
           if (response.ok) {
             await loadTenants();
+            scheduleChartUpdate();
             const paymentModal = document.getElementById("payment-modal");
             if (paymentModal && paymentModal.style.display === "block") {
               renderPaymentModal(window.currentActionsTenantId);
@@ -2816,6 +2864,7 @@ function showGlobalSettingsModal() {
           if (res.ok) {
             await fetchGlobalSettings();
             await loadTenants();
+            scheduleChartUpdate();
             Toast.fire({
               icon: "success",
               title: `Due day updated to ${newDay}`,
@@ -2873,6 +2922,7 @@ function showGlobalSettingsModal() {
         const data = await res.json();
         if (res.ok) {
           await loadTenants();
+          scheduleChartUpdate();
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
@@ -2927,6 +2977,7 @@ function showGlobalSettingsModal() {
           );
           if (res.ok) {
             await loadTenants();
+            scheduleChartUpdate();
             Toast.fire({
               icon: "success",
               title: `Rent updated to ${newRent}`,
@@ -3134,6 +3185,7 @@ function showGlobalSettingsModal() {
           await fetchGlobalSettings();
           await loadTenants();
           // ✅ Success toast – does NOT close the modal
+          scheduleChartUpdate();
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
@@ -3715,6 +3767,7 @@ document.addEventListener("click", async (e) => {
           );
           if (response.ok) {
             await loadTenants();
+            scheduleChartUpdate();
             renderPaymentModal(tenantId);
             originalSwalFire.call(Swal, {
               toast: true,
@@ -3788,6 +3841,7 @@ document.addEventListener("click", async (e) => {
           );
           if (response.ok) {
             await loadTenants();
+            scheduleChartUpdate();
             renderPaymentModal(tenantId);
             originalSwalFire.call(Swal, {
               toast: true,
@@ -4593,6 +4647,7 @@ document
         );
         if (response.ok) {
           await loadTenants();
+          scheduleChartUpdate();
           document.getElementById("profile-modal").style.display = "none";
           document.body.classList.remove("modal-open");
           Toast.fire({ icon: "success", title: "Profile Updated" });
@@ -5140,6 +5195,7 @@ async function showBulkAddTenantsModal() {
               const data = await response.json();
               if (response.ok) {
                 await loadTenants();
+                scheduleChartUpdate();
                 let msg = `Added ${data.created} tenants.`;
                 if (data.errors && data.errors.length > 0) {
                   msg += ` Skipped: ${data.errors.join(", ")}.`;
@@ -5263,6 +5319,7 @@ function importTenantsFromCSV() {
               if (data.errors) msg += ` ${data.errors.length} skipped.`;
               Toast.fire({ icon: "success", title: msg });
               await loadTenants();
+              scheduleChartUpdate();
             } else {
               Toast.fire({
                 icon: "error",
@@ -5420,6 +5477,7 @@ document.addEventListener("click", async (e) => {
       );
       if (response.ok) {
         await loadTenants();
+        scheduleChartUpdate();
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -5501,6 +5559,7 @@ document.addEventListener("click", async (e) => {
       );
       if (response.ok) {
         await loadTenants();
+        scheduleChartUpdate();
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -5728,6 +5787,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await response.json();
         if (response.ok) {
           await loadTenants();
+          scheduleChartUpdate();
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
@@ -6336,6 +6396,14 @@ async function showBulkWaterReadingModal() {
   function renderTable(selectedMonth) {
     const activeTenants = tenantArray
       .filter((t) => t.active !== false)
+      .filter((t) =>
+        t.paymentHistory.some(
+          (e) =>
+            e.month === selectedMonth &&
+            (e.amountPaid || 0) === 0 &&
+            !e.datePaid
+        )
+      )
       .sort((a, b) => {
         const ha = (a.houseNumber || "").trim();
         const hb = (b.houseNumber || "").trim();
@@ -6346,7 +6414,7 @@ async function showBulkWaterReadingModal() {
       });
 
     if (activeTenants.length === 0) {
-      return '<p style="text-align:center; padding:40px; font-size:1.1rem; color:var(--text-muted);">No active tenants.</p>';
+      return `<p style="text-align:center; padding:40px; font-size:1.1rem; color:var(--text-muted);">No tenants have a billing entry for ${selectedMonth}.</p>`;
     }
 
     let html = `
@@ -6426,19 +6494,49 @@ async function showBulkWaterReadingModal() {
     return html;
   }
 
+  // ── Performance‑friendly full‑screen styles ──
   const styleTag = document.createElement("style");
   styleTag.textContent = `
-    @media (max-width: 600px) {
-      .bulk-water-table { font-size: 0.65rem !important; }
-      .bulk-water-table th, .bulk-water-table td { padding: 4px 2px !important; }
-      .bulk-override-input, .bulk-reading-input, .bulk-exempt-input {
-        width: 50px !important; padding: 5px 2px !important; font-size: 0.65rem !important;
-      }
+    .bulk-water-fullscreen {
+      background: var(--bg-secondary, #0f172a) !important;
+    }
+    .bulk-water-fullscreen .swal2-html-container {
+      margin: 0 !important;
+      padding: 8px 16px !important;
+      flex: 1 !important;
+      overflow-y: auto !important;
+    }
+    .bulk-water-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .bulk-water-table th, .bulk-water-table td {
+      text-align: center;
+      vertical-align: middle;
+    }
+    .bulk-water-table thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-elevated);
+      z-index: 2;
+    }
+    .bulk-override-input, .bulk-reading-input, .bulk-exempt-input {
+      width: 100%;
+      max-width: 100px;
+      padding: 8px 4px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      text-align: center;
+      font-size: 0.9rem;
     }
     .bulk-invalid-row td {
       background: rgba(239,68,68,0.15) !important;
     }
-    .bulk-invalid-row td:first-child { border-left: 3px solid #ef4444; }
+    .bulk-invalid-row td:first-child {
+      border-left: 3px solid #ef4444;
+    }
     #bulk-reading-errors {
       display: none;
       margin: 16px 0;
@@ -6463,88 +6561,114 @@ async function showBulkWaterReadingModal() {
       color: #ef4444;
       margin-bottom: 8px;
     }
+    @media (max-width: 600px) {
+      .bulk-water-table th, .bulk-water-table td {
+        padding: 6px 1px !important;
+        font-size: 0.7rem;
+      }
+      .bulk-override-input, .bulk-reading-input, .bulk-exempt-input {
+        max-width: 55px;
+        padding: 6px 1px;
+        font-size: 0.65rem;
+      }
+    }
   `;
   document.head.appendChild(styleTag);
 
+  const modalHtml = `
+    <div style="display:flex; flex-direction:column; gap:16px; padding-bottom: 16px;">
+      <div style="display:flex; justify-content:center; gap:12px; align-items:center; flex-wrap:wrap;">
+        <label style="color:var(--text-secondary); font-size:1rem;">Month:</label>
+        <select id="bulk-reading-month" style="padding:10px 16px; border-radius:40px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); font-size:1rem;">
+          ${monthOptions}
+        </select>
+      </div>
+      <p style="text-align:center; font-size:0.9rem; color:var(--text-muted);">Water Rate: <strong style="color:var(--accent-cyan);">KES ${waterRate.toLocaleString()} / unit</strong></p>
+      <div id="bulk-reading-errors">
+        <div class="error-title">⚠️ Invalid Readings Found</div>
+        <div class="error-list" id="bulk-error-list"></div>
+      </div>
+      <div id="bulk-reading-table" style="overflow-x:auto;">
+        ${renderTable(currentMonth)}
+      </div>
+    </div>
+  `;
+
+  // ── Full‑screen Swal fire ──
   const result = await Swal.fire({
     title: "📋 Bulk Water Reading",
-    html: `
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        <div style="display:flex; justify-content:center; gap:12px; align-items:center;">
-          <label style="color:var(--text-secondary); font-size:1rem;">Month:</label>
-          <select id="bulk-reading-month" style="padding:10px 16px; border-radius:40px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); font-size:1rem;">
-            ${monthOptions}
-          </select>
-        </div>
-        <p style="text-align:center; font-size:0.9rem; color:var(--text-muted);">Water Rate: <strong style="color:var(--accent-cyan);">KES ${waterRate.toLocaleString()} / unit</strong></p>
-        <div id="bulk-reading-errors">
-          <div class="error-title">⚠️ Invalid Readings Found</div>
-          <div class="error-list" id="bulk-error-list"></div>
-        </div>
-        <div id="bulk-reading-table" style="padding:4px;">
-          ${renderTable(currentMonth)}
-        </div>
-      </div>
-    `,
+    html: modalHtml,
     showCancelButton: true,
     confirmButtonText: "💾 Save All",
     confirmButtonColor: "#10b981",
     cancelButtonColor: "#ef4444",
     background: "#1e293b",
     color: "#f1f5f9",
-    width: "90%",
-    customClass: { popup: "fullscreen-sms-modal" },
+    width: "100%",
+    grow: "fullscreen",
+    customClass: { popup: "bulk-water-fullscreen" },
     didOpen: () => {
+      // Force full‑screen positioning
+      const popup = Swal.getPopup();
+      if (popup) {
+        popup.style.position = "fixed";
+        popup.style.top = "0";
+        popup.style.left = "0";
+        popup.style.width = "100%";
+        popup.style.height = "100%";
+        popup.style.maxHeight = "100vh";
+        popup.style.margin = "0";
+        popup.style.borderRadius = "0";
+        popup.style.transform = "none";
+        popup.style.display = "flex";
+        popup.style.flexDirection = "column";
+        popup.style.overflow = "auto";
+      }
+      const htmlContainer = Swal.getHtmlContainer();
+      if (htmlContainer) {
+        htmlContainer.style.flex = "1";
+        htmlContainer.style.overflowY = "visible";
+        htmlContainer.style.maxHeight = "none";
+      }
+
       const monthSelect = document.getElementById("bulk-reading-month");
       monthSelect.addEventListener("change", (e) => {
         const newMonth = e.target.value;
         const tableDiv = document.getElementById("bulk-reading-table");
         if (tableDiv) tableDiv.innerHTML = renderTable(newMonth);
         attachRowValidation();
-        document.getElementById("bulk-reading-errors").style.display = "none";
+        const errDiv = document.getElementById("bulk-reading-errors");
+        if (errDiv) errDiv.style.display = "none";
       });
 
       function attachRowValidation() {
-        const readingInputs = document.querySelectorAll(".bulk-reading-input");
-        const overrideInputs = document.querySelectorAll(
-          ".bulk-override-input"
-        );
-
-        const updateRow = (row) => {
-          const readingInput = row.querySelector(".bulk-reading-input");
-          const overrideInput = row.querySelector(".bulk-override-input");
-          const prevCell = row.querySelector(".bulk-prev-auto");
-          const autoPrev = parseFloat(prevCell?.dataset.prev || 0);
-
-          const reading = parseFloat(readingInput?.value);
-          const override = overrideInput?.value.trim();
-          const effectivePrevious =
-            override !== "" ? parseFloat(override) : autoPrev;
-
-          if (
-            !isNaN(reading) &&
-            !isNaN(effectivePrevious) &&
-            reading < effectivePrevious
-          ) {
-            row.classList.add("bulk-invalid-row");
-          } else {
-            row.classList.remove("bulk-invalid-row");
-          }
-        };
-
-        readingInputs.forEach((inp) => {
-          const row = inp.closest("tr");
-          inp.addEventListener("input", () => updateRow(row));
-        });
-        overrideInputs.forEach((inp) => {
-          const row = inp.closest("tr");
-          inp.addEventListener("input", () => updateRow(row));
-        });
-
         document
           .querySelectorAll(".bulk-water-table tbody tr")
           .forEach((row) => {
-            updateRow(row);
+            const readingInput = row.querySelector(".bulk-reading-input");
+            const overrideInput = row.querySelector(".bulk-override-input");
+            const prevCell = row.querySelector(".bulk-prev-auto");
+            const autoPrev = parseFloat(prevCell?.dataset.prev || 0);
+
+            const updateRow = () => {
+              const reading = parseFloat(readingInput?.value);
+              const override = overrideInput?.value.trim();
+              const effectivePrevious =
+                override !== "" ? parseFloat(override) : autoPrev;
+              if (
+                !isNaN(reading) &&
+                !isNaN(effectivePrevious) &&
+                reading < effectivePrevious
+              ) {
+                row.classList.add("bulk-invalid-row");
+              } else {
+                row.classList.remove("bulk-invalid-row");
+              }
+            };
+
+            readingInput?.addEventListener("input", updateRow);
+            overrideInput?.addEventListener("input", updateRow);
+            updateRow();
           });
       }
 
@@ -6602,13 +6726,13 @@ async function showBulkWaterReadingModal() {
       });
 
       if (errors.length > 0) {
-        const errorDiv = document.getElementById("bulk-reading-errors");
+        const errDiv = document.getElementById("bulk-reading-errors");
         const errorList = document.getElementById("bulk-error-list");
         errorList.innerHTML = errors
           .map((err) => `<div>• ${escapeHtml(err)}</div>`)
           .join("");
-        errorDiv.style.display = "block";
-        errorDiv.scrollIntoView({ behavior: "smooth", block: "center" });
+        errDiv.style.display = "block";
+        errDiv.scrollIntoView({ behavior: "smooth", block: "center" });
         return false;
       }
 
@@ -6617,7 +6741,8 @@ async function showBulkWaterReadingModal() {
         return false;
       }
 
-      document.getElementById("bulk-reading-errors").style.display = "none";
+      const errDiv = document.getElementById("bulk-reading-errors");
+      if (errDiv) errDiv.style.display = "none";
       return readings;
     },
     willClose: () => {
@@ -6641,11 +6766,11 @@ async function showBulkWaterReadingModal() {
     const data = await response.json();
     if (response.ok) {
       await loadTenants();
+      scheduleChartUpdate();
       let msg = `Saved ${data.saved} readings.`;
       if (data.errors && data.errors.length > 0) {
         msg += ` Skipped: ${data.errors.join(", ")}.`;
       }
-      // ✅ Success toast – THIS IS THE CONFIRMATION TOAST
       originalSwalFire.call(Swal, {
         toast: true,
         position: "bottom-end",
@@ -6676,7 +6801,6 @@ async function showBulkWaterReadingModal() {
     setButtonLoading(document.getElementById("bulk-water-btn"), false);
   }
 }
-
 function updateAllTimeStats(tenantArray) {
   let allTimeOwed = 0;
   let allTimeCollected = 0;
@@ -6980,7 +7104,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   ].sort();
   const monthData = new Map();
 
-  // Compute standalone left for each month
+  // leftByMonth calculation
   const leftByMonth = new Map();
   let prevCumulative = 0;
   for (const month of allMonths) {
@@ -6994,7 +7118,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     prevCumulative = cumulative;
   }
 
-  // Determine deposit period range
+  // deposit end month
   const firstMonth = allMonths.length > 0 ? allMonths[0] : null;
   let depositEndMonth = null;
   if (
@@ -7010,7 +7134,7 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     ).padStart(2, "0")}`;
   }
 
-  // Collect month data
+  // collect month data
   for (const month of allMonths) {
     const chargeEntry = tenant.paymentHistory.find(
       (e) => e.month === month && (e.amountPaid || 0) === 0 && !e.datePaid
@@ -7051,13 +7175,9 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     const isOverdue = isPastDueByDate || isInitialPastDue;
 
     let status = "";
-    if (monthLeft <= 0) {
-      status = "Paid";
-    } else if (isOverdue) {
-      status = "Overdue";
-    } else {
-      status = "Not Due";
-    }
+    if (monthLeft <= 0) status = "Paid";
+    else if (isOverdue) status = "Overdue";
+    else status = "Not Due";
 
     monthData.set(month, {
       month,
@@ -7074,10 +7194,9 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
     });
   }
 
-  // Decide which months to display
+  // display logic
   const currentBillingMonth = getCurrentBillingMonthForTenant(tenant);
   const allMonthKeys = [...monthData.keys()].sort();
-
   const overdueMonths = allMonthKeys.filter(
     (m) => monthData.get(m).status === "Overdue"
   );
@@ -7087,117 +7206,113 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
   const displaySet = new Set(overdueMonths);
   displaySet.add(currentBillingMonth);
-
   const recentNonOverdue = nonOverdueMonths
     .filter((m) => m !== currentBillingMonth)
     .sort()
     .slice(-3);
-
   for (const m of recentNonOverdue) {
     if (displaySet.size >= 3) break;
     displaySet.add(m);
   }
-
   const displayMonths = allMonthKeys.filter((m) => displaySet.has(m));
 
-  // Generate cards
+  // ── Build premium cards ──
   const cards = [];
   for (const month of displayMonths) {
     const d = monthData.get(month);
     if (!d) continue;
 
-    const cardBorder = d.isOverdue ? "#dc2626" : "#16a34a";
-    const cardBg = d.isOverdue ? "#fff5f5" : "#f0fdf4";
-    const balanceColor = d.balance > 0 ? "#dc2626" : "#16a34a";
+    const cardBg = d.isOverdue ? "#FEF2F2" : "#F0FDF4";
+    const borderColor = d.isOverdue ? "#EF4444" : "#10B981";
+    const badgeBg = d.isOverdue ? "#FEE2E2" : "#D1FAE5";
+    const badgeColor = d.isOverdue ? "#991B1B" : "#065F46";
+    const balanceColor = d.balance > 0 ? "#DC2626" : "#059669";
+    const balanceText =
+      d.balance > 0 ? `KES ${d.balance.toLocaleString()}` : "Fully paid";
 
-    // Compact, centered table
-    const card = `
-      <div style="background:${cardBg}; border-left:5px solid ${cardBorder}; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 2px 4px rgba(0,0,0,0.04);">
+    cards.push(`
+      <div style="background:${cardBg}; border-radius:16px; padding:20px; margin-bottom:18px; border:1px solid ${borderColor};">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-          <span style="font-size:20px; font-weight:700; color:#0f172a;">${
+          <span style="font-size:18px; font-weight:700; color:#1E293B;">${
             d.month
           }</span>
-          <span style="margin-left:auto; display:inline-block; padding:5px 16px; border-radius:20px; font-weight:700; font-size:15px; background:${cardBorder}; color:white;">${
+          <span style="display:inline-block; background:${badgeBg}; color:${badgeColor}; padding:6px 16px; border-radius:40px; font-weight:700; font-size:14px;">${
       d.status
     }</span>
         </div>
-        <div style="max-width:450px; margin:0 auto; text-align:center;">
-          <table style="margin:0 auto; border-collapse:collapse; font-size:15px; color:#334155;">
+        <div style="max-width:480px; margin:0 auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:15px; color:#334155;">
             <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Rent</td>
-              <td style="padding:6px 0; text-align:right;">KES ${d.rentAmount.toLocaleString()}</td>
+              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Rent</td>
+              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.rentAmount.toLocaleString()}</td>
             </tr>
             <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Deposit</td>
-              <td style="padding:6px 0; text-align:right;">${
+              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Deposit</td>
+              <td style="padding:8px 0; text-align:right; font-weight:500;">${
                 d.depositInstalment > 0
                   ? `KES ${d.depositInstalment.toLocaleString()}`
                   : "—"
               }</td>
             </tr>
             <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Water</td>
-              <td style="padding:6px 0; text-align:right;">KES ${d.waterCharge.toLocaleString()}</td>
+              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Water</td>
+              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.waterCharge.toLocaleString()}</td>
             </tr>
             <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Garbage</td>
-              <td style="padding:6px 0; text-align:right;">KES ${d.garbageCharge.toLocaleString()}</td>
+              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Garbage</td>
+              <td style="padding:8px 0; text-align:right; font-weight:500;">KES ${d.garbageCharge.toLocaleString()}</td>
             </tr>
             ${
               d.extraTotal > 0
-                ? `<tr>
-                    <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Extra</td>
-                    <td style="padding:6px 0; text-align:right; color:#fbbf24; font-weight:600;">KES ${d.extraTotal.toLocaleString()}</td>
-                  </tr>`
+                ? `
+            <tr>
+              <td style="padding:8px 12px 8px 0; text-align:left; color:#64748B;">Extra</td>
+              <td style="padding:8px 0; text-align:right; font-weight:600; color:#D97706;">KES ${d.extraTotal.toLocaleString()}</td>
+            </tr>`
                 : ""
             }
-            <!-- Divider -->
+            <tr><td colspan="2" style="padding:0; border-top:1px solid #E2E8F0;"></td></tr>
             <tr>
-              <td colspan="2" style="padding:0; border-top:1px solid #e2e8f0;"></td>
+              <td style="padding:12px 12px 6px 0; text-align:left; font-weight:600; color:#0F172A;">Total Due</td>
+              <td style="padding:12px 0 6px 0; text-align:right; font-weight:700;">KES ${d.totalDue.toLocaleString()}</td>
             </tr>
             <tr>
-              <td style="padding:10px 12px 6px 0; text-align:left; color:#64748b;">Total Due</td>
-              <td style="padding:10px 0 6px 0; text-align:right; font-weight:600;">KES ${d.totalDue.toLocaleString()}</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748b;">Paid</td>
+              <td style="padding:6px 12px 6px 0; text-align:left; color:#64748B;">Paid</td>
               <td style="padding:6px 0; text-align:right;">${
                 d.paid > 0 ? `KES ${d.paid.toLocaleString()}` : "—"
               }</td>
             </tr>
             <tr>
-              <td colspan="2" style="padding:10px 0 0 0; text-align:center; font-weight:700; font-size:17px; color:${balanceColor};">
-                Balance: KES ${d.balance.toLocaleString()}
+              <td colspan="2" style="padding:14px 0 0 0; text-align:center; font-weight:700; font-size:18px; color:${balanceColor};">
+                Balance: ${balanceText}
               </td>
             </tr>
           </table>
         </div>
       </div>
-    `;
-    cards.push(card);
+    `);
   }
 
-  // Summary note
-  const totalOverdue = overdue;
+  // summary note
   let note = "";
   if (overdue > 0) {
-    note = `<div style="background:#fff5f5; border-left:5px solid #dc2626; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#dc2626;">Total overdue: KES ${totalOverdue.toLocaleString()}</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#b91c1c;">Please pay at your earliest convenience.</p>
+    note = `<div style="background:#FEF2F2; border-left:4px solid #DC2626; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#DC2626;">Total overdue: KES ${overdue.toLocaleString()}</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#991B1B;">Please arrange payment at your earliest convenience.</p>
             </div>`;
   } else if (credit > 0) {
-    note = `<div style="background:#ecfdf5; border-left:5px solid #16a34a; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#16a34a;">You have a credit of KES ${credit.toLocaleString()}.</p>
-              <p style="margin:6px 0 0; font-size:15px; color:#15803d;">Thank you!</p>
+    note = `<div style="background:#F0FDF4; border-left:4px solid #10B981; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#065F46;">You have a credit of KES ${credit.toLocaleString()}.</p>
+              <p style="margin:6px 0 0; font-size:15px; color:#047857;">Thank you!</p>
             </div>`;
   } else {
-    note = `<div style="background:#ecfdf5; border-left:5px solid #16a34a; padding:18px 24px; border-radius:10px; margin-top:28px; text-align:center;">
-              <p style="margin:0; font-size:18px; font-weight:700; color:#16a34a;">All payments are up to date. Thank you!</p>
+    note = `<div style="background:#F0FDF4; border-left:4px solid #10B981; padding:16px 20px; border-radius:12px; margin-top:24px; text-align:center;">
+              <p style="margin:0; font-size:18px; font-weight:700; color:#065F46;">All payments are up to date. Thank you!</p>
             </div>`;
   }
 
   const innerHtml = `
-    <p style="font-size:17px; color:#1e293b; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
+    <p style="font-size:17px; color:#1E293B; margin-bottom:4px; font-weight:500;">Dear ${escapeHtml(
       tenant.name
     )}${
     tenant.houseNumber ? ` (House ${escapeHtml(tenant.houseNumber)})` : ""
@@ -7210,9 +7325,9 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
 
     ${note}
 
-    <p style="font-size:15px; color:#64748b; margin-top:35px; text-align:center; line-height:1.6;">
+    <p style="font-size:14px; color:#64748B; margin-top:30px; text-align:center;">
       If you have any questions, please contact your landlord.<br>
-      This statement was generated on ${today.toLocaleDateString()}.
+      Statement generated on ${today.toLocaleDateString()}.
     </p>
   `;
 

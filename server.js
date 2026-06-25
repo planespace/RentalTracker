@@ -6,7 +6,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import Settings from "./models/Settings.js";
-
+import compression from "compression";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -17,6 +17,7 @@ import authRoutes from "./routes/authRoutes.js";
 import { startScheduler } from "./services/scheduler.js";
 
 const app = express();
+app.use(compression());
 
 app.use(express.json());
 app.use(cors());

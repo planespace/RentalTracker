@@ -1192,11 +1192,9 @@ function getTenantFirstMonth(tenant) {
 }
 
 function getTenantPastDueAmount(tenant, todayDate) {
-  const today = new Date(todayDate);
-  const todayUTC = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
-  );
-  const todayStr = todayUTC.toISOString().slice(0, 10);
+  const todayStr = todayDate.toLocaleDateString("en-CA", {
+    timeZone: "Africa/Nairobi",
+  });
 
   const months = [...new Set(tenant.paymentHistory.map((e) => e.month))].sort();
   let lastPastBalance = 0;
@@ -1210,11 +1208,9 @@ function getTenantPastDueAmount(tenant, todayDate) {
       return aTime - bTime;
     });
     const latest = entries[entries.length - 1];
-    if (!latest || !latest.dueDate) {
-      continue;
-    }
+    if (!latest || !latest.dueDate) continue;
 
-    // Check if this month has the special "new tenant" flag
+    // Check for initialPastDue flag
     const chargeEntry = entries.find(
       (e) => (e.amountPaid || 0) === 0 && !e.datePaid
     );
@@ -1223,10 +1219,12 @@ function getTenantPastDueAmount(tenant, todayDate) {
       chargeEntry.initialPastDue &&
       chargeEntry.remainingBalance > 0;
 
-    const due = new Date(latest.dueDate);
-    const dueStr = due.toISOString().slice(0, 10);
+    const dueDate = new Date(latest.dueDate);
+    const dueStr = dueDate.toLocaleDateString("en-CA", {
+      timeZone: "Africa/Nairobi",
+    });
 
-    // If it's not the forced‑past‑due first month, stop at the current billing month
+    // Stop at the current billing month unless forced by initialPastDue
     if (!isFirstMonthWithFlag && dueStr >= todayStr) {
       break;
     }

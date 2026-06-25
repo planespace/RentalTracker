@@ -36,12 +36,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
       );
     })();
 
-  const todayStr = [
-    today.getUTCFullYear(),
-    String(today.getUTCMonth() + 1).padStart(2, "0"),
-    String(today.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-
   const currentMonthStr = `${today.getUTCFullYear()}-${String(
     today.getUTCMonth() + 1
   ).padStart(2, "0")}`;
@@ -86,15 +80,17 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     const lastMonth = sortedMonths[sortedMonths.length - 1];
     const lastEntry = tenant.paymentHistory.find((e) => e.month === lastMonth);
 
-    // ── Time‑zone‑proof comparison (YYYY‑MM‑DD) ──
+    // ── Nairobi‑local date comparison (no more time‑zone glitches) ──
     const rawDue = lastEntry.dueDate
       ? new Date(lastEntry.dueDate)
       : getDueDateForMonth(tenant, lastMonth);
-    const lastDueStr = [
-      rawDue.getUTCFullYear(),
-      String(rawDue.getUTCMonth() + 1).padStart(2, "0"),
-      String(rawDue.getUTCDate()).padStart(2, "0"),
-    ].join("-");
+    const lastDueStr = rawDue.toLocaleDateString("en-CA", {
+      timeZone: "Africa/Nairobi",
+    });
+
+    const todayStr = today.toLocaleDateString("en-CA", {
+      timeZone: "Africa/Nairobi",
+    });
 
     if (lastDueStr < todayStr) {
       const [lastYear, lastMon] = lastMonth.split("-").map(Number);

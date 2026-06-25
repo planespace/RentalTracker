@@ -50,6 +50,8 @@ function getAppToday() {
   return result;
 }
 
+window.getAppToday = getAppToday;
+
 async function fetchAndDisplaySmsBalance() {
   try {
     const res = await fetchWithTimeout(
@@ -233,7 +235,8 @@ async function fetchWithTimeout(url, options = {}, timeout = 10000) {
 let currentDevDate = null;
 const urlParams = new URLSearchParams(window.location.search);
 const devModeActive = urlParams.get("dev") === "true";
-
+window.devModeActive = devModeActive;
+window.currentDevDate = currentDevDate;
 if (devModeActive) {
   const paramDate = urlParams.get("devDate");
   currentDevDate = paramDate || new Date().toISOString().split("T")[0];
@@ -264,6 +267,7 @@ if (devModeActive) {
         devDatePicker.value = currentDevDate;
         devDatePicker.addEventListener("change", async (e) => {
           currentDevDate = e.target.value;
+          window.currentDevDate = currentDevDate;
           updateDevUrl(currentDevDate);
           await loadTenants();
           try {
@@ -293,6 +297,7 @@ if (devModeActive) {
       if (resetBtn) {
         resetBtn.addEventListener("click", async () => {
           currentDevDate = null;
+          window.currentDevDate = null;
           if (devDatePicker) devDatePicker.value = "";
           const newParams = new URLSearchParams();
           newParams.set("dev", "true");

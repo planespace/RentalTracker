@@ -10,6 +10,7 @@ const smsEmailLimiter = rateLimit({
   max: 5,
   message: { message: "Too many requests. Please wait a minute." },
 });
+
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -57,7 +58,9 @@ import {
   deleteAllTenants,
 } from "../controllers/tenantController.js";
 
-// ----- STATIC ROUTES (no parameters) -----
+// ──────────────────────────────────────────────
+//  STATIC ROUTES (no parameters)
+// ──────────────────────────────────────────────
 router.get("/", getAllTenants);
 router.get("/overdue-count", getOverdueCount);
 router.get("/current-date", getCurrentDate);
@@ -67,18 +70,41 @@ router.get("/sms-balance", getSmsBalance);
 router.get("/sms-logs", getSmsLogs);
 router.delete("/sms-logs", clearSmsLogs);
 router.get("/email-usage", getEmailUsage);
-router.patch("/bulk-meter-reading", bulkAddMeterReadings);
-router.post("/trigger-email-reminders", triggerEmailReminders);
-router.post("/send-emails", sendManualEmails);
 router.get("/email-logs", getEmailLogs);
 router.delete("/email-logs", clearEmailLogs);
-router.post("/bulk-add", bulkAddTenants);
-router.post("/send-sms", smsEmailLimiter, sendManualSms);
+router.get("/archived/count", getArchivedCount);
 
-router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+// Bulk operations
+router.patch("/bulk-meter-reading", bulkAddMeterReadings);
+router.patch("/bulk-mark-paid", bulkMarkPaid);
+router.patch("/bulk-change-rent", bulkChangeRent);
+router.patch("/bulk-change-due-day", bulkChangeDueDay);
+router.post("/bulk-add", bulkAddTenants);
 router.delete("/delete-all", deleteAllTenants);
 
-// ✅ Remove garbage fee from ALL billing months for every active tenant
+// SMS / Email manual triggers (rate limited)
+router.post("/send-sms", smsEmailLimiter, sendManualSms);
+router.post("/send-emails", smsEmailLimiter, sendManualEmails);
+router.post("/trigger-reminders", smsEmailLimiter, triggerAutomaticReminders);
+router.post("/trigger-email-reminders", smsEmailLimiter, triggerEmailReminders);
+
+// Webhook (raw body parser) – only once
+router.post(
+  "/sms-webhook",
+  express.raw({ type: "application/json" }),
+  handleSmsWebhook
+);
+
+// Settings
+router.patch("/settings", updateGlobalSettings);
+
+// Manual sync
+router.post("/sync", manualSync);
+
+// Import tenants
+router.post("/import", importTenants);
+
+// Remove all garbage fees
 router.post("/remove-all-garbage", async (req, res) => {
   try {
     const userId = req.userId;
@@ -90,7 +116,6 @@ router.post("/remove-all-garbage", async (req, res) => {
       let earliestMonth = null;
 
       for (const entry of tenant.paymentHistory) {
-        // Only process charge entries (not payment entries)
         if (
           (entry.amountPaid || 0) === 0 &&
           !entry.datePaid &&
@@ -105,7 +130,6 @@ router.post("/remove-all-garbage", async (req, res) => {
       }
 
       if (changed) {
-        // Recalculate from the earliest affected month onwards
         await recalcFutureMonths(tenant, earliestMonth);
         tenant.markModified("paymentHistory");
         await tenant.save();
@@ -119,42 +143,27 @@ router.post("/remove-all-garbage", async (req, res) => {
   }
 });
 
-// ----- PARAMETERIZED ROUTES (specific patterns) -----
+// ──────────────────────────────────────────────
+//  PARAMETERISED ROUTES (specific patterns)
+// ──────────────────────────────────────────────
 router.patch("/:id/restore", restoreTenant);
 router.delete("/:id/permanent", permanentlyDeleteTenant);
 router.get("/payment-status/:month", getPaymentStatusByMonth);
 router.get("/:id/statement", getTenantStatement);
 
-// ----- DYNAMIC ID ROUTES (must come last) -----
-router.get("/:id", getTenantById);
-router.patch("/:id/payment-history/:entryId/extra-charge", updateExtraCharge);
-router.get("/archived/count", getArchivedCount);
-router.post(
-  "/sms-webhook",
-  express.raw({ type: "application/json" }),
-  handleSmsWebhook
-);
-router.post(
-  "/sms-webhook",
-  express.raw({ type: "application/json" }),
-  handleSmsWebhook
-);
-
-router.post("/trigger-reminders", triggerAutomaticReminders);
-router.post("/import", importTenants);
+// ──────────────────────────────────────────────
+//  DYNAMIC ID ROUTES (must come last)
+// ──────────────────────────────────────────────
 router.post("/", createTenant);
-router.post("/sync", manualSync);
+router.get("/:id", getTenantById);
 router.put("/:id", updateTenant);
 router.patch("/:id/archive", archiveTenant);
-router.delete("/:id/payment-history/:entryId", deletePaymentRecord);
-router.delete("/:id/meter-reading/:readingId", deleteMeterReading);
-router.patch("/bulk-mark-paid", bulkMarkPaid);
-router.patch("/bulk-change-rent", bulkChangeRent);
-router.patch("/settings", updateGlobalSettings);
 router.patch("/:id/payment-history", updatePaymentHistory);
 router.patch("/:id/payment-history/:entryId", updatePaymentEntry);
-router.patch("/:id/meter-reading/:readingId", updateMeterReading);
+router.patch("/:id/payment-history/:entryId/extra-charge", updateExtraCharge);
+router.delete("/:id/payment-history/:entryId", deletePaymentRecord);
 router.patch("/:id/meter-reading", addMeterReading);
-router.patch("/bulk-change-due-day", bulkChangeDueDay);
+router.patch("/:id/meter-reading/:readingId", updateMeterReading);
+router.delete("/:id/meter-reading/:readingId", deleteMeterReading);
 
 export default router;

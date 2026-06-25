@@ -6053,54 +6053,69 @@ async function showBulkPaymentModal() {
     });
   });
 
-  // ── Performance‑friendly CSS (classes instead of inline styles) ──
+  function renderTable() {
+    let html = "";
+    tenants.forEach((tenant, index) => {
+      const rowBg =
+        index % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)";
+      html += `
+        <tr style="background:${rowBg};">
+          <td style="padding:10px 4px; text-align:center; color:var(--text-muted); font-size:0.95rem;">${escapeHtml(
+            tenant.houseNumber || "—"
+          )}</td>
+          <td style="padding:10px 4px; text-align:center; font-weight:500; font-size:0.95rem;">${escapeHtml(
+            tenant.name
+          )}</td>
+          <td style="padding:10px 4px; text-align:center;">
+            <input type="number" step="any" class="bulk-pay-amount" data-tenant-id="${
+              tenant._id
+            }" placeholder="0.00" style="width:80px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
+          </td>
+          <td style="padding:10px 4px; text-align:center;">
+            <input type="date" class="bulk-pay-date" data-tenant-id="${
+              tenant._id
+            }" value="${todayStr}" style="width:115px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
+          </td>
+          <td style="padding:10px 4px; text-align:center;">
+            <input type="text" class="bulk-pay-mpesa" data-tenant-id="${
+              tenant._id
+            }" placeholder="Optional" style="width:90px; padding:8px 2px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center; font-size:0.95rem;">
+          </td>
+        </tr>
+      `;
+    });
+    return html;
+  }
+
   const styleTag = document.createElement("style");
   styleTag.textContent = `
-    /* Basic table */
-    .bulk-pay-table {
-      width: 100%;
-      table-layout: fixed;
-      border-collapse: collapse;
-      font-size: 0.95rem;
+    @media (max-width: 600px) {
+      .bulk-pay-table th, .bulk-pay-table td {
+        padding: 6px 1px !important;
+        font-size: 0.8rem !important;
+      }
+      .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
+        width: 55px !important;
+        padding: 6px 1px !important;
+        font-size: 0.8rem !important;
+      }
+      .bulk-payment-fullscreen .swal2-html-container {
+        padding: 8px 0 !important;
+      }
+      .bulk-payment-content {
+        padding: 0 !important;
+      }
+      .bulk-pay-buttons {
+        gap: 8px !important;
+        padding: 0 2px !important;
+        flex-wrap: nowrap !important;
+      }
+      .bulk-cancel-btn, .bulk-save-btn {
+        white-space: nowrap;
+        padding: 10px 20px !important;
+        font-size: 0.9rem !important;
+      }
     }
-    .bulk-pay-table th,
-    .bulk-pay-table td {
-      padding: 10px 4px;
-      text-align: center;
-      vertical-align: middle;
-      border-bottom: 1px solid var(--border);
-    }
-    .bulk-pay-table th {
-      background: var(--bg-elevated);
-      color: var(--accent-cyan);
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-      z-index: 2;
-    }
-
-    /* Alternating row colours – just like your original */
-    .bulk-row-even { background: var(--bg-surface); }
-    .bulk-row-odd  { background: var(--bg-elevated); }
-
-    /* Inputs inside the table */
-    .bulk-pay-amount,
-    .bulk-pay-date,
-    .bulk-pay-mpesa {
-      width: 100%;
-      max-width: 110px;
-      padding: 8px 4px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--bg-deep);
-      color: var(--text-primary);
-      text-align: center;
-      font-size: 0.95rem;
-      box-sizing: border-box;
-    }
-    .bulk-pay-date { max-width: 130px; }
-
-    /* Header sticky fix */
     .bulk-pay-sticky-header th {
       position: sticky;
       top: 0;
@@ -6108,13 +6123,16 @@ async function showBulkPaymentModal() {
       z-index: 2;
       box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
-
-    /* Buttons */
     .bulk-save-btn {
       background: linear-gradient(135deg, #10b981, #059669);
-      color: white; border: none; padding: 12px 28px;
-      border-radius: 40px; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 40px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
     }
     .bulk-save-btn:hover {
       transform: translateY(-1px);
@@ -6122,90 +6140,34 @@ async function showBulkPaymentModal() {
     }
     .bulk-cancel-btn {
       background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white; border: none; padding: 12px 28px;
-      border-radius: 40px; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 40px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
     }
     .bulk-cancel-btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
     }
-
-    /* Mobile adjustments */
-    @media (max-width: 600px) {
-      .bulk-pay-table th, .bulk-pay-table td {
-        padding: 6px 1px !important;
-        font-size: 0.8rem !important;
-      }
-      .bulk-pay-amount, .bulk-pay-date, .bulk-pay-mpesa {
-        max-width: 55px;
-        padding: 6px 1px;
-        font-size: 0.8rem;
-      }
-      .bulk-payment-fullscreen .swal2-html-container {
-        padding: 8px 0;
-      }
-      .bulk-payment-content {
-        padding: 0;
-      }
-      .bulk-pay-buttons {
-        gap: 8px;
-        padding: 0 2px;
-        flex-wrap: nowrap;
-      }
-      .bulk-cancel-btn, .bulk-save-btn {
-        padding: 10px 20px;
-        font-size: 0.9rem;
-      }
-    }
   `;
   document.head.appendChild(styleTag);
-
-  // ── Build the table with clean classes ──
-  function renderTable() {
-    let html = "";
-    tenants.forEach((tenant, index) => {
-      const rowClass = index % 2 === 0 ? "bulk-row-even" : "bulk-row-odd";
-      html += `
-        <tr class="${rowClass}">
-          <td class="bulk-cell" style="color:var(--text-muted);">${escapeHtml(
-            tenant.houseNumber || "—"
-          )}</td>
-          <td class="bulk-cell" style="font-weight:500;">${escapeHtml(
-            tenant.name
-          )}</td>
-          <td class="bulk-cell">
-            <input type="number" step="any" class="bulk-pay-amount" data-tenant-id="${
-              tenant._id
-            }" placeholder="0.00">
-          </td>
-          <td class="bulk-cell">
-            <input type="date" class="bulk-pay-date" data-tenant-id="${
-              tenant._id
-            }" value="${todayStr}">
-          </td>
-          <td class="bulk-cell">
-            <input type="text" class="bulk-pay-mpesa" data-tenant-id="${
-              tenant._id
-            }" placeholder="Optional">
-          </td>
-        </tr>`;
-    });
-    return html;
-  }
 
   const modalHtml = `
     <div class="bulk-payment-content" style="display:flex; flex-direction:column; padding-bottom:16px;">
       <p style="text-align:center; font-size:1rem; color:var(--text-muted); margin-bottom:12px; padding:0 16px;">Fill in amounts for the tenants you want to pay. Empty rows are ignored.</p>
       <div style="overflow-x:auto; border:1px solid var(--border); border-radius:12px; margin:0 0 16px 0;">
-        <table class="bulk-pay-table bulk-pay-sticky-header">
-          <thead>
-            <tr>
-              <th>House</th>
-              <th>Tenant</th>
-              <th>Amount</th>
-              <th>Date</th>
-              <th>M‑Pesa Ref</th>
+        <table class="bulk-pay-table" style="width:100%; border-collapse:separate; border-spacing:0 4px; font-size:0.95rem;">
+          <thead class="bulk-pay-sticky-header">
+            <tr style="background:var(--bg-elevated);">
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">House</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Tenant</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Amount</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">Date</th>
+              <th style="padding:12px 4px; text-align:center; font-weight:600; color:var(--accent-cyan);">M‑Pesa Ref</th>
             </tr>
           </thead>
           <tbody id="bulk-pay-tbody">
@@ -6213,6 +6175,7 @@ async function showBulkPaymentModal() {
           </tbody>
         </table>
       </div>
+      <!-- Buttons always together, centered, no wrapping -->
       <div class="bulk-pay-buttons" style="display:flex; justify-content:center; gap:14px; padding:0 4px; flex-wrap:nowrap;">
         <button id="custom-bulk-cancel-btn" class="bulk-cancel-btn">Cancel</button>
         <button id="custom-bulk-save-btn" class="bulk-save-btn">💰 Save All</button>
@@ -6261,7 +6224,6 @@ async function showBulkPaymentModal() {
       document
         .getElementById("custom-bulk-save-btn")
         ?.addEventListener("click", () => {
-          // ── Payment collection and validation (unchanged) ──
           const amounts = document.querySelectorAll(".bulk-pay-amount");
           const payments = [];
           const skipped = [];
@@ -6349,16 +6311,24 @@ async function showBulkPaymentModal() {
 
           document
             .getElementById("confirm-cancel-btn")
-            .addEventListener("click", () => overlay.remove());
+            .addEventListener("click", () => {
+              overlay.remove();
+            });
+
+          // 🔒 Guard to prevent double‑click on "Yes, save all"
+          let bulkSaveInProgress = false;
 
           document
             .getElementById("confirm-yes-btn")
             .addEventListener("click", async () => {
-              overlay.remove();
-              setButtonLoading(
-                document.getElementById("bulk-payment-btn"),
-                true
-              );
+              if (bulkSaveInProgress) return;
+              bulkSaveInProgress = true;
+
+              // Show spinner and disable button
+              const confirmBtn = document.getElementById("confirm-yes-btn");
+              const originalText = confirmBtn.innerHTML;
+              confirmBtn.innerHTML = `<span class="custom-loader" style="margin-right:8px;"></span> Saving...`;
+              confirmBtn.disabled = true;
 
               try {
                 let successCount = 0;
@@ -6429,9 +6399,17 @@ async function showBulkPaymentModal() {
                   });
                 }
 
+                // Update local data and UI
                 await loadTenants();
                 scheduleChartUpdate();
 
+                // Remove overlay
+                overlay.remove();
+
+                // Close the bulk payment modal
+                Swal.close();
+
+                // Show result toast (longer timer to ensure visibility)
                 let msg = `Payments recorded for ${successCount} tenant(s).`;
                 if (failedNames.length)
                   msg += ` Failed: ${failedNames.join(", ")}.`;
@@ -6439,23 +6417,19 @@ async function showBulkPaymentModal() {
                   toast: true,
                   position: "bottom-end",
                   showConfirmButton: false,
-                  timer: 4000,
+                  timer: 5000,
                   timerProgressBar: true,
                   background: "#1e293b",
                   color: "#f1f5f9",
                   icon: successCount > 0 ? "success" : "error",
                   title: msg,
                 });
-
-                Swal.close();
               } catch (err) {
+                overlay.remove();
+                Swal.close();
                 Toast.fire({ icon: "error", title: err.message });
-              } finally {
-                setButtonLoading(
-                  document.getElementById("bulk-payment-btn"),
-                  false
-                );
               }
+              // No need to reset bulkSaveInProgress because overlay is removed
             });
         });
     },

@@ -2592,7 +2592,7 @@ function getPreviousMeterReading(tenant, targetMonth) {
 
 // ----- GLOBAL SETTINGS MODAL (VERTICAL LAYOUT) -----
 function showGlobalSettingsModal() {
-  closeDropdownIfOpen(); // close the dropdown first to prevent popstate conflict
+  closeDropdownIfOpen();
   pushModalState();
 
   const html = `
@@ -2664,7 +2664,7 @@ function showGlobalSettingsModal() {
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <button id="change-rent-btn" class="modal-action-btn" style="background: var(--accent-cyan);">💰 Change Rent for All Tenants</button>
       </div>
-<button id="remove-all-garbage-btn" class="modal-action-btn" style="background: #ef4444;">🗑️ Remove Garbage Fee (All Months)</button>
+      <button id="remove-all-garbage-btn" class="modal-action-btn" style="background: #ef4444;">🗑️ Remove Garbage Fee (All Months)</button>
       <div class="utility-actions" style="margin-top: 8px; display: flex; justify-content: center; gap: 12px;">
         <button id="save-global-settings" class="modal-action-btn">Save</button>
         <button id="cancel-global-settings" class="modal-action-btn danger">Cancel</button>
@@ -2686,7 +2686,6 @@ function showGlobalSettingsModal() {
     smsCheckbox.addEventListener("change", async (e) => {
       const isChecked = e.target.checked;
 
-      // Confirmation
       lastModalOpenTime = Date.now();
       const confirmResult = await originalSwalFire.call(Swal, {
         title: isChecked
@@ -2732,6 +2731,7 @@ function showGlobalSettingsModal() {
           emailChecked
         );
         if (ok) {
+          sessionStorage.removeItem("globalSettings");
           await fetchGlobalSettings();
           originalSwalFire.call(Swal, {
             toast: true,
@@ -2827,6 +2827,7 @@ function showGlobalSettingsModal() {
           isChecked
         );
         if (ok) {
+          sessionStorage.removeItem("globalSettings");
           await fetchGlobalSettings();
           originalSwalFire.call(Swal, {
             toast: true,
@@ -2854,17 +2855,6 @@ function showGlobalSettingsModal() {
           e.target.checked = !isChecked;
         }
       } catch (err) {
-        originalSwalFire.call(Swal, {
-          toast: true,
-          position: "bottom-end",
-          showConfirmButton: false,
-          timer: 2000,
-          timerProgressBar: true,
-          background: "#1e293b",
-          color: "#f1f5f9",
-          icon: "success", // or "error"
-          title: `Email auto‑reminders ${isChecked ? "enabled" : "disabled"}`, // use the matching title
-        });
         Toast.fire({ icon: "error", title: err.message });
         e.target.checked = !isChecked;
       } finally {
@@ -2911,6 +2901,7 @@ function showGlobalSettingsModal() {
             }
           );
           if (res.ok) {
+            sessionStorage.removeItem("globalSettings");
             await fetchGlobalSettings();
             await loadTenants();
             scheduleChartUpdate();
@@ -2936,15 +2927,14 @@ function showGlobalSettingsModal() {
     if (e.target.id === "remove-all-garbage-btn") {
       const btn = e.target;
 
-      // ── Serious confirmation ──
       const confirmResult = await originalSwalFire.call(Swal, {
         title: "Remove ALL Garbage Fees?",
         html: `
-      <div style="text-align:center;">
-        <p style="font-size:1rem; color:#f1f5f9;">This will <strong style="color:#ef4444;">permanently delete</strong> every garbage charge from all billing months for all active tenants.</p>
-        <p style="font-size:0.9rem; color:#94a3b8;">This action cannot be undone. Future months will still apply the global garbage fee unless you set it to 0.</p>
-      </div>
-    `,
+        <div style="text-align:center;">
+          <p style="font-size:1rem; color:#f1f5f9;">This will <strong style="color:#ef4444;">permanently delete</strong> every garbage charge from all billing months for all active tenants.</p>
+          <p style="font-size:0.9rem; color:#94a3b8;">This action cannot be undone. Future months will still apply the global garbage fee unless you set it to 0.</p>
+        </div>
+        `,
         icon: "warning",
         showCancelButton: true,
         confirmButtonColor: "#ef4444",
@@ -2956,7 +2946,6 @@ function showGlobalSettingsModal() {
 
       if (!confirmResult.isConfirmed) return;
 
-      // Proceed with removal
       setButtonLoading(btn, true);
       try {
         const res = await fetchWithTimeout(
@@ -3131,7 +3120,6 @@ function showGlobalSettingsModal() {
       const btn = e.target;
       setButtonLoading(btn, true);
       try {
-        // Count overdue tenants (with devDate if simulating)
         let countUrl = window.location.origin + "/tenants/overdue-count";
         if (currentDevDate) countUrl += `?devDate=${currentDevDate}`;
         const countRes = await fetchWithTimeout(countUrl, {
@@ -3149,11 +3137,11 @@ function showGlobalSettingsModal() {
         const confirm = await Swal.fire({
           title: "📧 Resend Overdue Emails",
           html: `
-        <div style="text-align: center;">
-          <div style="font-size: 1.1rem; margin-bottom: 16px;">Send email reminders to <strong>${overdueCount}</strong> tenant(s)?</div>
-          <div style="font-size: 0.85rem; color: var(--text-muted);">Emails will be sent to overdue tenants who have an email address.</div>
-        </div>
-      `,
+            <div style="text-align: center;">
+              <div style="font-size: 1.1rem; margin-bottom: 16px;">Send email reminders to <strong>${overdueCount}</strong> tenant(s)?</div>
+              <div style="font-size: 0.85rem; color: var(--text-muted);">Emails will be sent to overdue tenants who have an email address.</div>
+            </div>
+          `,
           icon: "question",
           showCancelButton: true,
           confirmButtonColor: "#f59e0b",
@@ -3231,9 +3219,10 @@ function showGlobalSettingsModal() {
           autoEmailRemindersEnabled
         );
         if (ok) {
+          // 🔥 Clear the cache so fetchGlobalSettings gets fresh data
+          sessionStorage.removeItem("globalSettings");
           await fetchGlobalSettings();
           await loadTenants();
-          // ✅ Success toast – does NOT close the modal
           scheduleChartUpdate();
           originalSwalFire.call(Swal, {
             toast: true,
@@ -3253,7 +3242,6 @@ function showGlobalSettingsModal() {
           document.getElementById("global-default-due-day").value =
             globalSettings.defaultDueDay || 1;
         } else {
-          // ✅ Error toast – does NOT close the modal
           originalSwalFire.call(Swal, {
             toast: true,
             position: "bottom-end",
@@ -3267,7 +3255,6 @@ function showGlobalSettingsModal() {
           });
         }
       } catch (err) {
-        // ✅ Error toast – does NOT close the modal
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -5128,11 +5115,14 @@ async function showBulkAddTenantsModal() {
     </div>
   `;
 
-  const result = await Swal.fire({
+  // 🔥 Use originalSwalFire to bypass the global wrapper that causes navigation
+  const result = await originalSwalFire.call(Swal, {
     title: "🧑‍🤝‍🧑 Bulk Add Tenants",
     html: mainHtml,
     showCancelButton: false,
     showConfirmButton: false,
+    allowOutsideClick: false, // 🔒 prevent accidental close
+    allowEscapeKey: false, // 🔒 prevent Esc closing
     background: "#1e293b",
     color: "#f1f5f9",
     width: window.innerWidth > 600 ? "95%" : "100%",

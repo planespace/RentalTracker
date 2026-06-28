@@ -3480,7 +3480,6 @@ document.addEventListener("click", async (e) => {
   if (e.target.id === "modal-archive") {
     let id = window.currentActionsTenantId;
 
-    // Confirmation popup – keeps the safety, but uses originalSwalFire
     lastModalOpenTime = Date.now();
     const result = await originalSwalFire.call(Swal, {
       title: "Archive Tenant?",
@@ -3505,17 +3504,24 @@ document.addEventListener("click", async (e) => {
         }
       );
       if (response.ok) {
-        const idx = tenantArray.findIndex((t) => t._id === id);
-        if (idx !== -1) {
-          tenantArray[idx].active = false;
-          applyFiltersAndSort();
-          updateStats(tenantArray);
-          scheduleChartUpdate();
+        // 🔥 Remove the tenant from the active list immediately
+        if (!showArchived) {
+          tenantArray = tenantArray.filter((t) => t._id !== id);
           sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        } else {
+          // If we somehow are viewing archived list, mark active false
+          const idx = tenantArray.findIndex((t) => t._id === id);
+          if (idx !== -1) tenantArray[idx].active = false;
         }
+
+        applyFiltersAndSort();
+        updateStats(tenantArray);
+        scheduleChartUpdate();
+
         document.getElementById("tenant-actions-modal").style.display = "none";
         document.getElementById("modal-overlay").style.display = "none";
         document.body.classList.remove("modal-open");
+
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",
@@ -5543,21 +5549,26 @@ document.addEventListener("click", async (e) => {
     setButtonLoading(btn, true);
     try {
       const response = await fetchWithTimeout(
-        window.location.origin + `/tenants/${tenantId}/restore`, // ✅ fixed
+        window.location.origin + `/tenants/${tenantId}/restore`,
         {
           method: "PATCH",
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
         }
       );
       if (response.ok) {
-        const idx = tenantArray.findIndex((t) => t._id === tenantId);
-        if (idx !== -1) {
-          tenantArray[idx].active = true;
-          applyFiltersAndSort();
-          updateStats(tenantArray);
-          scheduleChartUpdate();
-          sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        // 🔥 Remove from the archived list immediately
+        if (showArchived) {
+          tenantArray = tenantArray.filter((t) => t._id !== tenantId);
+        } else {
+          const idx = tenantArray.findIndex((t) => t._id === tenantId);
+          if (idx !== -1) tenantArray[idx].active = true;
         }
+
+        sessionStorage.setItem("cachedTenants", JSON.stringify(tenantArray));
+        applyFiltersAndSort();
+        updateStats(tenantArray);
+        scheduleChartUpdate();
+
         originalSwalFire.call(Swal, {
           toast: true,
           position: "bottom-end",

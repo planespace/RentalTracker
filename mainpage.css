@@ -5045,3 +5045,31 @@ body.bulk-mode-active .due-date-cell {
     font-size: 0.7rem !important;
   }
 }
+
+/* ── Fix mobile bottom‑nav hiding modal content ── */
+@media (max-width: 768px) {
+  /* Full‑screen SMS / email logs */
+  .sms-logs-perfect .swal2-html-container,
+  .sms-bulk-fixed .swal2-html-container,
+  .bulk-payment-fullscreen .swal2-html-container,
+  .bulk-water-fullscreen .swal2-html-container,
+  .fullscreen-sms-modal .swal2-html-container,
+  .individual-sms-modal .swal2-html-container {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+
+  /* Payment modal (individual) */
+  #payment-modal {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+
+  /* Utilities modal (water reading) */
+  #utilities-modal {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+
+  /* Tenant actions / profile modals */
+  .tenant-modal {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+}

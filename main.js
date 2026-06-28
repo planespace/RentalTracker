@@ -8871,22 +8871,18 @@ async function showBulkEditTenantsModal() {
     return;
   }
 
-  // Helper to collect current values (from the table inputs)
+  // Helper to collect current values from the editable table
   function getCurrentTenantData() {
     const data = [];
     const rows = document.querySelectorAll(".bulk-edit-row");
     rows.forEach((row) => {
       const id = row.dataset.tenantId;
-      const nameInput = row.querySelector(".bulk-edit-name");
-      const houseInput = row.querySelector(".bulk-edit-house");
-      const phoneInput = row.querySelector(".bulk-edit-phone");
-      const emailInput = row.querySelector(".bulk-edit-email");
       data.push({
         _id: id,
-        name: nameInput?.value.trim() || "",
-        houseNumber: houseInput?.value.trim() || "",
-        phoneNumber: phoneInput?.value.trim() || "",
-        email: emailInput?.value.trim() || "",
+        name: row.querySelector(".bulk-edit-name")?.value.trim() || "",
+        houseNumber: row.querySelector(".bulk-edit-house")?.value.trim() || "",
+        phoneNumber: row.querySelector(".bulk-edit-phone")?.value.trim() || "",
+        email: row.querySelector(".bulk-edit-email")?.value.trim() || "",
       });
     });
     return data;
@@ -8934,383 +8930,213 @@ async function showBulkEditTenantsModal() {
     let html = "";
     tenants.forEach((tenant) => {
       html += `
-        <tr class="bulk-edit-row" data-tenant-id="${
-          tenant._id
-        }" style="background:var(--bg-surface); border-bottom:1px solid var(--border);">
-          <td style="padding:8px 4px; text-align:center;">
-            <input type="text" class="bulk-edit-name" value="${escapeHtml(
-              tenant.name
-            )}" placeholder="Name">
-          </td>
-          <td style="padding:8px 4px; text-align:center;">
-            <input type="text" class="bulk-edit-house" value="${escapeHtml(
-              tenant.houseNumber || ""
-            )}" placeholder="House">
-          </td>
-          <td style="padding:8px 4px; text-align:center;">
-            <input type="tel" class="bulk-edit-phone" value="${escapeHtml(
-              tenant.phoneNumber || ""
-            )}" placeholder="Phone">
-          </td>
-          <td style="padding:8px 4px; text-align:center;">
-            <input type="email" class="bulk-edit-email" value="${escapeHtml(
-              tenant.email || ""
-            )}" placeholder="Email">
-          </td>
+        <tr class="bulk-edit-row" data-tenant-id="${tenant._id}">
+          <td><input type="text" class="bulk-edit-name" value="${escapeHtml(
+            tenant.name
+          )}"></td>
+          <td><input type="text" class="bulk-edit-house" value="${escapeHtml(
+            tenant.houseNumber || ""
+          )}"></td>
+          <td><input type="tel" class="bulk-edit-phone" value="${escapeHtml(
+            tenant.phoneNumber || ""
+          )}"></td>
+          <td><input type="email" class="bulk-edit-email" value="${escapeHtml(
+            tenant.email || ""
+          )}"></td>
         </tr>`;
     });
     return html;
   }
 
-  // ── Styles – buttons exactly like Swal's (green save, red cancel) ──
+  // ── Styles (lightweight, mobile‑friendly) ──
   const styleTag = document.createElement("style");
   styleTag.textContent = `
-    .bulk-edit-table {
-      width: 100%;
-      border-collapse: collapse;
+    .bulk-edit-table { width: 100%; border-collapse: collapse; }
+    .bulk-edit-table th { background: var(--bg-elevated); color: var(--accent-cyan); padding: 10px 4px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; }
+    .bulk-edit-table td { padding: 6px 4px; }
+    .bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email {
+      width: 100%; max-width: 120px; padding: 10px 6px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg-deep); color: var(--text-primary);
+      text-align: center; font-size: 0.95rem; box-sizing: border-box;
     }
-    .bulk-edit-table th {
-      background: var(--bg-elevated);
-      color: var(--accent-cyan);
-      padding: 10px 4px;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      position: sticky;
-      top: 0;
-      z-index: 2;
-    }
-    .bulk-edit-table td {
-      padding: 6px 4px;
-    }
-
-    /* Inputs */
-    .bulk-edit-name,
-    .bulk-edit-house,
-    .bulk-edit-phone,
-    .bulk-edit-email {
-      width: 100%;
-      max-width: 140px;
-      padding: 10px 6px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--bg-deep);
-      color: var(--text-primary);
-      text-align: center;
-      font-size: 0.95rem;
-      box-sizing: border-box;
-    }
-
-    /* Buttons – identical to Swal's confirm/cancel in bulk water modal */
-    .bulk-save-btn,
-    .bulk-cancel-btn {
-      display: inline-block;
-      padding: 10px 24px;
-      border-radius: 40px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-      transition: transform 0.1s, box-shadow 0.1s;
-      white-space: nowrap;
-      min-width: 120px;
-      text-align: center;
-      line-height: 1.5;
-    }
-    .bulk-save-btn {
-      background: #10b981 !important;
-      color: white !important;
-    }
-    .bulk-save-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-      background: #059669 !important;
-    }
-    .bulk-cancel-btn {
-      background: #ef4444 !important;
-      color: white !important;
-    }
-    .bulk-cancel-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-      background: #dc2626 !important;
-    }
-
-    /* Sticky button bar – always at the bottom, centred */
-    .bulk-edit-button-bar {
-      position: sticky;
-      bottom: 0;
-      background: var(--bg-deep);
-      padding: 12px 0;
-      z-index: 5;
-      display: flex;
-      justify-content: center;
-      gap: 14px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-    }
-
-    /* Mobile adjustments */
     @media (max-width: 600px) {
-      .bulk-payment-fullscreen .swal2-html-container {
-        padding: 8px 0 !important;
-      }
-      .bulk-edit-name,
-      .bulk-edit-house,
-      .bulk-edit-phone,
-      .bulk-edit-email {
-        max-width: 100px;
-        padding: 12px 4px;
-        font-size: 0.9rem;
-      }
-      .bulk-save-btn,
-      .bulk-cancel-btn {
-        padding: 10px 20px;
-        font-size: 0.95rem;
-        min-width: 110px;
+      .bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email {
+        max-width: 90px; padding: 12px 4px; font-size: 0.9rem;
       }
     }
   `;
   document.head.appendChild(styleTag);
 
   const modalHtml = `
-    <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:0;">
+    <div style="display:flex; flex-direction:column; gap:16px;">
       <p style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Edit any field. Duplicate names/house numbers will be highlighted in red.</p>
-      <div style="overflow-x:auto; border:1px solid var(--border); border-radius:12px; flex:1;">
+      <div style="overflow-x:auto; border:1px solid var(--border); border-radius:12px;">
         <table class="bulk-edit-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>House</th>
-              <th>Phone</th>
-              <th>Email</th>
-            </tr>
-          </thead>
-          <tbody id="bulk-edit-tbody">
-            ${renderEditableTable()}
-          </tbody>
+          <thead><tr><th>Name</th><th>House</th><th>Phone</th><th>Email</th></tr></thead>
+          <tbody id="bulk-edit-tbody">${renderEditableTable()}</tbody>
         </table>
-      </div>
-      <!-- Sticky button bar – identical to bulk water modal -->
-      <div class="bulk-edit-button-bar">
-        <button id="bulk-edit-cancel-btn" class="bulk-cancel-btn">Cancel</button>
-        <button id="bulk-edit-save-btn" class="bulk-save-btn">💾 Save All</button>
       </div>
     </div>
   `;
 
-  Swal.fire({
+  // Use Swal.fire – the global wrapper will handle push/popstate safely
+  const result = await Swal.fire({
     title: "✏️ Bulk Edit Tenants",
     html: modalHtml,
-    showCancelButton: false,
-    showConfirmButton: false,
-    showCloseButton: true,
+    showCancelButton: true,
+    confirmButtonText: "💾 Save All",
+    confirmButtonColor: "#10b981",
+    cancelButtonColor: "#ef4444",
     background: "#1e293b",
     color: "#f1f5f9",
-    width: "100%",
-    grow: "fullscreen",
-    customClass: { popup: "bulk-payment-fullscreen" },
+    width: "90%",
+    customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
-      const popup = Swal.getPopup();
-      if (popup) {
-        popup.style.position = "fixed";
-        popup.style.top = "0";
-        popup.style.left = "0";
-        popup.style.width = "100%";
-        popup.style.height = "100%";
-        popup.style.maxHeight = "100vh";
-        popup.style.margin = "0";
-        popup.style.borderRadius = "0";
-        popup.style.transform = "none";
-        popup.style.display = "flex";
-        popup.style.flexDirection = "column";
-        popup.style.overflow = "auto";
-      }
-      const htmlContainer = Swal.getHtmlContainer();
-      if (htmlContainer) {
-        htmlContainer.style.flex = "1";
-        htmlContainer.style.overflowY = "auto";
-        htmlContainer.style.maxHeight = "none";
-        htmlContainer.style.paddingBottom = "0";
-      }
-
-      // Live validation on every input
+      // Attach live validation
       document
         .querySelectorAll(
           ".bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email"
         )
         .forEach((inp) => inp.addEventListener("input", checkDuplicates));
-
-      document
-        .getElementById("bulk-edit-cancel-btn")
-        .addEventListener("click", () => Swal.close());
-
-      document
-        .getElementById("bulk-edit-save-btn")
-        .addEventListener("click", async () => {
-          checkDuplicates();
-          const currentData = getCurrentTenantData();
-          const changes = [];
-          currentData.forEach((t) => {
-            const original = tenantArray.find((ot) => ot._id === t._id);
-            if (!original) return;
-            const updates = {};
-            if (t.name !== original.name) updates.name = t.name;
-            if (t.houseNumber !== (original.houseNumber || ""))
-              updates.houseNumber = t.houseNumber;
-            if (t.phoneNumber !== (original.phoneNumber || ""))
-              updates.phoneNumber = t.phoneNumber;
-            if (t.email !== (original.email || "")) updates.email = t.email;
-            if (Object.keys(updates).length > 0) {
-              changes.push({
-                _id: t._id,
-                ...updates,
-                originalName: original.name,
-                originalHouse: original.houseNumber || "—",
-              });
-            }
-          });
-
-          if (changes.length === 0) {
-            Toast.fire({ icon: "info", title: "No changes detected." });
-            return;
-          }
-
-          // Confirmation overlay – does not close the main modal
-          const overlay = document.createElement("div");
-          overlay.style.cssText =
-            "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center;";
-          overlay.innerHTML = `
-          <div style="background: var(--bg-surface, #1e293b); border-radius: 24px; padding: 24px; max-width: 500px; width: 90%; text-align: center; border: 1px solid var(--border, #334155); box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
-            <h3 style="color:#f1f5f9; margin-bottom:16px;">Confirm Changes</h3>
-            <div style="text-align:left; max-height:200px; overflow-y:auto; font-size:0.9rem; color:#cbd5e1; margin-bottom:20px;">
-              ${changes
-                .map(
-                  (c) => `
-                <div style="margin-bottom:8px; background:rgba(59,130,246,0.1); padding:8px; border-radius:8px;">
-                  <strong>${escapeHtml(c.originalName)}</strong> (${escapeHtml(
-                    c.originalHouse
-                  )})<br>
-                  ${
-                    c.name
-                      ? `→ Name: <span style="color:#10b981;">${escapeHtml(
-                          c.name
-                        )}</span><br>`
-                      : ""
-                  }
-                  ${
-                    c.houseNumber
-                      ? `→ House: <span style="color:#10b981;">${escapeHtml(
-                          c.houseNumber
-                        )}</span><br>`
-                      : ""
-                  }
-                  ${
-                    c.phoneNumber
-                      ? `→ Phone: <span style="color:#10b981;">${escapeHtml(
-                          c.phoneNumber
-                        )}</span><br>`
-                      : ""
-                  }
-                  ${
-                    c.email
-                      ? `→ Email: <span style="color:#10b981;">${escapeHtml(
-                          c.email
-                        )}</span><br>`
-                      : ""
-                  }
-                </div>
-              `
-                )
-                .join("")}
-            </div>
-            <div style="display:flex; justify-content:center; gap:14px;">
-              <button id="confirm-edit-cancel-btn" class="bulk-cancel-btn">Cancel</button>
-              <button id="confirm-edit-yes-btn" class="bulk-save-btn">Yes, save all</button>
-            </div>
-          </div>
-        `;
-          document.body.appendChild(overlay);
-
-          document
-            .getElementById("confirm-edit-cancel-btn")
-            .addEventListener("click", () => overlay.remove());
-
-          let saving = false;
-          document
-            .getElementById("confirm-edit-yes-btn")
-            .addEventListener("click", async () => {
-              if (saving) return;
-              saving = true;
-              const yesBtn = document.getElementById("confirm-edit-yes-btn");
-              const originalText = yesBtn.innerHTML;
-              yesBtn.innerHTML = `<span class="custom-loader" style="margin-right:8px;"></span> Saving...`;
-              yesBtn.disabled = true;
-
-              try {
-                const response = await fetchWithTimeout(
-                  "/tenants/bulk-edit",
-                  {
-                    method: "PATCH",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${localStorage.getItem("token")}`,
-                    },
-                    body: JSON.stringify({ tenants: changes }),
-                  },
-                  120000
-                );
-                const data = await response.json();
-                if (response.ok) {
-                  await loadTenants();
-                  scheduleChartUpdate();
-                  overlay.remove();
-                  let msg = `Updated ${data.updated} tenant(s).`;
-                  if (data.errors && data.errors.length)
-                    msg += ` Skipped: ${data.errors
-                      .map((e) => e.message)
-                      .join(", ")}.`;
-                  originalSwalFire.call(Swal, {
-                    toast: true,
-                    position: "bottom-end",
-                    showConfirmButton: false,
-                    timer: 4000,
-                    timerProgressBar: true,
-                    background: "#1e293b",
-                    color: "#f1f5f9",
-                    icon: "success",
-                    title: msg,
-                  });
-                  // Refresh the table (modal stays open)
-                  document.getElementById("bulk-edit-tbody").innerHTML =
-                    renderEditableTable();
-                  document
-                    .querySelectorAll(
-                      ".bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email"
-                    )
-                    .forEach((inp) =>
-                      inp.addEventListener("input", checkDuplicates)
-                    );
-                } else {
-                  Toast.fire({
-                    icon: "error",
-                    title: data.message || "Save failed",
-                  });
-                }
-              } catch (err) {
-                Toast.fire({ icon: "error", title: err.message });
-              } finally {
-                yesBtn.innerHTML = originalText;
-                yesBtn.disabled = false;
-                saving = false;
-              }
-            });
-        });
     },
-    willClose: () => {
-      styleTag.remove();
+    preConfirm: async () => {
+      checkDuplicates();
+      const currentData = getCurrentTenantData();
+      const changes = [];
+      currentData.forEach((t) => {
+        const original = tenantArray.find((ot) => ot._id === t._id);
+        if (!original) return;
+        const updates = {};
+        if (t.name !== original.name) updates.name = t.name;
+        if (t.houseNumber !== (original.houseNumber || ""))
+          updates.houseNumber = t.houseNumber;
+        if (t.phoneNumber !== (original.phoneNumber || ""))
+          updates.phoneNumber = t.phoneNumber;
+        if (t.email !== (original.email || "")) updates.email = t.email;
+        if (Object.keys(updates).length > 0) {
+          changes.push({
+            _id: t._id,
+            ...updates,
+            originalName: original.name,
+            originalHouse: original.houseNumber || "—",
+          });
+        }
+      });
+
+      if (changes.length === 0) {
+        Swal.showValidationMessage("No changes detected.");
+        return false;
+      }
+
+      // Confirmation overlay (stays inside Swal)
+      const confirmed = await originalSwalFire.call(Swal, {
+        title: "Confirm Changes",
+        html: `
+          <div style="text-align:left; max-height:200px; overflow-y:auto; font-size:0.9rem; color:#cbd5e1; margin-bottom:20px;">
+            ${changes
+              .map(
+                (c) => `
+              <div style="margin-bottom:8px; background:rgba(59,130,246,0.1); padding:8px; border-radius:8px;">
+                <strong>${escapeHtml(c.originalName)}</strong> (${escapeHtml(
+                  c.originalHouse
+                )})<br>
+                ${
+                  c.name
+                    ? `→ Name: <span style="color:#10b981;">${escapeHtml(
+                        c.name
+                      )}</span><br>`
+                    : ""
+                }
+                ${
+                  c.houseNumber
+                    ? `→ House: <span style="color:#10b981;">${escapeHtml(
+                        c.houseNumber
+                      )}</span><br>`
+                    : ""
+                }
+                ${
+                  c.phoneNumber
+                    ? `→ Phone: <span style="color:#10b981;">${escapeHtml(
+                        c.phoneNumber
+                      )}</span><br>`
+                    : ""
+                }
+                ${
+                  c.email
+                    ? `→ Email: <span style="color:#10b981;">${escapeHtml(
+                        c.email
+                      )}</span><br>`
+                    : ""
+                }
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: "Yes, save all",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#10b981",
+        cancelButtonColor: "#ef4444",
+        background: "#1e293b",
+        color: "#f1f5f9",
+        buttonsStyling: true,
+      });
+
+      if (!confirmed.isConfirmed) return false;
+      return changes;
     },
   });
+
+  if (result.isConfirmed && result.value) {
+    const changes = result.value;
+    setButtonLoading(document.getElementById("bulk-edit-tenants-btn"), true);
+    try {
+      const response = await fetchWithTimeout(
+        "/tenants/bulk-edit",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({ tenants: changes }),
+        },
+        120000
+      );
+      const data = await response.json();
+      if (response.ok) {
+        await loadTenants();
+        scheduleChartUpdate();
+        let msg = `Updated ${data.updated} tenant(s).`;
+        if (data.errors && data.errors.length)
+          msg += ` Skipped: ${data.errors.map((e) => e.message).join(", ")}.`;
+        originalSwalFire.call(Swal, {
+          toast: true,
+          position: "bottom-end",
+          showConfirmButton: false,
+          timer: 4000,
+          timerProgressBar: true,
+          background: "#1e293b",
+          color: "#f1f5f9",
+          icon: "success",
+          title: msg,
+        });
+        // Reopen the modal with fresh data (optional – you can just close)
+        // For simplicity, close and let user reopen if needed.
+      } else {
+        Toast.fire({ icon: "error", title: data.message || "Save failed" });
+      }
+    } catch (err) {
+      Toast.fire({ icon: "error", title: err.message });
+    } finally {
+      setButtonLoading(document.getElementById("bulk-edit-tenants-btn"), false);
+    }
+  }
+
+  // Cleanup style
+  styleTag.remove();
 }
 
 // ----- SMS LOGS BUTTON (updated: date categories, clear all, sorted newest first) -----

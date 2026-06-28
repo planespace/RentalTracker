@@ -7531,12 +7531,14 @@ async function showEmailModal(tenantId) {
 }
 
 function showBulkEmailModal() {
-  // 🔒 Prevent double‑trigger (clicking Send while already sending)
-  if (window.bulkEmailSending) return;
+  // 🚫 Only one bulk email operation at a time
+  if (window.bulkEmailInProgress) return;
+  window.bulkEmailInProgress = true;
 
   let tenants = [...tenantArray].filter((t) => t.email);
   if (tenants.length === 0) {
     Toast.fire({ icon: "warning", title: "No tenants with email addresses." });
+    window.bulkEmailInProgress = false;
     return;
   }
 
@@ -7732,7 +7734,10 @@ function showBulkEmailModal() {
       };
     },
   }).then(async (result) => {
-    if (!result.isConfirmed) return;
+    if (!result.isConfirmed) {
+      window.bulkEmailInProgress = false;
+      return;
+    }
     const {
       tenantIds,
       subject,
@@ -7744,7 +7749,6 @@ function showBulkEmailModal() {
 
     const btn = document.getElementById("bulk-email-btn");
     setButtonLoading(btn, true);
-    window.bulkEmailSending = true; // 🔒 lock
 
     try {
       let summary = "";
@@ -7958,7 +7962,10 @@ function showBulkEmailModal() {
       Toast.fire({ icon: "error", title: err.message });
     } finally {
       setButtonLoading(btn, false);
-      window.bulkEmailSending = false; // 🔓 unlock
+      // small cooldown to prevent rapid re‑clicks from opening a second modal
+      setTimeout(() => {
+        window.bulkEmailInProgress = false;
+      }, 300);
     }
   });
 }

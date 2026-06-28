@@ -5045,31 +5045,40 @@ body.bulk-mode-active .due-date-cell {
     font-size: 0.7rem !important;
   }
 }
-
 /* ── Fix mobile bottom‑nav hiding modal content ── */
 @media (max-width: 768px) {
-  /* Full‑screen SMS / email logs */
+  /* Full‑screen modals (SMS, bulk payment, water, email logs, etc.) */
   .sms-logs-perfect .swal2-html-container,
   .sms-bulk-fixed .swal2-html-container,
   .bulk-payment-fullscreen .swal2-html-container,
   .bulk-water-fullscreen .swal2-html-container,
   .fullscreen-sms-modal .swal2-html-container,
   .individual-sms-modal .swal2-html-container {
-    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
   }
 
-  /* Payment modal (individual) */
+  /* Individual payment modal (fixed position) */
   #payment-modal {
-    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
   }
 
-  /* Utilities modal (water reading) */
+  /* Individual water reading modal (utilities) */
   #utilities-modal {
-    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
   }
 
-  /* Tenant actions / profile modals */
+  /* Tenant actions / profile modals (fixed position) */
   .tenant-modal {
-    padding-bottom: calc(30px + env(safe-area-inset-bottom, 20px)) !important;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+
+  /* SweetAlert2 popups that are full‑screen on mobile */
+  .swal2-container .swal2-popup.fullscreen-sms-modal {
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
+  }
+
+  /* General SweetAlert2 popups when centered (not full screen) */
+  .swal2-container.swal2-center > .swal2-popup {
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 20px)) !important;
   }
 }

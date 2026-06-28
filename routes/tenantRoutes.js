@@ -56,6 +56,7 @@ import {
   bulkAddTenants,
   updateExtraCharge,
   deleteAllTenants,
+  bulkEditTenants,
 } from "../controllers/tenantController.js";
 
 // ──────────────────────────────────────────────
@@ -98,6 +99,7 @@ router.post(
 // Settings
 router.patch("/settings", updateGlobalSettings);
 
+router.patch("/bulk-edit", bulkEditTenants);
 // Manual sync
 router.post("/sync", manualSync);
 

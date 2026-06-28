@@ -5740,6 +5740,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document
+    .getElementById("bulk-edit-tenants-btn")
+    .addEventListener("click", showBulkEditTenantsModal);
+
+  document
     .getElementById("bulk-payment-btn")
     ?.addEventListener("click", showBulkPaymentModal);
 
@@ -8856,6 +8860,395 @@ if (bulkEmailBtn) {
   // Re‑attach exactly once
   document.getElementById("bulk-email-btn").addEventListener("click", () => {
     showBulkEmailModal();
+  });
+}
+
+async function showBulkEditTenantsModal() {
+  closeDropdownIfOpen();
+  const tenants = [...tenantArray].filter((t) => t.active !== false);
+  if (tenants.length === 0) {
+    Toast.fire({ icon: "warning", title: "No active tenants." });
+    return;
+  }
+
+  // Helper to collect current values (from the table inputs)
+  function getCurrentTenantData() {
+    const data = [];
+    const rows = document.querySelectorAll(".bulk-edit-row");
+    rows.forEach((row) => {
+      const id = row.dataset.tenantId;
+      const nameInput = row.querySelector(".bulk-edit-name");
+      const houseInput = row.querySelector(".bulk-edit-house");
+      const phoneInput = row.querySelector(".bulk-edit-phone");
+      const emailInput = row.querySelector(".bulk-edit-email");
+      data.push({
+        _id: id,
+        name: nameInput?.value.trim() || "",
+        houseNumber: houseInput?.value.trim() || "",
+        phoneNumber: phoneInput?.value.trim() || "",
+        email: emailInput?.value.trim() || "",
+      });
+    });
+    return data;
+  }
+
+  // Live duplicate detection
+  function checkDuplicates() {
+    const current = getCurrentTenantData();
+    const nameSet = new Map();
+    const houseSet = new Map();
+    current.forEach((t, idx) => {
+      const name = t.name.toLowerCase();
+      const house = t.houseNumber.toLowerCase();
+      const nameConflict = tenantArray.some(
+        (et) => et._id !== t._id && et.name.toLowerCase() === name
+      );
+      const houseConflict = tenantArray.some(
+        (et) =>
+          et._id !== t._id && (et.houseNumber || "").toLowerCase() === house
+      );
+      const nameDup = [...nameSet.entries()].find(
+        ([n, i]) => n === name && i !== idx
+      );
+      const houseDup = [...houseSet.entries()].find(
+        ([h, i]) => h === house && i !== idx
+      );
+
+      nameSet.set(name, idx);
+      houseSet.set(house, idx);
+
+      const row = document.querySelector(
+        `.bulk-edit-row[data-tenant-id="${t._id}"]`
+      );
+      if (row) {
+        const nameEl = row.querySelector(".bulk-edit-name");
+        const houseEl = row.querySelector(".bulk-edit-house");
+        nameEl.style.borderColor = nameConflict || nameDup ? "#ef4444" : "";
+        houseEl.style.borderColor = houseConflict || houseDup ? "#ef4444" : "";
+      }
+    });
+  }
+
+  // Build the editable table
+  function renderEditableTable() {
+    let html = "";
+    tenants.forEach((tenant) => {
+      html += `
+        <tr class="bulk-edit-row" data-tenant-id="${
+          tenant._id
+        }" style="background:var(--bg-surface); border-bottom:1px solid var(--border);">
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="text" class="bulk-edit-name" value="${escapeHtml(
+              tenant.name
+            )}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="text" class="bulk-edit-house" value="${escapeHtml(
+              tenant.houseNumber || ""
+            )}" style="width:80px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="tel" class="bulk-edit-phone" value="${escapeHtml(
+              tenant.phoneNumber || ""
+            )}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+          </td>
+          <td style="padding:8px 4px; text-align:center;">
+            <input type="email" class="bulk-edit-email" value="${escapeHtml(
+              tenant.email || ""
+            )}" style="width:150px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+          </td>
+        </tr>`;
+    });
+    return html;
+  }
+
+  // ── Performance‑friendly styles (sticky buttons + premium gradients) ──
+  const styleTag = document.createElement("style");
+  styleTag.textContent = `
+    .bulk-edit-table { width:100%; border-collapse: collapse; }
+    .bulk-edit-table th { background: var(--bg-elevated); color: var(--accent-cyan); padding: 10px 4px; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; z-index:2; }
+    .bulk-edit-table td { padding: 8px 4px; }
+
+    /* Premium buttons */
+    .bulk-save-btn {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white; border: none; padding: 12px 28px;
+      border-radius: 40px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .bulk-save-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    }
+    .bulk-cancel-btn {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white; border: none; padding: 12px 28px;
+      border-radius: 40px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .bulk-cancel-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+    }
+
+    /* 🔥 Sticky button area – always at the bottom, like water modal */
+    .bulk-edit-button-bar {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg-deep);
+      padding: 12px 0;
+      z-index: 5;
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email { width: 60px !important; font-size:0.7rem; }
+      .bulk-save-btn, .bulk-cancel-btn { padding: 10px 20px; font-size: 0.9rem; }
+    }
+  `;
+  document.head.appendChild(styleTag);
+
+  const modalHtml = `
+    <div style="display:flex; flex-direction:column; gap:16px; padding-bottom:0;">
+      <p style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Edit any field. Duplicate names/house numbers will be highlighted in red.</p>
+      <div style="overflow-x:auto; border:1px solid var(--border); border-radius:12px; flex:1;">
+        <table class="bulk-edit-table">
+          <thead>
+            <tr>
+              <th style="padding:10px 4px;">Name</th>
+              <th style="padding:10px 4px;">House</th>
+              <th style="padding:10px 4px;">Phone</th>
+              <th style="padding:10px 4px;">Email</th>
+            </tr>
+          </thead>
+          <tbody id="bulk-edit-tbody">
+            ${renderEditableTable()}
+          </tbody>
+        </table>
+      </div>
+      <!-- Sticky button bar -->
+      <div class="bulk-edit-button-bar">
+        <button id="bulk-edit-cancel-btn" class="bulk-cancel-btn">Cancel</button>
+        <button id="bulk-edit-save-btn" class="bulk-save-btn">💾 Save All</button>
+      </div>
+    </div>
+  `;
+
+  Swal.fire({
+    title: "✏️ Bulk Edit Tenants",
+    html: modalHtml,
+    showCancelButton: false,
+    showConfirmButton: false,
+    showCloseButton: true,
+    background: "#1e293b",
+    color: "#f1f5f9",
+    width: "100%",
+    grow: "fullscreen",
+    customClass: { popup: "bulk-payment-fullscreen" },
+    didOpen: () => {
+      const popup = Swal.getPopup();
+      if (popup) {
+        popup.style.position = "fixed";
+        popup.style.top = "0";
+        popup.style.left = "0";
+        popup.style.width = "100%";
+        popup.style.height = "100%";
+        popup.style.maxHeight = "100vh";
+        popup.style.margin = "0";
+        popup.style.borderRadius = "0";
+        popup.style.transform = "none";
+        popup.style.display = "flex";
+        popup.style.flexDirection = "column";
+        popup.style.overflow = "auto";
+      }
+      const htmlContainer = Swal.getHtmlContainer();
+      if (htmlContainer) {
+        htmlContainer.style.flex = "1";
+        htmlContainer.style.overflowY = "auto";
+        htmlContainer.style.maxHeight = "none";
+        // Remove extra padding at bottom to make sticky bar flush
+        htmlContainer.style.paddingBottom = "0";
+      }
+
+      // Live validation on every input
+      document
+        .querySelectorAll(
+          ".bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email"
+        )
+        .forEach((inp) => inp.addEventListener("input", checkDuplicates));
+
+      document
+        .getElementById("bulk-edit-cancel-btn")
+        .addEventListener("click", () => Swal.close());
+
+      document
+        .getElementById("bulk-edit-save-btn")
+        .addEventListener("click", async () => {
+          checkDuplicates();
+          const currentData = getCurrentTenantData();
+          const changes = [];
+          currentData.forEach((t) => {
+            const original = tenantArray.find((ot) => ot._id === t._id);
+            if (!original) return;
+            const updates = {};
+            if (t.name !== original.name) updates.name = t.name;
+            if (t.houseNumber !== (original.houseNumber || ""))
+              updates.houseNumber = t.houseNumber;
+            if (t.phoneNumber !== (original.phoneNumber || ""))
+              updates.phoneNumber = t.phoneNumber;
+            if (t.email !== (original.email || "")) updates.email = t.email;
+            if (Object.keys(updates).length > 0) {
+              changes.push({
+                _id: t._id,
+                ...updates,
+                originalName: original.name,
+                originalHouse: original.houseNumber || "—",
+              });
+            }
+          });
+
+          if (changes.length === 0) {
+            Toast.fire({ icon: "info", title: "No changes detected." });
+            return;
+          }
+
+          // Confirmation overlay – does not close the main modal
+          const overlay = document.createElement("div");
+          overlay.style.cssText =
+            "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center;";
+          overlay.innerHTML = `
+          <div style="background: var(--bg-surface, #1e293b); border-radius: 24px; padding: 24px; max-width: 500px; width: 90%; text-align: center; border: 1px solid var(--border, #334155); box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <h3 style="color:#f1f5f9; margin-bottom:16px;">Confirm Changes</h3>
+            <div style="text-align:left; max-height:200px; overflow-y:auto; font-size:0.9rem; color:#cbd5e1; margin-bottom:20px;">
+              ${changes
+                .map(
+                  (c) => `
+                <div style="margin-bottom:8px; background:rgba(59,130,246,0.1); padding:8px; border-radius:8px;">
+                  <strong>${escapeHtml(c.originalName)}</strong> (${escapeHtml(
+                    c.originalHouse
+                  )})<br>
+                  ${
+                    c.name
+                      ? `→ Name: <span style="color:#10b981;">${escapeHtml(
+                          c.name
+                        )}</span><br>`
+                      : ""
+                  }
+                  ${
+                    c.houseNumber
+                      ? `→ House: <span style="color:#10b981;">${escapeHtml(
+                          c.houseNumber
+                        )}</span><br>`
+                      : ""
+                  }
+                  ${
+                    c.phoneNumber
+                      ? `→ Phone: <span style="color:#10b981;">${escapeHtml(
+                          c.phoneNumber
+                        )}</span><br>`
+                      : ""
+                  }
+                  ${
+                    c.email
+                      ? `→ Email: <span style="color:#10b981;">${escapeHtml(
+                          c.email
+                        )}</span><br>`
+                      : ""
+                  }
+                </div>
+              `
+                )
+                .join("")}
+            </div>
+            <div style="display:flex; justify-content:center; gap:14px;">
+              <button id="confirm-edit-cancel-btn" class="bulk-cancel-btn">Cancel</button>
+              <button id="confirm-edit-yes-btn" class="bulk-save-btn">Yes, save all</button>
+            </div>
+          </div>
+        `;
+          document.body.appendChild(overlay);
+
+          document
+            .getElementById("confirm-edit-cancel-btn")
+            .addEventListener("click", () => overlay.remove());
+
+          let saving = false;
+          document
+            .getElementById("confirm-edit-yes-btn")
+            .addEventListener("click", async () => {
+              if (saving) return;
+              saving = true;
+              const yesBtn = document.getElementById("confirm-edit-yes-btn");
+              const originalText = yesBtn.innerHTML;
+              yesBtn.innerHTML = `<span class="custom-loader" style="margin-right:8px;"></span> Saving...`;
+              yesBtn.disabled = true;
+
+              try {
+                const response = await fetchWithTimeout(
+                  "/tenants/bulk-edit",
+                  {
+                    method: "PATCH",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                    body: JSON.stringify({ tenants: changes }),
+                  },
+                  120000
+                );
+                const data = await response.json();
+                if (response.ok) {
+                  await loadTenants();
+                  scheduleChartUpdate();
+                  overlay.remove();
+                  let msg = `Updated ${data.updated} tenant(s).`;
+                  if (data.errors && data.errors.length)
+                    msg += ` Skipped: ${data.errors
+                      .map((e) => e.message)
+                      .join(", ")}.`;
+                  originalSwalFire.call(Swal, {
+                    toast: true,
+                    position: "bottom-end",
+                    showConfirmButton: false,
+                    timer: 4000,
+                    timerProgressBar: true,
+                    background: "#1e293b",
+                    color: "#f1f5f9",
+                    icon: "success",
+                    title: msg,
+                  });
+                  // Refresh the table (modal stays open)
+                  document.getElementById("bulk-edit-tbody").innerHTML =
+                    renderEditableTable();
+                  document
+                    .querySelectorAll(
+                      ".bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email"
+                    )
+                    .forEach((inp) =>
+                      inp.addEventListener("input", checkDuplicates)
+                    );
+                } else {
+                  Toast.fire({
+                    icon: "error",
+                    title: data.message || "Save failed",
+                  });
+                }
+              } catch (err) {
+                Toast.fire({ icon: "error", title: err.message });
+              } finally {
+                yesBtn.innerHTML = originalText;
+                yesBtn.disabled = false;
+                saving = false;
+              }
+            });
+        });
+    },
+    willClose: () => {
+      styleTag.remove();
+    },
   });
 }
 

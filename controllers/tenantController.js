@@ -1341,6 +1341,77 @@ async function updateTenant(req, res) {
   }
 }
 
+async function bulkEditTenants(req, res) {
+  try {
+    const { tenants } = req.body; // array of { _id, name, houseNumber, phoneNumber, email }
+    if (!Array.isArray(tenants) || tenants.length === 0) {
+      return res.status(400).json({ message: "No tenants provided" });
+    }
+
+    const userId = req.userId;
+    const results = [];
+    const errors = [];
+
+    for (const t of tenants) {
+      try {
+        // Find the tenant and verify ownership
+        const existing = await Tenant.findOne({ _id: t._id, userId });
+        if (!existing) {
+          errors.push({ _id: t._id, message: "Tenant not found" });
+          continue;
+        }
+
+        // Check for duplicate house number (exclude this tenant)
+        if (t.houseNumber) {
+          const duplicateHouse = await Tenant.findOne({
+            userId,
+            _id: { $ne: t._id },
+            houseNumber: t.houseNumber,
+          });
+          if (duplicateHouse) {
+            errors.push({
+              _id: t._id,
+              message: `House ${t.houseNumber} already used by ${duplicateHouse.name}`,
+            });
+            continue;
+          }
+        }
+
+        // Check for duplicate name (exclude this tenant)
+        if (t.name) {
+          const duplicateName = await Tenant.findOne({
+            userId,
+            _id: { $ne: t._id },
+            name: t.name,
+          });
+          if (duplicateName) {
+            errors.push({
+              _id: t._id,
+              message: `Name ${t.name} already exists`,
+            });
+            continue;
+          }
+        }
+
+        // Apply allowed updates
+        if (t.name) existing.name = t.name;
+        if (t.houseNumber) existing.houseNumber = t.houseNumber;
+        if (t.phoneNumber !== undefined) existing.phoneNumber = t.phoneNumber;
+        if (t.email !== undefined) existing.email = t.email;
+
+        await existing.save();
+        results.push({ _id: t._id, success: true });
+      } catch (err) {
+        errors.push({ _id: t._id, message: err.message });
+      }
+    }
+
+    res.json({ success: true, updated: results.length, errors });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 async function getPaymentStatusByMonth(req, res) {
   try {
     let month = req.params.month;
@@ -2674,4 +2745,5 @@ export {
   bulkAddTenants,
   updateExtraCharge,
   deleteAllTenants,
+  bulkEditTenants,
 };

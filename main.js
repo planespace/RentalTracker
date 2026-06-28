@@ -7346,11 +7346,21 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   return wrapPremiumEmail(innerHtml, landlordName);
 }
 async function showEmailModal(tenantId) {
-  // 🔒 Prevent double‑send
-  if (window.individualEmailSending) return;
+  // 🚫 Prevent a second modal from opening while one is already visible
+  if (window.individualEmailModalOpen) return;
+  window.individualEmailModalOpen = true;
+
+  // 🔒 Also prevent sending if a previous send is somehow still in progress
+  if (window.individualEmailSending) {
+    window.individualEmailModalOpen = false;
+    return;
+  }
 
   const tenant = tenantArray.find((t) => t._id === tenantId);
-  if (!tenant) return;
+  if (!tenant) {
+    window.individualEmailModalOpen = false;
+    return;
+  }
 
   if (!tenant.email) {
     Toast.fire({
@@ -7358,6 +7368,7 @@ async function showEmailModal(tenantId) {
       title: "No email address",
       text: "Please add an email address for this tenant first.",
     });
+    window.individualEmailModalOpen = false;
     return;
   }
 
@@ -7395,7 +7406,7 @@ async function showEmailModal(tenantId) {
     cancelButtonText: "Cancel",
     background: "#1e293b",
     color: "#f1f5f9",
-    showLoaderOnConfirm: true, // 🔒 Built‑in Swal spinner on confirm button
+    showLoaderOnConfirm: true,
     preConfirm: async () => {
       const subject = document.getElementById("email-subject").value.trim();
       const body = document.getElementById("email-body").value.trim();
@@ -7430,11 +7441,20 @@ async function showEmailModal(tenantId) {
         }
       });
     },
+    willClose: () => {
+      // Release the modal lock when the popup is closed (cancelled, dismissed, or after send)
+      window.individualEmailModalOpen = false;
+    },
   });
 
+  // If the user cancelled or closed the modal, we're done.
   if (!formValues) return;
 
-  // Lock and send
+  // Extra safety – if a send somehow started between the modal opening and now
+  if (window.individualEmailSending) {
+    window.individualEmailSending = true;
+  }
+
   window.individualEmailSending = true;
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
@@ -7518,6 +7538,7 @@ async function showEmailModal(tenantId) {
   } finally {
     setButtonLoading(btn, false);
     window.individualEmailSending = false;
+    // Note: modal lock is released in willClose, so no need to set it here
   }
 }
 

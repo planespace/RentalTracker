@@ -8940,58 +8940,103 @@ async function showBulkEditTenantsModal() {
           <td style="padding:8px 4px; text-align:center;">
             <input type="text" class="bulk-edit-name" value="${escapeHtml(
               tenant.name
-            )}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+            )}" placeholder="Name">
           </td>
           <td style="padding:8px 4px; text-align:center;">
             <input type="text" class="bulk-edit-house" value="${escapeHtml(
               tenant.houseNumber || ""
-            )}" style="width:80px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+            )}" placeholder="House">
           </td>
           <td style="padding:8px 4px; text-align:center;">
             <input type="tel" class="bulk-edit-phone" value="${escapeHtml(
               tenant.phoneNumber || ""
-            )}" style="width:110px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+            )}" placeholder="Phone">
           </td>
           <td style="padding:8px 4px; text-align:center;">
             <input type="email" class="bulk-edit-email" value="${escapeHtml(
               tenant.email || ""
-            )}" style="width:150px; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg-deep); color:var(--text-primary); text-align:center;">
+            )}" placeholder="Email">
           </td>
         </tr>`;
     });
     return html;
   }
 
-  // ── Performance‑friendly styles (sticky buttons + premium gradients) ──
+  // ── Styles – buttons exactly like Swal's (green save, red cancel) ──
   const styleTag = document.createElement("style");
   styleTag.textContent = `
-    .bulk-edit-table { width:100%; border-collapse: collapse; }
-    .bulk-edit-table th { background: var(--bg-elevated); color: var(--accent-cyan); padding: 10px 4px; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; z-index:2; }
-    .bulk-edit-table td { padding: 8px 4px; }
+    .bulk-edit-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .bulk-edit-table th {
+      background: var(--bg-elevated);
+      color: var(--accent-cyan);
+      padding: 10px 4px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .bulk-edit-table td {
+      padding: 6px 4px;
+    }
 
-    /* Premium buttons */
+    /* Inputs */
+    .bulk-edit-name,
+    .bulk-edit-house,
+    .bulk-edit-phone,
+    .bulk-edit-email {
+      width: 100%;
+      max-width: 140px;
+      padding: 10px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      text-align: center;
+      font-size: 0.95rem;
+      box-sizing: border-box;
+    }
+
+    /* Buttons – identical to Swal's confirm/cancel in bulk water modal */
+    .bulk-save-btn,
+    .bulk-cancel-btn {
+      display: inline-block;
+      padding: 10px 24px;
+      border-radius: 40px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.1s, box-shadow 0.1s;
+      white-space: nowrap;
+      min-width: 120px;
+      text-align: center;
+      line-height: 1.5;
+    }
     .bulk-save-btn {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white; border: none; padding: 12px 28px;
-      border-radius: 40px; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+      background: #10b981 !important;
+      color: white !important;
     }
     .bulk-save-btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      background: #059669 !important;
     }
     .bulk-cancel-btn {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white; border: none; padding: 12px 28px;
-      border-radius: 40px; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+      background: #ef4444 !important;
+      color: white !important;
     }
     .bulk-cancel-btn:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+      background: #dc2626 !important;
     }
 
-    /* 🔥 Sticky button area – always at the bottom, like water modal */
+    /* Sticky button bar – always at the bottom, centred */
     .bulk-edit-button-bar {
       position: sticky;
       bottom: 0;
@@ -9001,12 +9046,29 @@ async function showBulkEditTenantsModal() {
       display: flex;
       justify-content: center;
       gap: 14px;
+      flex-wrap: wrap;
       margin-top: 10px;
     }
 
+    /* Mobile adjustments */
     @media (max-width: 600px) {
-      .bulk-edit-name, .bulk-edit-house, .bulk-edit-phone, .bulk-edit-email { width: 60px !important; font-size:0.7rem; }
-      .bulk-save-btn, .bulk-cancel-btn { padding: 10px 20px; font-size: 0.9rem; }
+      .bulk-payment-fullscreen .swal2-html-container {
+        padding: 8px 0 !important;
+      }
+      .bulk-edit-name,
+      .bulk-edit-house,
+      .bulk-edit-phone,
+      .bulk-edit-email {
+        max-width: 100px;
+        padding: 12px 4px;
+        font-size: 0.9rem;
+      }
+      .bulk-save-btn,
+      .bulk-cancel-btn {
+        padding: 10px 20px;
+        font-size: 0.95rem;
+        min-width: 110px;
+      }
     }
   `;
   document.head.appendChild(styleTag);
@@ -9018,10 +9080,10 @@ async function showBulkEditTenantsModal() {
         <table class="bulk-edit-table">
           <thead>
             <tr>
-              <th style="padding:10px 4px;">Name</th>
-              <th style="padding:10px 4px;">House</th>
-              <th style="padding:10px 4px;">Phone</th>
-              <th style="padding:10px 4px;">Email</th>
+              <th>Name</th>
+              <th>House</th>
+              <th>Phone</th>
+              <th>Email</th>
             </tr>
           </thead>
           <tbody id="bulk-edit-tbody">
@@ -9029,7 +9091,7 @@ async function showBulkEditTenantsModal() {
           </tbody>
         </table>
       </div>
-      <!-- Sticky button bar -->
+      <!-- Sticky button bar – identical to bulk water modal -->
       <div class="bulk-edit-button-bar">
         <button id="bulk-edit-cancel-btn" class="bulk-cancel-btn">Cancel</button>
         <button id="bulk-edit-save-btn" class="bulk-save-btn">💾 Save All</button>
@@ -9069,7 +9131,6 @@ async function showBulkEditTenantsModal() {
         htmlContainer.style.flex = "1";
         htmlContainer.style.overflowY = "auto";
         htmlContainer.style.maxHeight = "none";
-        // Remove extra padding at bottom to make sticky bar flush
         htmlContainer.style.paddingBottom = "0";
       }
 

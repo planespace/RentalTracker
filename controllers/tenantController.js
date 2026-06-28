@@ -47,6 +47,7 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
   for (let tenant of allTenants) {
     const settings = await getGlobalSettings(tenant.userId);
 
+    // ── Tenant with zero history – create very first month ──
     if (tenant.paymentHistory.length === 0) {
       const { dueDate, month: firstMonth } = getNextDueDateAndMonth(
         tenant,
@@ -76,23 +77,31 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
       continue;
     }
 
-    const sortedMonths = [...tenant.paymentHistory.map((e) => e.month)].sort();
-    const lastMonth = sortedMonths[sortedMonths.length - 1];
-    const lastEntry = tenant.paymentHistory.find((e) => e.month === lastMonth);
+    // ── Tenant with existing history – keep adding months until up to date ──
+    let changed = false;
+    while (true) {
+      const sortedMonths = [
+        ...tenant.paymentHistory.map((e) => e.month),
+      ].sort();
+      const lastMonth = sortedMonths[sortedMonths.length - 1];
+      const lastEntry = tenant.paymentHistory.find(
+        (e) => e.month === lastMonth
+      );
 
-    // ── Nairobi‑local date comparison (no more time‑zone glitches) ──
-    const rawDue = lastEntry.dueDate
-      ? new Date(lastEntry.dueDate)
-      : getDueDateForMonth(tenant, lastMonth);
-    const lastDueStr = rawDue.toLocaleDateString("en-CA", {
-      timeZone: "Africa/Nairobi",
-    });
+      // Nairobi‑local date comparison
+      const rawDue = lastEntry.dueDate
+        ? new Date(lastEntry.dueDate)
+        : getDueDateForMonth(tenant, lastMonth);
+      const lastDueStr = rawDue.toLocaleDateString("en-CA", {
+        timeZone: "Africa/Nairobi",
+      });
 
-    const todayStr = today.toLocaleDateString("en-CA", {
-      timeZone: "Africa/Nairobi",
-    });
+      const todayStr = today.toLocaleDateString("en-CA", {
+        timeZone: "Africa/Nairobi",
+      });
 
-    if (lastDueStr < todayStr) {
+      if (lastDueStr >= todayStr) break; // nothing more to add
+
       const [lastYear, lastMon] = lastMonth.split("-").map(Number);
       const nextDate = new Date(lastYear, lastMon, 1);
       const newMonth = `${nextDate.getFullYear()}-${String(
@@ -114,9 +123,19 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
           dueDate: nextDueDate,
           mpesaRef: "",
         });
-        await recalcFutureMonths(tenant, newMonth);
-        await tenant.save();
+        changed = true;
+      } else {
+        // Safety: month already exists, stop to prevent infinite loop
+        break;
       }
+    }
+
+    if (changed) {
+      // Recalculate everything from the very first month to be safe
+      const allMonths = [...tenant.paymentHistory.map((e) => e.month)].sort();
+      await recalcFutureMonths(tenant, allMonths[0]);
+      tenant.markModified("paymentHistory");
+      await tenant.save();
     }
   }
   console.log(`✅ Sync finished up to ${currentMonthStr} (UTC)`);

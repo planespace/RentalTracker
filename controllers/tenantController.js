@@ -36,6 +36,10 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
       );
     })();
 
+  const todayStr = today.toLocaleDateString("en-CA", {
+    timeZone: "Africa/Nairobi",
+  });
+
   const currentMonthStr = `${today.getUTCFullYear()}-${String(
     today.getUTCMonth() + 1
   ).padStart(2, "0")}`;
@@ -88,7 +92,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
         (e) => e.month === lastMonth
       );
 
-      // Nairobi‑local date comparison
       const rawDue = lastEntry.dueDate
         ? new Date(lastEntry.dueDate)
         : getDueDateForMonth(tenant, lastMonth);
@@ -96,11 +99,8 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
         timeZone: "Africa/Nairobi",
       });
 
-      const todayStr = today.toLocaleDateString("en-CA", {
-        timeZone: "Africa/Nairobi",
-      });
-
-      if (lastDueStr >= todayStr) break; // nothing more to add
+      // Only add the next month if the LAST month's due date is before today
+      if (lastDueStr >= todayStr) break;
 
       const [lastYear, lastMon] = lastMonth.split("-").map(Number);
       const nextDate = new Date(lastYear, lastMon, 1);
@@ -131,7 +131,6 @@ async function syncAllTenantsToCurrentMonth(todayOverride, userId) {
     }
 
     if (changed) {
-      // Recalculate everything from the very first month to be safe
       const allMonths = [...tenant.paymentHistory.map((e) => e.month)].sort();
       await recalcFutureMonths(tenant, allMonths[0]);
       tenant.markModified("paymentHistory");
@@ -1287,8 +1286,7 @@ async function deletePaymentRecord(req, res) {
     await recalcFutureMonths(tenant, month);
     tenant.markModified("paymentHistory");
     await tenant.save();
-
-    res.json({ success: true });
+    res.json({ success: true, paymentHistory: tenant.paymentHistory });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

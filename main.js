@@ -1204,6 +1204,7 @@ function getTenantFirstMonth(tenant) {
 }
 
 function getTenantPastDueAmount(tenant, todayDate) {
+  if (!tenant.paymentHistory || !Array.isArray(tenant.paymentHistory)) return 0;
   const todayStr = todayDate.toLocaleDateString("en-CA", {
     timeZone: "Africa/Nairobi",
   });

@@ -7347,22 +7347,13 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   return wrapPremiumEmail(innerHtml, landlordName);
 }
 async function showEmailModal(tenantId) {
-  const sendId = Math.random().toString(36).substr(2, 4); // short random ID
-  console.log(`📧 [${sendId}] showEmailModal called`);
-
-  if (window.individualEmailInProgress) {
-    console.warn(
-      `⛔ [${sendId}] Blocked – individualEmailInProgress already true`
-    );
-    return;
-  }
+  // Basic guard – only allow one modal at a time
+  if (window.individualEmailInProgress) return;
   window.individualEmailInProgress = true;
-  console.log(`✅ [${sendId}] Lock acquired`);
 
   const tenant = tenantArray.find((t) => t._id === tenantId);
   if (!tenant) {
     window.individualEmailInProgress = false;
-    console.log(`❌ [${sendId}] Tenant not found, lock released`);
     return;
   }
 
@@ -7373,11 +7364,8 @@ async function showEmailModal(tenantId) {
       text: "Please add an email address for this tenant first.",
     });
     window.individualEmailInProgress = false;
-    console.log(`❌ [${sendId}] No email address, lock released`);
     return;
   }
-
-  console.log(`📬 [${sendId}] Tenant email: ${tenant.email}`);
 
   const templates = {
     thanks: `Dear ${tenant.name},\nThank you for your payment. Have a great day!`,
@@ -7392,10 +7380,21 @@ async function showEmailModal(tenantId) {
     ),
   };
 
-  // ----- Open the Swal modal -----
   const { value: formValues } = await Swal.fire({
     title: `📧 Send Email to ${tenant.name}`,
-    html: `…`, // (your existing html – unchanged)
+    html: `
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <select id="email-template" style="padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
+          <option value="custom">✏️ Custom message</option>
+          <option value="thanks">🙏 Thank you</option>
+          <option value="quickBalance">⚡ Quick Balance</option>
+          <option value="detailedBalance">📋 Detailed Balance</option>
+          <option value="waterBill">💧 Water Bill</option>
+        </select>
+        <input id="email-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
+        <textarea id="email-body" rows="6" placeholder="Type your message..." style="padding:12px; border-radius:20px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); width:100%;"></textarea>
+      </div>
+    `,
     showCancelButton: true,
     confirmButtonText: "Send Email",
     confirmButtonColor: "#10b981",
@@ -7413,18 +7412,36 @@ async function showEmailModal(tenantId) {
       return { subject, message: body };
     },
     didOpen: () => {
-      // (your existing didOpen code – unchanged)
+      const templateSelect = document.getElementById("email-template");
+      const subjectInput = document.getElementById("email-subject");
+      const bodyArea = document.getElementById("email-body");
+
+      templateSelect.addEventListener("change", () => {
+        const val = templateSelect.value;
+        if (val === "custom") {
+          bodyArea.value = "";
+          subjectInput.value = "Rent Update";
+        } else if (val === "quickBalance") {
+          subjectInput.value = "Rent Balance";
+          bodyArea.value = templates.quickBalance;
+        } else if (val === "detailedBalance") {
+          subjectInput.value = "Your Rent Statement";
+          bodyArea.value = templates.detailedBalance;
+        } else if (val === "waterBill") {
+          subjectInput.value = "Water Bill";
+          bodyArea.value = templates.waterBill;
+        } else if (val === "thanks") {
+          subjectInput.value = "Thank You";
+          bodyArea.value = templates.thanks;
+        }
+      });
     },
   });
 
-  // ----- After the modal closes -----
   if (!formValues) {
-    console.log(`❌ [${sendId}] User cancelled modal`);
     window.individualEmailInProgress = false;
     return;
   }
-
-  console.log(`📨 [${sendId}] User confirmed send`);
 
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
@@ -7435,11 +7452,36 @@ async function showEmailModal(tenantId) {
 
     const templateValue = document.getElementById("email-template").value;
 
-    // (build htmlMessage exactly as before – unchanged)
-
-    console.log(
-      `🌐 [${sendId}] About to POST /tenants/send-emails for tenant ${tenant.name}`
-    );
+    if (templateValue === "detailedBalance") {
+      htmlMessage = formValues.message;
+    } else if (templateValue === "waterBill") {
+      htmlMessage = formValues.message;
+    } else if (templateValue === "quickBalance") {
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+          tenant.name
+        )},</p>
+         <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+           formValues.message
+         )}</div>`,
+        landlordName
+      );
+      subject = "Rent Balance";
+    } else {
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
+          subject
+        )}</p>
+         <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
+           formValues.message
+         ).replace(/\n/g, "<br>")}</div>`,
+        landlordName
+      );
+    }
 
     const response = await fetchWithTimeout(
       window.location.origin + "/tenants/send-emails",
@@ -7457,56 +7499,43 @@ async function showEmailModal(tenantId) {
       },
       120000
     );
-
     const data = await response.json();
-    console.log(`📦 [${sendId}] Server response:`, data);
-
     if (response.ok) {
       const success = (data.results || [])[0]?.success;
       if (success) {
         Toast.fire({ icon: "success", title: "Email sent" });
-        console.log(`✅ [${sendId}] Email sent successfully`);
       } else {
         Toast.fire({ icon: "error", title: "Failed to send email" });
-        console.warn(`⚠️ [${sendId}] Server reported failure`);
       }
     } else {
       originalSwalFire.call(Swal, {
         toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
         icon: "error",
         title: data.message || "Failed to send",
       });
-      console.error(`❌ [${sendId}] Server error: ${data.message}`);
     }
   } catch (err) {
     Toast.fire({ icon: "error", title: err.message });
-    console.error(`🔥 [${sendId}] Network error: ${err.message}`);
   } finally {
     setButtonLoading(btn, false);
     window.individualEmailInProgress = false;
-    console.log(`🔓 [${sendId}] Lock released`);
   }
 }
 
 function showBulkEmailModal() {
-  const batchId = Math.random().toString(36).substr(2, 4);
-  console.log(`📧 BULK [${batchId}] showBulkEmailModal called`);
-
-  // 🚫 Only one bulk email operation at a time
-  if (window.bulkEmailInProgress) {
-    console.warn(
-      `⛔ BULK [${batchId}] Blocked – bulkEmailInProgress already true`
-    );
-    return;
-  }
+  if (window.bulkEmailInProgress) return;
   window.bulkEmailInProgress = true;
-  console.log(`✅ BULK [${batchId}] Lock acquired`);
 
   let tenants = [...tenantArray].filter((t) => t.email);
   if (tenants.length === 0) {
     Toast.fire({ icon: "warning", title: "No tenants with email addresses." });
     window.bulkEmailInProgress = false;
-    console.log(`❌ BULK [${batchId}] No tenants with email, lock released`);
     return;
   }
 
@@ -7588,7 +7617,93 @@ function showBulkEmailModal() {
     width: "auto",
     customClass: { popup: "fullscreen-sms-modal" },
     didOpen: () => {
-      // … (existing didOpen code – no changes) …
+      const popup = Swal.getPopup();
+      if (popup) {
+        popup.style.maxHeight = "90vh";
+        popup.style.overflow = "hidden";
+        popup.style.display = "flex";
+        popup.style.flexDirection = "column";
+      }
+      const htmlContainer = Swal.getHtmlContainer();
+      if (htmlContainer) {
+        htmlContainer.style.flex = "1";
+        htmlContainer.style.overflowY = "auto";
+      }
+      const actions = Swal.getActions();
+      if (actions) {
+        actions.style.flexShrink = "0";
+        actions.style.marginTop = "0";
+        actions.style.padding =
+          "12px 16px calc(30px + env(safe-area-inset-bottom, 20px)) 16px";
+        actions.style.borderTop = "1px solid var(--border, #334155)";
+        actions.style.background = "var(--bg-secondary, #0f172a)";
+      }
+
+      const selectAllBtn = document.getElementById("email-select-all");
+      const selectLateBtn = document.getElementById("email-select-late");
+      const checkboxes = () =>
+        document.querySelectorAll(".email-tenant-select");
+
+      if (selectAllBtn) {
+        selectAllBtn.addEventListener("click", () => {
+          const allCB = checkboxes();
+          const allChecked = Array.from(allCB).every((cb) => cb.checked);
+          const newState = !allChecked;
+          allCB.forEach((cb) => {
+            cb.checked = newState;
+          });
+          selectAllBtn.textContent = newState
+            ? "✕ Deselect All"
+            : "✓ Select All";
+        });
+      }
+      if (selectLateBtn) {
+        selectLateBtn.addEventListener("click", () => {
+          const allCB = checkboxes();
+          const overdueCbs = Array.from(allCB).filter((cb) => {
+            const tenant = tenants.find((t) => t._id === cb.dataset.id);
+            return tenant && getTenantPastDueAmount(tenant, getAppToday()) > 0;
+          });
+          const allOverdueChecked = overdueCbs.every((cb) => cb.checked);
+          const newState = !allOverdueChecked;
+          overdueCbs.forEach((cb) => {
+            cb.checked = newState;
+          });
+          selectLateBtn.textContent = newState
+            ? "✕ Deselect Late"
+            : "⚠️ Select Late";
+        });
+      }
+
+      const templateSelect = document.getElementById("email-bulk-template");
+      const subjectInput = document.getElementById("email-bulk-subject");
+      const bodyArea = document.getElementById("email-bulk-body");
+      const balanceNote = document.getElementById("email-bulk-note");
+
+      templateSelect.addEventListener("change", () => {
+        const val = templateSelect.value;
+        if (val === "custom") {
+          bodyArea.style.display = "block";
+          subjectInput.style.display = "block";
+          bodyArea.value = "";
+          subjectInput.value = "Rent Update";
+          balanceNote.style.display = "none";
+        } else if (val === "thanks") {
+          bodyArea.style.display = "block";
+          subjectInput.style.display = "block";
+          subjectInput.value = "Thank You";
+          bodyArea.value = "Thank you for your payment. Have a great day!";
+          balanceNote.style.display = "none";
+        } else if (val === "quickBalance") {
+          bodyArea.style.display = "none";
+          subjectInput.style.display = "none";
+          balanceNote.style.display = "block";
+        } else if (val === "detailedBalance" || val === "waterBill") {
+          bodyArea.style.display = "none";
+          subjectInput.style.display = "none";
+          balanceNote.style.display = "block";
+        }
+      });
     },
     preConfirm: async () => {
       const selected = Array.from(
@@ -7605,9 +7720,6 @@ function showBulkEmailModal() {
       const templateValue = document.getElementById(
         "email-bulk-template"
       ).value;
-      console.log(
-        `📋 BULK [${batchId}] preConfirm – selected ${selected.length} tenants, template: ${templateValue}`
-      );
       return {
         tenantIds: selected,
         subject,
@@ -7619,7 +7731,6 @@ function showBulkEmailModal() {
     },
   }).then(async (result) => {
     if (!result.isConfirmed) {
-      console.log(`❌ BULK [${batchId}] User cancelled modal`);
       window.bulkEmailInProgress = false;
       return;
     }
@@ -7632,25 +7743,8 @@ function showBulkEmailModal() {
       isWaterBillMode,
     } = result.value;
 
-    console.log(
-      `📨 BULK [${batchId}] User confirmed send. Mode: ${
-        isBalanceMode
-          ? "balance"
-          : isDetailed
-          ? "detailed"
-          : isWaterBillMode
-          ? "water"
-          : "custom"
-      }. Tenants: ${tenantIds.length}`
-    );
-
     const btn = document.getElementById("bulk-email-btn");
     setButtonLoading(btn, true);
-
-    // 🔑 Generate ONE unique idempotency key for this entire batch
-    const idempotencyKey =
-      Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    console.log(`🔑 BULK [${batchId}] Idempotency key: ${idempotencyKey}`);
 
     try {
       let summary = "";
@@ -7664,9 +7758,6 @@ function showBulkEmailModal() {
         let successCount = 0;
         const failedNames = [];
         const BATCH_SIZE = 5;
-        console.log(
-          `⚡ BULK [${batchId}] Starting balance mode send for ${selectedTenants.length} tenants`
-        );
         for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
           const batch = selectedTenants.slice(i, i + BATCH_SIZE);
           const batchResults = await Promise.allSettled(
@@ -7681,9 +7772,6 @@ function showBulkEmailModal() {
                  )}</div>`,
                 landlordName
               );
-              console.log(
-                `🌐 BULK [${batchId}] Sending balance to ${tenant.name} (${tenant.email})`
-              );
               try {
                 const res = await fetchWithTimeout(
                   window.location.origin + "/tenants/send-emails",
@@ -7697,7 +7785,6 @@ function showBulkEmailModal() {
                       tenantIds: [tenant._id],
                       subject: "Rent Balance",
                       message: htmlMsg,
-                      idempotencyKey,
                     }),
                   },
                   120000
@@ -7708,9 +7795,6 @@ function showBulkEmailModal() {
                   success: data.results?.[0]?.success,
                 };
               } catch (err) {
-                console.error(
-                  `🔥 BULK [${batchId}] Failed for ${tenant.name}: ${err.message}`
-                );
                 return { tenant: tenant.name, success: false };
               }
             })
@@ -7719,13 +7803,8 @@ function showBulkEmailModal() {
             if (res.status === "fulfilled") {
               if (res.value.success) successCount++;
               else failedNames.push(res.value.tenant);
-            } else {
-              failedNames.push("unknown");
-            }
+            } else failedNames.push("unknown");
           }
-          console.log(
-            `📊 BULK [${batchId}] Batch progress: ${successCount} successes, ${failedNames.length} failures`
-          );
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
@@ -7737,9 +7816,6 @@ function showBulkEmailModal() {
         let successCount = 0;
         const failedNames = [];
         const BATCH_SIZE = 5;
-        console.log(
-          `📋 BULK [${batchId}] Starting detailed balance mode send for ${selectedTenants.length} tenants`
-        );
         for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
           const batch = selectedTenants.slice(i, i + BATCH_SIZE);
           const batchResults = await Promise.allSettled(
@@ -7747,9 +7823,6 @@ function showBulkEmailModal() {
               const personalisedMsg = generateDetailedBalanceHtml(
                 tenant,
                 landlordName
-              );
-              console.log(
-                `🌐 BULK [${batchId}] Sending detailed balance to ${tenant.name} (${tenant.email})`
               );
               try {
                 const res = await fetchWithTimeout(
@@ -7764,7 +7837,6 @@ function showBulkEmailModal() {
                       tenantIds: [tenant._id],
                       subject: "Your Rent Statement",
                       message: personalisedMsg,
-                      idempotencyKey,
                     }),
                   },
                   120000
@@ -7775,9 +7847,6 @@ function showBulkEmailModal() {
                   success: data.results?.[0]?.success,
                 };
               } catch (err) {
-                console.error(
-                  `🔥 BULK [${batchId}] Failed for ${tenant.name}: ${err.message}`
-                );
                 return { tenant: tenant.name, success: false };
               }
             })
@@ -7786,13 +7855,8 @@ function showBulkEmailModal() {
             if (res.status === "fulfilled") {
               if (res.value.success) successCount++;
               else failedNames.push(res.value.tenant);
-            } else {
-              failedNames.push("unknown");
-            }
+            } else failedNames.push("unknown");
           }
-          console.log(
-            `📊 BULK [${batchId}] Batch progress: ${successCount} successes, ${failedNames.length} failures`
-          );
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
@@ -7804,9 +7868,6 @@ function showBulkEmailModal() {
         let successCount = 0;
         const failedNames = [];
         const BATCH_SIZE = 5;
-        console.log(
-          `💧 BULK [${batchId}] Starting water bill mode send for ${selectedTenants.length} tenants`
-        );
         for (let i = 0; i < selectedTenants.length; i += BATCH_SIZE) {
           const batch = selectedTenants.slice(i, i + BATCH_SIZE);
           const batchResults = await Promise.allSettled(
@@ -7814,9 +7875,6 @@ function showBulkEmailModal() {
               const personalisedMsg = generateWaterBillEmail(
                 tenant,
                 landlordName
-              );
-              console.log(
-                `🌐 BULK [${batchId}] Sending water bill to ${tenant.name} (${tenant.email})`
               );
               try {
                 const res = await fetchWithTimeout(
@@ -7831,7 +7889,6 @@ function showBulkEmailModal() {
                       tenantIds: [tenant._id],
                       subject: "Water Bill",
                       message: personalisedMsg,
-                      idempotencyKey,
                     }),
                   },
                   120000
@@ -7842,9 +7899,6 @@ function showBulkEmailModal() {
                   success: data.results?.[0]?.success,
                 };
               } catch (err) {
-                console.error(
-                  `🔥 BULK [${batchId}] Failed for ${tenant.name}: ${err.message}`
-                );
                 return { tenant: tenant.name, success: false };
               }
             })
@@ -7853,13 +7907,8 @@ function showBulkEmailModal() {
             if (res.status === "fulfilled") {
               if (res.value.success) successCount++;
               else failedNames.push(res.value.tenant);
-            } else {
-              failedNames.push("unknown");
-            }
+            } else failedNames.push("unknown");
           }
-          console.log(
-            `📊 BULK [${batchId}] Batch progress: ${successCount} successes, ${failedNames.length} failures`
-          );
         }
         summary = `Sent to ${successCount} tenant(s).`;
         if (failedNames.length)
@@ -7874,9 +7923,6 @@ function showBulkEmailModal() {
            ).replace(/\n/g, "<br>")}</div>`,
           landlordName
         );
-        console.log(
-          `🌐 BULK [${batchId}] Sending custom email to ${tenantIds.length} tenants`
-        );
         const response = await fetchWithTimeout(
           window.location.origin + "/tenants/send-emails",
           {
@@ -7885,16 +7931,10 @@ function showBulkEmailModal() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-            body: JSON.stringify({
-              tenantIds,
-              subject,
-              message: htmlMessage,
-              idempotencyKey,
-            }),
+            body: JSON.stringify({ tenantIds, subject, message: htmlMessage }),
           }
         );
         const data = await response.json();
-        console.log(`📦 BULK [${batchId}] Custom email response:`, data);
         if (response.ok) {
           let sent = (data.results || []).filter((r) => r.success).length;
           summary = `Sent to ${sent} tenants.`;
@@ -7908,16 +7948,11 @@ function showBulkEmailModal() {
         }
       }
       Toast.fire({ icon: "success", title: summary });
-      console.log(`✅ BULK [${batchId}] Batch complete. Summary: ${summary}`);
     } catch (err) {
       Toast.fire({ icon: "error", title: err.message });
-      console.error(`🔥 BULK [${batchId}] Catastrophic error: ${err.message}`);
     } finally {
       setButtonLoading(btn, false);
-      setTimeout(() => {
-        window.bulkEmailInProgress = false;
-        console.log(`🔓 BULK [${batchId}] Lock released`);
-      }, 300);
+      window.bulkEmailInProgress = false;
     }
   });
 }

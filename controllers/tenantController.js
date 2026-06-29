@@ -2315,49 +2315,50 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 //   REMAINING ENDPOINTS (SMS, Email, Logs, etc.) – unchanged
 // ========================
 // ---------- Deduplication cache (in‑memory) ----------
-const recentEmailRequests = new Map();
+// In‑memory idempotency store (clears after 60 seconds)
+const processedKeys = new Map();
 
 async function sendManualEmails(req, res) {
   try {
-    const { tenantIds, subject, message } = req.body;
+    const { tenantIds, subject, message, idempotencyKey } = req.body;
     if (!tenantIds?.length)
       return res.status(400).json({ message: "Select tenants." });
     if (!subject?.trim() || !message?.trim())
       return res.status(400).json({ message: "Subject and message required." });
 
-    // Build a simple hash of the request to detect duplicates
-    const requestKey = [
-      req.userId,
-      ...tenantIds.slice().sort(),
-      subject.trim(),
-      message.trim(),
-    ].join("||");
-
-    const now = Date.now();
-    if (recentEmailRequests.has(requestKey)) {
-      const lastTime = recentEmailRequests.get(requestKey);
-      if (now - lastTime < 5000) {
-        // Duplicate within 5 seconds – silently ignore
-        console.warn(
-          `⛔ Duplicate email request blocked for user ${req.userId}`
-        );
-        return res.json({
-          success: true,
-          results: [],
-          message: "Duplicate request ignored.",
-        });
+    // ── Idempotency check ──
+    if (idempotencyKey) {
+      const now = Date.now();
+      if (processedKeys.has(idempotencyKey)) {
+        const { time } = processedKeys.get(idempotencyKey);
+        if (now - time < 60000) {
+          // 1 minute window
+          console.warn(
+            `⛔ Duplicate idempotency key ignored: ${idempotencyKey}`
+          );
+          return res.json({
+            success: true,
+            results: [],
+            message: "Duplicate request ignored.",
+          });
+        }
+      }
+      processedKeys.set(idempotencyKey, { time: now });
+      // Clean up old entries every 100 requests
+      if (processedKeys.size > 100) {
+        for (const [key, val] of processedKeys) {
+          if (now - val.time > 60000) processedKeys.delete(key);
+        }
       }
     }
-    recentEmailRequests.set(requestKey, now);
 
-    // Proceed with normal sending
+    // Proceed with sending
     const results = await sendBulkEmails(
       tenantIds,
       subject,
       message,
       req.userId
     );
-
     res.json({ success: true, results });
   } catch (error) {
     console.error("sendManualEmails error:", error);

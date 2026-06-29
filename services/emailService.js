@@ -77,6 +77,7 @@ export async function sendEmail(
   htmlBody,
   userId
 ) {
+  console.log(`✉️ sendEmail called for ${toEmail} (${tenantName})`);
   // Fire and forget initial log – do not await
   const logEntry = new EmailLog({
     userId,

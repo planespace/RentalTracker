@@ -2320,25 +2320,8 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 
 // ⛔ Global lock – prevents concurrent email sends per user
 // ⛔ Global lock per user – stays active for 5 seconds after the last send
-const userEmailLocks = new Map();
-
+const tenantEmailCooldowns = new Map();
 async function sendManualEmails(req, res) {
-  // 🔒 If a lock exists and hasn't expired, reject the duplicate
-  const lock = userEmailLocks.get(req.userId);
-  if (lock && Date.now() - lock.time < 5000) {
-    console.warn(
-      `⛔ Duplicate email request blocked (cooldown) for user ${req.userId}`
-    );
-    return res.json({
-      success: true,
-      results: [],
-      message: "Duplicate request ignored – please wait before sending again.",
-    });
-  }
-
-  // Set a fresh lock timestamp
-  userEmailLocks.set(req.userId, { time: Date.now() });
-
   try {
     const { tenantIds, subject, message } = req.body;
     if (!tenantIds?.length)
@@ -2346,20 +2329,56 @@ async function sendManualEmails(req, res) {
     if (!subject?.trim() || !message?.trim())
       return res.status(400).json({ message: "Subject and message required." });
 
+    const now = Date.now();
+    const blocked = [];
+
+    // ⏱️ Block any tenant that has received an email in the last 30 seconds
+    for (const tid of tenantIds) {
+      const lastSent = tenantEmailCooldowns.get(tid);
+      if (lastSent && now - lastSent < 30000) {
+        blocked.push(tid);
+      }
+    }
+
+    // Filter out blocked tenants
+    const allowedIds = tenantIds.filter((tid) => !blocked.includes(tid));
+
+    if (allowedIds.length === 0) {
+      return res.json({
+        success: true,
+        results: [],
+        message: `All recipients have been emailed recently. Please wait before sending again.`,
+      });
+    }
+
+    // Send only to tenants that are not on cooldown
     const results = await sendBulkEmails(
-      tenantIds,
+      allowedIds,
       subject,
       message,
       req.userId
     );
+
+    // Update cooldown for each successfully sent tenant
+    for (const r of results) {
+      if (r.success) {
+        // find the tenant ID by name (we only have tenant name in results)
+        const tenant = await Tenant.findOne({
+          name: r.tenant,
+          userId: req.userId,
+        });
+        if (tenant) {
+          tenantEmailCooldowns.set(tenant._id.toString(), now);
+        }
+      }
+    }
+
     res.json({ success: true, results });
   } catch (error) {
     console.error("sendManualEmails error:", error);
     res.status(500).json({ message: error.message });
   }
-  // Note: lock naturally expires after 5 seconds – we never delete it manually
 }
-
 async function getEmailLogs(req, res) {
   try {
     const logs = await EmailLog.find({ userId: req.userId })

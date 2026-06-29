@@ -198,9 +198,19 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 🔥 Edge‑to‑edge on mobile -->
+  <style>
+    @media only screen and (max-width: 600px) {
+      .email-container {
+        margin: 0 !important;
+        max-width: 100% !important;
+        border-radius: 0 !important;
+      }
+    }
+  </style>
 </head>
 <body style="margin:0; padding:0; background:#F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-  <div style="max-width:700px; margin:30px auto; background:#FFFFFF; border-radius:24px; box-shadow: 0 8px 30px rgba(0,0,0,0.06);">
+  <div class="email-container" style="max-width:700px; margin:30px auto; background:#FFFFFF; border-radius:24px; box-shadow: 0 8px 30px rgba(0,0,0,0.06);">
 
     <!-- Header -->
     <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding:40px 24px 32px 24px; text-align:center; border-radius:24px 24px 0 0; border-bottom: 3px solid #38BDF8;">
@@ -229,7 +239,7 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
       ${innerHtml}
     </div>
 
-    <!-- 🎯 Footer – now clearly distinguishable -->
+    <!-- Footer -->
     <div style="background:#E2E8F0; padding:20px 24px; text-align:center; border-radius:0 0 24px 24px; border-top:1px solid #CBD5E1;">
       <p style="margin:0; font-size:14px; color:#1E293B; font-weight:500;">&copy; ${today.getFullYear()} Paradise Suites. All rights reserved.</p>
       <p style="margin:12px 0 0; font-size:13px; color:#B91C1C; font-weight:600;">🔒 We never send paybill numbers via email. Please ask the landlord or caretaker directly.</p>

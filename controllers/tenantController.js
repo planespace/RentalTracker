@@ -2316,7 +2316,10 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 // ========================
 // ---------- Deduplication cache (in‑memory) ----------
 // In‑memory idempotency store (clears after 60 seconds)
-const processedKeys = new Map();
+// controllers/tenantController.js
+
+// ── In‑memory dedup store (auto‑clears old entries) ──
+const recentEmailRequests = new Map();
 
 async function sendManualEmails(req, res) {
   try {
@@ -2326,33 +2329,40 @@ async function sendManualEmails(req, res) {
     if (!subject?.trim() || !message?.trim())
       return res.status(400).json({ message: "Subject and message required." });
 
-    // ── Idempotency check ──
-    if (idempotencyKey) {
-      const now = Date.now();
-      if (processedKeys.has(idempotencyKey)) {
-        const { time } = processedKeys.get(idempotencyKey);
-        if (now - time < 60000) {
-          // 1 minute window
-          console.warn(
-            `⛔ Duplicate idempotency key ignored: ${idempotencyKey}`
-          );
-          return res.json({
-            success: true,
-            results: [],
-            message: "Duplicate request ignored.",
-          });
-        }
+    const now = Date.now();
+
+    // 🔑 Prefer the idempotency key (new front‑end), fallback to content hash (old front‑end)
+    const dedupKey = idempotencyKey
+      ? `key:${idempotencyKey}`
+      : `hash:${[
+          req.userId,
+          ...tenantIds.slice().sort(),
+          subject.trim(),
+          message.trim(),
+        ].join("||")}`;
+
+    if (recentEmailRequests.has(dedupKey)) {
+      const { time } = recentEmailRequests.get(dedupKey);
+      if (now - time < 5000) {
+        // 5‑second window
+        console.warn(`⛔ Duplicate email request blocked: ${dedupKey}`);
+        return res.json({
+          success: true,
+          results: [],
+          message: "Duplicate request ignored.",
+        });
       }
-      processedKeys.set(idempotencyKey, { time: now });
-      // Clean up old entries every 100 requests
-      if (processedKeys.size > 100) {
-        for (const [key, val] of processedKeys) {
-          if (now - val.time > 60000) processedKeys.delete(key);
-        }
+    }
+    recentEmailRequests.set(dedupKey, { time: now });
+
+    // Clean up old entries every 100 requests to avoid memory growth
+    if (recentEmailRequests.size > 100) {
+      for (const [key, val] of recentEmailRequests) {
+        if (now - val.time > 10000) recentEmailRequests.delete(key);
       }
     }
 
-    // Proceed with sending
+    // Proceed with normal sending
     const results = await sendBulkEmails(
       tenantIds,
       subject,

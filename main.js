@@ -7347,11 +7347,98 @@ function generateDetailedBalanceHtml(tenant, landlordName = "Your Landlord") {
   return wrapPremiumEmail(innerHtml, landlordName);
 }
 async function showEmailModal(tenantId) {
+  // 🚫 Hard lock – immediately bail if any email operation is in progress
   if (window.individualEmailInProgress) return;
   window.individualEmailInProgress = true;
 
-  // … rest of your existing code (validation, Swal.fire, etc.) …
+  const tenant = tenantArray.find((t) => t._id === tenantId);
+  if (!tenant) {
+    window.individualEmailInProgress = false;
+    return;
+  }
 
+  if (!tenant.email) {
+    Toast.fire({
+      icon: "warning",
+      title: "No email address",
+      text: "Please add an email address for this tenant first.",
+    });
+    window.individualEmailInProgress = false;
+    return;
+  }
+
+  const templates = {
+    thanks: `Dear ${tenant.name},\nThank you for your payment. Have a great day!`,
+    quickBalance: generateShortBalanceMessage(tenant),
+    detailedBalance: generateDetailedBalanceHtml(
+      tenant,
+      userProfile.landlordName || userProfile.name || "Your Landlord"
+    ),
+    waterBill: generateWaterBillEmail(
+      tenant,
+      userProfile.landlordName || userProfile.name || "Landlord"
+    ),
+  };
+
+  const { value: formValues } = await Swal.fire({
+    title: `📧 Send Email to ${tenant.name}`,
+    html: `
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <select id="email-template" style="padding: 10px; border-radius: 40px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
+          <option value="custom">✏️ Custom message</option>
+          <option value="thanks">🙏 Thank you</option>
+          <option value="quickBalance">⚡ Quick Balance</option>
+          <option value="detailedBalance">📋 Detailed Balance</option>
+          <option value="waterBill">💧 Water Bill</option>
+        </select>
+        <input id="email-subject" class="swal2-input" placeholder="Subject" value="Rent Update" style="margin:0;">
+        <textarea id="email-body" rows="6" placeholder="Type your message..." style="padding:12px; border-radius:20px; background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); width:100%;"></textarea>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: "Send Email",
+    confirmButtonColor: "#10b981",
+    cancelButtonText: "Cancel",
+    background: "#1e293b",
+    color: "#f1f5f9",
+    showLoaderOnConfirm: true,
+    preConfirm: async () => {
+      const subject = document.getElementById("email-subject").value.trim();
+      const body = document.getElementById("email-body").value.trim();
+      if (!subject || !body) {
+        Swal.showValidationMessage("Subject and message are required");
+        return false;
+      }
+      return { subject, message: body };
+    },
+    didOpen: () => {
+      const templateSelect = document.getElementById("email-template");
+      const subjectInput = document.getElementById("email-subject");
+      const bodyArea = document.getElementById("email-body");
+
+      templateSelect.addEventListener("change", () => {
+        const val = templateSelect.value;
+        if (val === "custom") {
+          bodyArea.value = "";
+          subjectInput.value = "Rent Update";
+        } else if (val === "quickBalance") {
+          subjectInput.value = "Rent Balance";
+          bodyArea.value = templates.quickBalance;
+        } else if (val === "detailedBalance") {
+          subjectInput.value = "Your Rent Statement";
+          bodyArea.value = templates.detailedBalance;
+        } else if (val === "waterBill") {
+          subjectInput.value = "Water Bill";
+          bodyArea.value = templates.waterBill;
+        } else if (val === "thanks") {
+          subjectInput.value = "Thank You";
+          bodyArea.value = templates.thanks;
+        }
+      });
+    },
+  });
+
+  // User cancelled or closed the modal → release lock and exit
   if (!formValues) {
     window.individualEmailInProgress = false;
     return;
@@ -7361,11 +7448,46 @@ async function showEmailModal(tenantId) {
   const idempotencyKey =
     Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
+  // From here, a send will happen – lock remains true until the end
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
 
   try {
-    // … build subject and htmlMessage as before …
+    let subject = formValues.subject;
+    let htmlMessage;
+
+    const templateValue = document.getElementById("email-template").value;
+
+    if (templateValue === "detailedBalance") {
+      htmlMessage = formValues.message;
+    } else if (templateValue === "waterBill") {
+      htmlMessage = formValues.message;
+    } else if (templateValue === "quickBalance") {
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">Dear ${escapeHtml(
+          tenant.name
+        )},</p>
+         <div style="background:#f1f5f9; padding:20px; border-radius:12px; margin:20px 0; font-size:16px; color:#0f172a; line-height:1.6;">${escapeHtml(
+           formValues.message
+         )}</div>`,
+        landlordName
+      );
+      subject = "Rent Balance";
+    } else {
+      const landlordName =
+        userProfile.landlordName || userProfile.name || "Landlord";
+      htmlMessage = wrapPremiumEmail(
+        `<p style="font-size:16px; color:#1e293b; font-weight:500;">${escapeHtml(
+          subject
+        )}</p>
+         <div style="font-size:15px; color:#475569; line-height:1.6; margin-top:20px;">${escapeHtml(
+           formValues.message
+         ).replace(/\n/g, "<br>")}</div>`,
+        landlordName
+      );
+    }
 
     const response = await fetchWithTimeout(
       window.location.origin + "/tenants/send-emails",
@@ -7384,9 +7506,29 @@ async function showEmailModal(tenantId) {
       },
       120000
     );
-    // … rest of handling unchanged …
+    const data = await response.json();
+    if (response.ok) {
+      const success = (data.results || [])[0]?.success;
+      if (success) {
+        Toast.fire({ icon: "success", title: "Email sent" });
+      } else {
+        Toast.fire({ icon: "error", title: "Failed to send email" });
+      }
+    } else {
+      originalSwalFire.call(Swal, {
+        toast: true,
+        position: "bottom-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+        background: "#1e293b",
+        color: "#f1f5f9",
+        icon: "error",
+        title: data.message || "Failed to send",
+      });
+    }
   } catch (err) {
-    // …
+    Toast.fire({ icon: "error", title: err.message });
   } finally {
     setButtonLoading(btn, false);
     window.individualEmailInProgress = false;

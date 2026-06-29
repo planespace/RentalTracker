@@ -77,19 +77,6 @@ export async function sendEmail(
   htmlBody,
   userId
 ) {
-  console.log(`✉️ sendEmail called for ${toEmail} (${tenantName})`);
-  // Fire and forget initial log – do not await
-  const logEntry = new EmailLog({
-    userId,
-    tenantName,
-    email: toEmail,
-    subject,
-    body: htmlBody,
-    status: "pending",
-    sentAt: new Date(),
-  });
-  logEntry.save().catch((err) => console.error("Log save failed", err));
-
   const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
   sendSmtpEmail.sender = {
     email: process.env.EMAIL_USER,
@@ -99,16 +86,32 @@ export async function sendEmail(
   sendSmtpEmail.subject = subject;
   sendSmtpEmail.htmlContent = htmlBody;
 
-  // Fast retry: 3 attempts, 50 ms delay
+  // ── Retry only the Brevo call, not the log save ──
   const maxRetries = 3;
   let lastError;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
-      logEntry.messageId = response.messageId || null;
-      logEntry.status = "sent";
-      await logEntry.save();
+
+      // Email sent successfully – now try to save the log (don't retry on log failure)
+      try {
+        const logEntry = new EmailLog({
+          userId,
+          tenantName,
+          email: toEmail,
+          subject,
+          body: htmlBody,
+          status: "sent",
+          sentAt: new Date(),
+          messageId: response.messageId || null,
+        });
+        await logEntry.save();
+      } catch (logErr) {
+        console.error(`⚠️ Log save failed for ${toEmail}: ${logErr.message}`);
+        // Do NOT throw – the email already went out, we just couldn't log it
+      }
+
       console.log(`✅ Email sent to ${toEmail} (attempt ${attempt})`);
       return response;
     } catch (error) {
@@ -117,17 +120,29 @@ export async function sendEmail(
         `❌ Attempt ${attempt} failed for ${toEmail}: ${error.message}`
       );
       if (attempt < maxRetries) {
-        // Very short delay – only 50 ms
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
   }
 
-  // All attempts failed
-  logEntry.status = "failed";
-  logEntry.error = lastError.message;
-  logEntry.failedAt = new Date();
-  await logEntry.save();
+  // All attempts failed – save a failed log and throw
+  try {
+    const failedLog = new EmailLog({
+      userId,
+      tenantName,
+      email: toEmail,
+      subject,
+      body: htmlBody,
+      status: "failed",
+      sentAt: new Date(),
+      error: lastError.message,
+      failedAt: new Date(),
+    });
+    await failedLog.save();
+  } catch (logErr) {
+    console.error(`⚠️ Failed to save failed log for ${toEmail}`);
+  }
+
   throw lastError;
 }
 

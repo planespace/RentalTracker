@@ -2319,11 +2319,12 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 // controllers/tenantController.js
 
 // ── In‑memory dedup store (auto‑clears old entries) ──
+// In‑memory dedup store (content‑hash based)
 const recentEmailRequests = new Map();
 
 async function sendManualEmails(req, res) {
   try {
-    const { tenantIds, subject, message, idempotencyKey } = req.body;
+    const { tenantIds, subject, message } = req.body;
     if (!tenantIds?.length)
       return res.status(400).json({ message: "Select tenants." });
     if (!subject?.trim() || !message?.trim())
@@ -2331,21 +2332,19 @@ async function sendManualEmails(req, res) {
 
     const now = Date.now();
 
-    // 🔑 Prefer the idempotency key (new front‑end), fallback to content hash (old front‑end)
-    const dedupKey = idempotencyKey
-      ? `key:${idempotencyKey}`
-      : `hash:${[
-          req.userId,
-          ...tenantIds.slice().sort(),
-          subject.trim(),
-          message.trim(),
-        ].join("||")}`;
+    // 📦 Build a content hash that uniquely identifies the identical request
+    const dedupKey = [
+      req.userId,
+      ...tenantIds.slice().sort(), // sort to ensure same order
+      subject.trim(),
+      message.trim(),
+    ].join("||");
 
     if (recentEmailRequests.has(dedupKey)) {
       const { time } = recentEmailRequests.get(dedupKey);
       if (now - time < 5000) {
         // 5‑second window
-        console.warn(`⛔ Duplicate email request blocked: ${dedupKey}`);
+        console.warn(`⛔ Duplicate email request blocked (content hash)`);
         return res.json({
           success: true,
           results: [],
@@ -2355,7 +2354,7 @@ async function sendManualEmails(req, res) {
     }
     recentEmailRequests.set(dedupKey, { time: now });
 
-    // Clean up old entries every 100 requests to avoid memory growth
+    // Periodic cleanup – keep the map from growing too large
     if (recentEmailRequests.size > 100) {
       for (const [key, val] of recentEmailRequests) {
         if (now - val.time > 10000) recentEmailRequests.delete(key);

@@ -7412,6 +7412,16 @@ async function showEmailModal(tenantId) {
       return { subject, message: body };
     },
     didOpen: () => {
+      // ✅ Disable the Send button immediately to prevent any double‑click
+      const confirmBtn = Swal.getConfirmButton();
+      if (confirmBtn) confirmBtn.disabled = true;
+
+      // Re‑enable it after a tiny delay (50ms) so the spinner can take over safely
+      setTimeout(() => {
+        const confirmBtn = Swal.getConfirmButton();
+        if (confirmBtn) confirmBtn.disabled = false;
+      }, 50);
+
       const templateSelect = document.getElementById("email-template");
       const subjectInput = document.getElementById("email-subject");
       const bodyArea = document.getElementById("email-body");
@@ -7448,7 +7458,6 @@ async function showEmailModal(tenantId) {
   const idempotencyKey =
     Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
-  // From here, a send will happen – lock remains true until the end
   const btn = document.getElementById("modal-send-email");
   setButtonLoading(btn, true);
 

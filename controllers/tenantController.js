@@ -2314,6 +2314,9 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 // ========================
 //   REMAINING ENDPOINTS (SMS, Email, Logs, etc.) – unchanged
 // ========================
+// ---------- Deduplication cache (in‑memory) ----------
+const recentEmailRequests = new Map();
+
 async function sendManualEmails(req, res) {
   try {
     const { tenantIds, subject, message } = req.body;
@@ -2321,12 +2324,40 @@ async function sendManualEmails(req, res) {
       return res.status(400).json({ message: "Select tenants." });
     if (!subject?.trim() || !message?.trim())
       return res.status(400).json({ message: "Subject and message required." });
+
+    // Build a simple hash of the request to detect duplicates
+    const requestKey = [
+      req.userId,
+      ...tenantIds.slice().sort(),
+      subject.trim(),
+      message.trim(),
+    ].join("||");
+
+    const now = Date.now();
+    if (recentEmailRequests.has(requestKey)) {
+      const lastTime = recentEmailRequests.get(requestKey);
+      if (now - lastTime < 5000) {
+        // Duplicate within 5 seconds – silently ignore
+        console.warn(
+          `⛔ Duplicate email request blocked for user ${req.userId}`
+        );
+        return res.json({
+          success: true,
+          results: [],
+          message: "Duplicate request ignored.",
+        });
+      }
+    }
+    recentEmailRequests.set(requestKey, now);
+
+    // Proceed with normal sending
     const results = await sendBulkEmails(
       tenantIds,
       subject,
       message,
       req.userId
     );
+
     res.json({ success: true, results });
   } catch (error) {
     console.error("sendManualEmails error:", error);

@@ -2318,48 +2318,30 @@ function wrapPremiumEmail(innerHtml, landlordName = "Landlord") {
 // In‑memory idempotency store (clears after 60 seconds)
 // controllers/tenantController.js
 
-// ── In‑memory dedup store (auto‑clears old entries) ──
-// In‑memory dedup store (content‑hash based)
-const recentEmailRequests = new Map();
+// ⛔ Global lock – prevents concurrent email sends per user
+const userEmailLocks = new Map();
 
 async function sendManualEmails(req, res) {
+  // 🚧 If a send is already running for this user, reject the duplicate
+  if (userEmailLocks.get(req.userId)) {
+    console.warn(
+      `⛔ Duplicate email request blocked (lock) for user ${req.userId}`
+    );
+    return res.json({
+      success: true,
+      results: [],
+      message: "Another send is already in progress – please wait.",
+    });
+  }
+
+  userEmailLocks.set(req.userId, true);
+
   try {
     const { tenantIds, subject, message } = req.body;
     if (!tenantIds?.length)
       return res.status(400).json({ message: "Select tenants." });
     if (!subject?.trim() || !message?.trim())
       return res.status(400).json({ message: "Subject and message required." });
-
-    const now = Date.now();
-
-    // 📦 Build a content hash that uniquely identifies the identical request
-    const dedupKey = [
-      req.userId,
-      ...tenantIds.slice().sort(), // sort to ensure same order
-      subject.trim(),
-      message.trim(),
-    ].join("||");
-
-    if (recentEmailRequests.has(dedupKey)) {
-      const { time } = recentEmailRequests.get(dedupKey);
-      if (now - time < 5000) {
-        // 5‑second window
-        console.warn(`⛔ Duplicate email request blocked (content hash)`);
-        return res.json({
-          success: true,
-          results: [],
-          message: "Duplicate request ignored.",
-        });
-      }
-    }
-    recentEmailRequests.set(dedupKey, { time: now });
-
-    // Periodic cleanup – keep the map from growing too large
-    if (recentEmailRequests.size > 100) {
-      for (const [key, val] of recentEmailRequests) {
-        if (now - val.time > 10000) recentEmailRequests.delete(key);
-      }
-    }
 
     // Proceed with normal sending
     const results = await sendBulkEmails(
@@ -2372,6 +2354,9 @@ async function sendManualEmails(req, res) {
   } catch (error) {
     console.error("sendManualEmails error:", error);
     res.status(500).json({ message: error.message });
+  } finally {
+    // 🔓 Always release the lock, even if something crashes
+    userEmailLocks.delete(req.userId);
   }
 }
 

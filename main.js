@@ -1349,12 +1349,14 @@ function getCurrentBillingMonthForTenant(tenant) {
 }
 
 function updateStats(tenantArray) {
-  document.querySelector(
-    ".current-month"
-  ).innerHTML = `Current Month&Year: ${getCurrentMonth()}`;
-  document.querySelector(
-    ".stats-subtitle"
-  ).textContent = `📅 Statistics for: ${getCurrentMonth()}`;
+  const currentMonthEl = document.querySelector(".current-month");
+  if (currentMonthEl) {
+    currentMonthEl.innerHTML = `Current Month&Year: ${getCurrentMonth()}`;
+  }
+  const statsSubtitleEl = document.querySelector(".stats-subtitle");
+  if (statsSubtitleEl) {
+    statsSubtitleEl.textContent = `📅 Statistics for: ${getCurrentMonth()}`;
+  }
 
   let totalOwed = 0;
   let paidTenantsCount = 0;

@@ -855,7 +855,7 @@ async function loadTenants() {
     await fetchCurrentDate();
     await fetchUserProfile();
     await fetchGlobalSettings();
-    populateMonthSelector();
+
     applyFiltersAndSort();
     ensureChartsVisible();
 
